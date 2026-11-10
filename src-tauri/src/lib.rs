@@ -77,10 +77,23 @@ struct Stash {
 }
 
 #[derive(Serialize)]
+struct Worktree {
+    path: String,
+    head: String,
+    // empty when detached
+    branch: String,
+    locked: bool,
+    // its folder is gone: `git worktree prune` drops it
+    prunable: bool,
+}
+
+#[derive(Serialize)]
 struct Refs {
     refs: Vec<Ref>,
     stashes: Vec<Stash>,
     remotes: Vec<String>,
+    // the main worktree first
+    worktrees: Vec<Worktree>,
 }
 
 #[derive(Serialize)]
@@ -219,7 +232,25 @@ fn refs(repo: String) -> Result<Refs, String> {
             })
         })
         .collect();
-    Ok(Refs { refs, stashes, remotes })
+    let worktrees = git(&repo, &["worktree", "list", "--porcelain"])?
+        .split("\n\n")
+        .filter_map(|block| {
+            let mut w = Worktree { path: String::new(), head: String::new(), branch: String::new(), locked: false, prunable: false };
+            for l in block.lines() {
+                let (key, value) = l.split_once(' ').unwrap_or((l, ""));
+                match key {
+                    "worktree" => w.path = value.into(),
+                    "HEAD" => w.head = value.into(),
+                    "branch" => w.branch = value.trim_start_matches("refs/heads/").into(),
+                    "locked" => w.locked = true,
+                    "prunable" => w.prunable = true,
+                    _ => {}
+                }
+            }
+            (!w.path.is_empty()).then_some(w)
+        })
+        .collect();
+    Ok(Refs { refs, stashes, remotes, worktrees })
 }
 
 #[tauri::command(async)]
@@ -663,6 +694,9 @@ fn git_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         "cherry-pick" => vec!["cherry-pick", rev(&arg)?],
         "delete-branch" => vec!["branch", "-d", rev(&arg)?],
         "force-delete-branch" => vec!["branch", "-D", rev(&arg)?],
+        "worktree-remove" => vec!["worktree", "remove", rev(&arg)?],
+        "worktree-force-remove" => vec!["worktree", "remove", "--force", rev(&arg)?],
+        "worktree-prune" => vec!["worktree", "prune"],
         "stash-apply" => vec!["stash", "apply", rev(&arg)?],
         "stash-pop" => vec!["stash", "pop", rev(&arg)?],
         "stash-drop" => vec!["stash", "drop", rev(&arg)?],

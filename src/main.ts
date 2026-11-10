@@ -14,7 +14,8 @@ type Commit = { hash: string; parents: string[]; author: string; time: number; r
 type Status = { branch: string; state: string; ahead: number | null; behind: number | null; staged: Change[]; unstaged: Change[] };
 type Ref = { name: string; hash: string; upstream: string; track: string };
 type Stash = { name: string; hash: string; parents: string[]; subject: string };
-type Refs = { refs: Ref[]; stashes: Stash[]; remotes: string[] };
+type Worktree = { path: string; head: string; branch: string; locked: boolean; prunable: boolean };
+type Refs = { refs: Ref[]; stashes: Stash[]; remotes: string[]; worktrees: Worktree[] };
 type Blob = { text: string; exists: boolean; binary: boolean };
 // file: a discard, the work tree text before and after (null: no file)
 type Step = { op: string; branch: [string, string]; head: [string, string]; file?: [string, string | null, string | null] };
@@ -66,6 +67,9 @@ const DONE: Record<string, (arg: string, arg2: string, branch: string, upstream:
   "push-delete": (remote, name) => `Deleted ${name} on ${remote}`,
   "delete-branch": (name) => `Deleted branch ${name}`,
   "force-delete-branch": (name) => `Deleted branch ${name}`,
+  "worktree-remove": (path) => `Removed worktree ${basename(path)}`,
+  "worktree-force-remove": (path) => `Removed worktree ${basename(path)}`,
+  "worktree-prune": () => "Pruned the worktrees whose folder is gone",
 };
 const ICONS: Record<string, string> = {
   m: "M4 20h4L19 9l-4-4L4 16z",
@@ -79,6 +83,7 @@ const ICONS: Record<string, string> = {
   check: "M5 12l5 5L20 7",
   branch: "M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9",
   stash: "M3 4h18v4H3zM5 8v12h14V8M10 12h4",
+  worktree: "M8 19a4 4 0 0 1-2.24-7.32A3.5 3.5 0 0 1 9 6.03V6a3 3 0 1 1 6 0v.04a3.5 3.5 0 0 1 3.24 5.65A4 4 0 0 1 16 19zM12 19v3",
   eye: "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zm10-3a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",
   info: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01",
   error: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM15 9l-6 6M9 9l6 6",
@@ -110,7 +115,7 @@ let active = 0;
 let repo = "";
 let commits: Commit[] = [];
 let st: Status | null = null;
-let refs: Refs = { refs: [], stashes: [], remotes: [] };
+let refs: Refs = { refs: [], stashes: [], remotes: [], worktrees: [] };
 let selected = ["WIP"];
 let anchor = "";
 let rangeSel = false;
@@ -227,7 +232,8 @@ async function op(name: string, arg: string | [string, string] = "", record = tr
     const remote = out.split("\n").flatMap((l) => (l.startsWith("remote:") && l.slice(7).trim() ? [l.slice(7).trim()] : []));
     const upstream = refs.refs.find((r) => r.name === `refs/heads/${branch}`)?.upstream ?? "";
     const done = DONE[name]?.(arg1, arg2, branch, upstream);
-    if (done) toast(done, remote.length ? remote.join("\n") : last, "info");
+    // git said nothing: the title is all there is
+    if (done) toast(done, remote.length ? remote.join("\n") : out.trim() ? last : "", "info");
     else if (remote.length) toast("Message from the remote", remote.join("\n"), "info");
   } catch (e) {
     const msg = String(e);
@@ -388,9 +394,18 @@ async function refresh() {
     await renderPanel();
     if (cur) await reloadDiff();
   } catch (e) {
-    if (r === repo) say(String(e), true);
+    if (r !== repo) return;
+    // the folder went away under the tab, like a removed worktree: close it rather than fail on every refresh
+    if (!(await exists(r))) {
+      if (r !== repo) return;
+      toast(`Closed ${tabName(tabs[active])}`, `${r} no longer exists.`, "info");
+      return closeTab(active);
+    }
+    say(String(e), true);
   }
 }
+
+const exists = (path: string) => invoke("repo_root", { path }).then(() => true, () => false);
 
 function renderToolbar() {
   if (!st) return;
@@ -650,7 +665,7 @@ function renderSide() {
   for (const r of refs.refs) {
     if (r.name.startsWith("refs/heads/")) {
       const name = r.name.slice(11), current = name === st?.branch;
-      local.push(sideItem(name, "branch", r.hash, trackLabel(r.track), current ? "current" : "", branchMenu(name, false), () => current || op("checkout", name)));
+      local.push(sideItem(name, "branch", r.hash, trackLabel(r.track), current ? "current" : "", branchMenu(name, false), () => current || checkoutBranch(name, false)));
     } else if (r.name.startsWith("refs/remotes/")) {
       const full = r.name.slice(13), slash = full.indexOf("/");
       const items = remotes.get(full.slice(0, slash)) ?? [];
@@ -674,11 +689,71 @@ function renderSide() {
       h("span", { className: "label", textContent: s.subject }),
     ),
   );
+  const worktrees = refs.worktrees.map((w, k) => {
+    const here = w.path === repo;
+    const extra = w.prunable ? "gone" : w.locked ? "locked" : k ? "" : "main";
+    const open = () => (w.prunable ? prune(w) : openWorktree(w.path));
+    const el = sideItem(w.branch || `detached at ${short(w.head)}`, "worktree", w.head, extra, here ? "current" : "", worktreeMenu(w, k === 0), () => here || open());
+    el.title = w.path;
+    return el;
+  });
+  // a linked worktree names its main repository first
+  const main = refs.worktrees[0]?.path ?? repo;
+  $("repo-name").textContent = main === repo ? tabName(tabs[active]) : `${basename(main)} › ${tabName(tabs[active])}`;
+  $("repo-name").title = repo;
   $("side").replaceChildren(
     section("local", "Local", local, true, "local"),
     section("remote", "Remote", [...remotes].map(([name, items]) => remoteSection(section(`remote/${name}`, name, items), name)), true, "remote"),
+    ...(worktrees.length > 1 ? [section("worktrees", "Worktrees", worktrees, true, "worktree")] : []),
     section("tags", "Tags", tags, false, "tag"),
     section("stashes", "Stashes", stashes, true, "stash"),
+  );
+}
+
+/** The worktree other than this one that has `branch` checked out, its folder still there. */
+const worktreeOf = (branch: string) => refs.worktrees.find((w) => w.branch === branch && w.path !== repo && !w.prunable);
+
+const prune = (w: Worktree) =>
+  ask(`The folder of ${basename(w.path)} is gone. Prune it from the worktree list?`, "Prune").then((ok) => ok && op("worktree-prune"));
+
+function worktreeMenu(w: Worktree, main: boolean): MenuItem[] {
+  const here = w.path === repo;
+  return [
+    ...(here || w.prunable ? [] : ([["Open worktree", () => openWorktree(w.path)], ["Open in a new tab", () => openRepo(w.path)]] as MenuItem[])),
+    ["Copy path", () => copy(w.path)],
+    ...(w.prunable
+      ? ([["Prune: its folder is gone", () => prune(w)]] as MenuItem[])
+      : main || here
+        ? []
+        : ([["Remove worktree…", () => removeWorktree(w)]] as MenuItem[])),
+  ];
+}
+
+/** Show worktree `path` in this tab, or switch to the tab that has it. */
+async function openWorktree(path: string) {
+  const i = tabs.findIndex((t) => t.repo === path);
+  if (i >= 0) return switchTab(i);
+  if (!(await exists(path))) return say(`${path} no longer exists`, true);
+  if (cur?.dirty && !(await ask(`Drop unsaved edits to ${cur.f.path}?`, "Drop edits"))) return;
+  // the shell ran in the old folder
+  dropTerm(tabs[active]);
+  tabs[active] = newTab(path);
+  await switchTab(active, false);
+}
+
+/** `git worktree remove`, forced after a warning when it has changes; its branch can go too. */
+async function removeWorktree(w: Worktree) {
+  const s = await invoke<Status>("status", { repo: w.path }).catch(() => null);
+  const dirty = !!s && s.staged.length + s.unstaged.length > 0;
+  const remove = (andBranch: boolean) => async () => {
+    if ((await op(dirty ? "worktree-force-remove" : "worktree-remove", w.path)) && andBranch) deleteBranch(w.branch, "");
+  };
+  dialog(
+    dirty ? `${basename(w.path)} has uncommitted changes. Remove it and lose them?` : `Remove worktree ${basename(w.path)}? Its folder is deleted, its branch stays.`,
+    [],
+    dirty ? "Force remove" : "Remove",
+    remove(false),
+    w.branch ? [[`Remove and delete ${w.branch}`, remove(true)]] : [],
   );
 }
 
@@ -958,6 +1033,8 @@ function chip(l: Label) {
   if (l.tag) el.append(ico(ICONS.tag));
   if (l.local) el.append(ico(ICONS.local, `${l.name} (local branch)`));
   if (l.remotes.length) el.append(ico(ICONS.remote, l.remotes.map((r) => `${r} -> ${l.name} (remote branch)`).join("\n")));
+  const wt = l.local && worktreeOf(l.name);
+  if (wt) el.append(ico(ICONS.worktree, `Checked out in the worktree ${wt.path}`));
   return el;
 }
 
@@ -1028,6 +1105,15 @@ const labelRef = (l: Label) => (l.local ? l.name : `${l.remotes[0]}/${l.name}`);
 /** Check out `name`; a remote branch whose local one is elsewhere asks first: reset the local one to it, or take it as it is. */
 function checkoutBranch(name: string, remote: boolean) {
   const local = remote ? name.slice(name.indexOf("/") + 1) : name;
+  // git refuses a branch another worktree has: open that worktree instead
+  const wt = !remote && worktreeOf(local);
+  if (wt) return openWorktree(wt.path);
+  // a worktree whose folder is gone still holds its branch until pruned
+  const stale = !remote && refs.worktrees.find((w) => w.branch === local && w.prunable);
+  if (stale)
+    return ask(`${local} is held by the worktree ${basename(stale.path)}, whose folder is gone. Prune it and checkout ${local}?`, "Prune and checkout").then(
+      async (ok) => ok && (await op("worktree-prune")) && op("checkout", local),
+    );
   const mine = refs.refs.find((r) => r.name === `refs/heads/${local}`), theirs = refs.refs.find((r) => r.name === `refs/remotes/${name}`);
   if (!remote || !mine || !theirs || mine.hash === theirs.hash) return op("checkout", local);
   // "[ahead 1, behind 2]" against its upstream
