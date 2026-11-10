@@ -479,7 +479,7 @@ async function switchTab(i: number, save = true) {
   renderTabs();
   document.body.classList.toggle("home", !repo);
   $("home").hidden = !!repo;
-  getCurrentWindow().setTitle(repo ? `krill · ${tabName(t)}` : "krill");
+  getCurrentWindow().setTitle(repo ? `Git Krill · ${tabName(t)}` : "Git Krill");
   showTerm(false);
   if (!repo) return renderRecent();
   $("repo-name").textContent = tabName(t);
@@ -542,7 +542,7 @@ function renameTab(i: number) {
     renderTabs();
     if (t === tabs[active]) {
       $("repo-name").textContent = tabName(t);
-      getCurrentWindow().setTitle(`krill · ${tabName(t)}`);
+      getCurrentWindow().setTitle(`Git Krill · ${tabName(t)}`);
     }
   };
   box.onkeydown = (e) => {

@@ -13,10 +13,10 @@
     "withGlobalTauri": false,
     "windows": [
       {
-        "title": "krill",
+        "title": "Git Krill",
         "width": 1600,
         "height": 1000,
-        "maximized": true
+        "visible": false
       }
     ],
     "security": {
@@ -25,6 +25,8 @@
   },
   "bundle": {
     "active": true,
+    "category": "DeveloperTool",
+    "shortDescription": "Lean git client",
     "targets": [
       "deb"
     ],

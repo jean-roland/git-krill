@@ -788,6 +788,7 @@ fn pty_kill(ptys: State<'_, Ptys>, id: u32) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(Ptys::default())
         .invoke_handler(tauri::generate_handler![
             initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, write_file, stage_text, git_op, files, open_in_editor, in_worktree, is_merged,
