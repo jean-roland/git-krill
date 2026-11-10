@@ -106,6 +106,9 @@ export function mergeSides(chunks, picks) {
   return { a: a.join(""), b: b.join(""), out: out.join(""), regions };
 }
 
+/** The folder `git clone` would make for `url`: its last path segment, minus `.git`. */
+export const repoName = (url) => url.trim().replace(/\/+$/, "").split(/[/:]/).pop().replace(/\.git$/, "");
+
 /** `git blame --porcelain` to each line's commit, in file order: {hash, author, time, summary}. */
 export function parseBlame(text) {
   const seen = new Map(), lines = [];

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { splitLines, applyChanges, allLines, pickLines, layoutGraph, parseConflicts, mergeSides, parseBlame, sprite, pickedLines, toggleSide, toggleLine, hasSide } from "../src/core.js";
+import { splitLines, applyChanges, allLines, pickLines, layoutGraph, parseConflicts, mergeSides, parseBlame, sprite, pickedLines, toggleSide, toggleLine, hasSide, repoName } from "../src/core.js";
 
 test("splitLines keeps terminators", () => {
   assert.deepEqual(splitLines("a\r\nb\nc"), ["a\r\n", "b\n", "c"]);
@@ -96,4 +96,12 @@ test("sprite: same name same sprite, mirrored, eyes open, names differ", () => {
   assert.equal(a.cells[2][1], false);
   assert.equal(a.cells[1][1] && a.cells[3][1] && a.cells[2][0] && a.cells[2][2], true);
   assert.notDeepEqual(sprite("Bob Martin"), a);
+});
+
+test("repoName: the clone folder from ssh, https and path urls", () => {
+  assert.equal(repoName("git@github.com:org/repo.git"), "repo");
+  assert.equal(repoName(" https://github.com/jean-roland/LCSF_C_Stack.git "), "LCSF_C_Stack");
+  assert.equal(repoName("https://host/a/b/"), "b");
+  assert.equal(repoName("/srv/git/x.y.git"), "x.y");
+  assert.equal(repoName(""), "");
 });

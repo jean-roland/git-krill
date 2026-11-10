@@ -189,16 +189,14 @@ body.home main { grid-template-columns: 1fr; }
 .home-box { max-width: 640px; margin: 8vh auto; padding: 0 20px; }
 .home-box h1 { font-weight: 500; color: var(--accent); }
 .home-actions { display: flex; gap: 8px; margin-bottom: 12px; }
-#clone-url {
-  flex: 1;
-  font: 12px var(--mono);
-  color: var(--text);
-  background: var(--raised);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 4px 8px;
-}
-#clone-url:focus { outline: 1px solid var(--accent); }
+.home-actions button { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; }
+.home-actions svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#open-repo { --tint: #2fbcb3; }
+#clone-btn { --tint: #4f8cff; }
+#init-repo { --tint: var(--ren); }
+.home-actions .tinted { background: color-mix(in srgb, var(--tint) 16%, var(--raised)); border-color: color-mix(in srgb, var(--tint) 70%, transparent); }
+.home-actions .tinted:hover { background: color-mix(in srgb, var(--tint) 45%, var(--raised)); border-color: var(--tint); }
+.home-actions .tinted svg { color: var(--tint); }
 .home-box .head { padding: 18px 0 6px; }
 .recent { display: flex; align-items: baseline; gap: 10px; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
 .recent:hover { background: var(--hover); }
@@ -549,6 +547,12 @@ footer {
 .dlg label { margin-top: 8px; color: var(--dim); font-size: 12px; }
 .dlg input { font: 13px var(--mono); color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px; }
 .dlg input:focus { outline: 1px solid var(--accent); }
+.dlg-row { display: flex; align-items: center; gap: 8px; }
+.dlg-row input { flex: 1; min-width: 0; }
+/* a fixed width: the folder path would stretch it */
+.clone-dlg { width: min(720px, 80vw); }
+/* the parent folder gives way to the name */
+.clone-at { flex: 0 1 auto; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 13px var(--mono); color: var(--dim); }
 .dlg-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .dlg-actions button { flex: 1 0 auto; padding: 7px 14px; white-space: nowrap; }
 #banner select, #banner input { font: 13px var(--mono); color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; }

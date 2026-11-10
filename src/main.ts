@@ -7,7 +7,7 @@ import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import { applyChanges, allLines, pickLines, layoutGraph, parseConflicts, mergeSides, pickedLines, parseBlame, sprite, toggleSide, toggleLine, hasSide } from "./core.js";
+import { applyChanges, allLines, pickLines, layoutGraph, parseConflicts, mergeSides, pickedLines, parseBlame, sprite, toggleSide, toggleLine, hasSide, repoName } from "./core.js";
 
 type Change = { path: string; old: string | null; code: string; conflict?: string };
 type OpInfo = { state: string; current: string; incoming: string; currentCommit: string; incomingCommit: string; step: string; message: string };
@@ -420,7 +420,8 @@ async function refresh() {
     // the folder went away under the tab, like a removed worktree: close it rather than fail on every refresh
     if (!(await exists(r))) {
       if (r !== repo) return;
-      toast(`Closed ${tabName(tabs[active])}`, `${r} no longer exists.`, "info");
+      toast(`Closed ${tabName(tabs[active])}`, `${r} no longer exists. Removed from the recent list.`, "info");
+      forgetRecent(r);
       return closeTab(active);
     }
     say(String(e), true);
@@ -463,6 +464,7 @@ function newTab(repo: string): Tab {
   return t;
 }
 const recentRepos = (): string[] => JSON.parse(store("recent") ?? "[]");
+const forgetRecent = (r: string) => store("recent", JSON.stringify(recentRepos().filter((x) => x !== r)));
 
 function renderTabs() {
   $("tablist").replaceChildren(
@@ -647,10 +649,18 @@ async function openRepo(path: string) {
   try {
     root = await invoke<string>("repo_root", { path });
   } catch (e) {
-    say(String(e), true);
+    // a recent repository that moved or was deleted leaves the list
+    if (!recentRepos().includes(path)) {
+      say(String(e), true);
+      return false;
+    }
+    forgetRecent(path);
+    if (!repo) renderRecent();
+    toast(`Removed ${basename(path)} from the recent list`, `${path} cannot be opened:\n${e}`, "info");
     return false;
   }
-  store("recent", JSON.stringify([root, ...recentRepos().filter((r) => r !== root)].slice(0, 30)));
+  // ten fit on the home screen
+  store("recent", JSON.stringify([root, ...recentRepos().filter((r) => r !== root)].slice(0, 10)));
   const i = tabs.findIndex((t) => t.repo === root);
   if (i >= 0) {
     // a Home tab that only led to an already open repo has no reason to stay
@@ -670,11 +680,11 @@ async function openRepo(path: string) {
 function renderRecent() {
   const forget = (r: string) => (e: Event) => {
     e.stopPropagation();
-    store("recent", JSON.stringify(recentRepos().filter((x) => x !== r)));
+    forgetRecent(r);
     renderRecent();
   };
   $("recent").replaceChildren(
-    ...recentRepos().map((r) =>
+    ...recentRepos().slice(0, 10).map((r) =>
       h(
         "div",
         { className: "recent", title: r, onclick: () => openRepo(r) },
@@ -910,6 +920,67 @@ function dialog(
   );
   $("dialog").hidden = false;
   (inputs[0] ?? $("dialog").querySelector("button.primary")).focus();
+}
+
+/** Clone dialog: where to (typed or browsed, remembered), the URL, then the folder name, from the URL until edited. */
+function cloneDialog() {
+  const recent = recentRepos()[0] ?? "";
+  const parent = h("input", { value: store("clone-dir") ?? recent.slice(0, recent.lastIndexOf("/")), spellcheck: false });
+  const url = h("input", { spellcheck: false, placeholder: "git@host:org/repo.git or https://host/org/repo.git" });
+  const name = h("input", { spellcheck: false });
+  const at = h("span", { className: "clone-at" });
+  const fullLabel = h("label", { textContent: "Full path" }), full = h("div", { className: "dlg-row" }, at, "/", name);
+  const go = h("button", { className: "primary", textContent: "Clone" });
+  // a typed name sticks, an emptied one follows the URL again
+  let named = false;
+  const paint = () => {
+    if (!named) name.value = repoName(url.value);
+    at.textContent = parent.value.trim().replace(/\/+$/, "");
+    at.title = at.textContent;
+    fullLabel.hidden = full.hidden = !url.value.trim();
+    go.disabled = !parent.value.trim() || !url.value.trim() || !name.value.trim();
+  };
+  parent.oninput = url.oninput = paint;
+  name.oninput = () => ((named = !!name.value), paint());
+  const close = () => ($("dialog").hidden = true);
+  const submit = async () => {
+    if (go.disabled) return;
+    go.disabled = true;
+    go.textContent = "Cloning…";
+    try {
+      const path = await invoke<string>("clone", { parent: parent.value.trim(), url: url.value.trim(), name: name.value.trim() });
+      store("clone-dir", parent.value.trim());
+      close();
+      await openRepo(path);
+    } catch (e) {
+      say(String(e), true);
+      go.textContent = "Clone";
+      paint();
+    }
+  };
+  for (const i of [parent, url, name]) i.onkeydown = (e) => void (e.key === "Enter" && submit());
+  go.onclick = submit;
+  const browse = async () => {
+    const p = await pickDir("Clone into");
+    if (p) (parent.value = p), paint();
+  };
+  $("dialog").replaceChildren(
+    h(
+      "div",
+      { className: "dlg clone-dlg" },
+      h("div", { className: "dlg-head" }, h("b", { textContent: "Clone a repository" }), h("button", { className: "x", textContent: "×", title: "Close (Esc)", onclick: close })),
+      h("label", { textContent: "Where to clone to" }),
+      h("div", { className: "dlg-row" }, parent, h("button", { textContent: "Browse…", onclick: browse })),
+      h("label", { textContent: "URL" }),
+      url,
+      fullLabel,
+      full,
+      h("div", { className: "dlg-actions" }, h("button", { textContent: "Cancel", onclick: close }), go),
+    ),
+  );
+  paint();
+  $("dialog").hidden = false;
+  url.focus();
 }
 
 // WebKitGTK's confirm() returns true without showing anything
@@ -2976,21 +3047,7 @@ $("init-repo").onclick = async () => {
     say(String(e), true);
   }
 };
-$("clone-btn").onclick = async () => {
-  const url = input("clone-url").value.trim();
-  if (!url) return say("paste a clone URL first", true);
-  const parent = await pickDir("Clone into");
-  if (!parent) return;
-  say(`cloning ${url}…`);
-  try {
-    const path = await invoke<string>("clone", { parent, url });
-    input("clone-url").value = "";
-    say(`cloned into ${path}`);
-    await openRepo(path);
-  } catch (e) {
-    say(String(e), true);
-  }
-};
+$("clone-btn").onclick = cloneDialog;
 addEventListener("focus", refresh);
 addEventListener("click", (e) => {
   $("menu").hidden = $("submenu").hidden = true;

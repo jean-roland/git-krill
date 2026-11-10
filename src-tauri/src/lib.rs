@@ -204,15 +204,16 @@ fn init(path: String) -> Result<String, String> {
     git(&path, &["init"])
 }
 
-/// \brief Clone `url` under `parent`, returns the new work tree.
+/// \brief Clone `url` into `parent`/`name`, creating `parent` if needed; returns the new work tree.
 #[tauri::command(async)]
-fn clone(parent: String, url: String) -> Result<String, String> {
-    let name = url.trim_end_matches('/').rsplit(['/', ':']).next().unwrap_or_default().trim_end_matches(".git");
-    if name.is_empty() || name.starts_with('.') {
-        return Err(format!("no repository name in {url}"));
+fn clone(parent: String, url: String, name: String) -> Result<String, String> {
+    if name.is_empty() || name == "." || name == ".." || name.contains('/') {
+        return Err(format!("bad folder name {name}"));
     }
-    git(&parent, &["clone", "--", &url, name])?;
-    Ok(Path::new(&parent).join(name).to_string_lossy().into_owned())
+    let parent = parent.strip_prefix("~/").map_or(parent.clone(), |p| format!("{}/{p}", std::env::var("HOME").unwrap_or_default()));
+    std::fs::create_dir_all(&parent).map_err(|e| format!("{parent}: {e}"))?;
+    git(&parent, &["clone", "--", &url, &name])?;
+    Ok(Path::new(&parent).join(&name).to_string_lossy().into_owned())
 }
 
 #[tauri::command(async)]
