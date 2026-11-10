@@ -6,7 +6,7 @@ import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import { applyChanges, allLines, pickLines, layoutGraph, parseConflicts, mergeSides, pickedLines, parseBlame } from "./core.js";
+import { applyChanges, allLines, pickLines, layoutGraph, parseConflicts, mergeSides, pickedLines, parseBlame, sprite } from "./core.js";
 
 type Change = { path: string; old: string | null; code: string; conflict?: string };
 type OpInfo = { state: string; current: string; incoming: string; currentCommit: string; incomingCommit: string; step: string; message: string };
@@ -85,16 +85,22 @@ const ICONS: Record<string, string> = {
   eyeOff: "M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.1 4M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a10 10 0 0 0 5.4-1.6",
 };
 const SORTS: Record<string, string> = { "": "A–Z", desc: "Z–A", status: "Status" };
-const initials = (name: string) =>
-  name
-    .split(/\s+/)
-    .map((w) => w[0] ?? "")
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-// ponytail: initials on a palette color picked from the name; a generated identicon is on the todo
 const hue = (s: string) => [...s].reduce((a, ch) => a + ch.charCodeAt(0), 0) % COLORS.length;
-const authorColor = (name: string) => COLORS[hue(name)];
+// each author's sprite is one <symbol> in #sprites, which every avatar of theirs uses
+const spriteIds = new Map<string, string>();
+function spriteId(name: string) {
+  let id = spriteIds.get(name);
+  if (id) return id;
+  spriteIds.set(name, (id = `av-${spriteIds.size}`));
+  const { cells, hue: tint } = sprite(name);
+  const d = cells.flatMap((row, r) => row.map((on, c) => (on ? `M${c + 1} ${r + 1}h1v1h-1z` : ""))).join("");
+  $("sprites").insertAdjacentHTML(
+    "beforeend",
+    `<symbol id="${id}" viewBox="0 0 9 9"><circle cx="4.5" cy="4.5" r="4.5" fill="hsl(${tint},30%,20%)"/><path d="${d}" fill="hsl(${tint},75%,65%)"/></symbol>`,
+  );
+  return id;
+}
+const avatarSvg = (name: string, cls = "") => `<svg class="${cls}" viewBox="0 0 9 9"><use href="#${spriteId(name)}"/></svg>`;
 const esc = (s: string) => s.replace(/[<>&"]/g, (ch) => `&#${ch.charCodeAt(0)};`);
 const dateFmt = new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeStyle: "short" });
 const dayFmt = new Intl.DateTimeFormat(undefined, { dateStyle: "short" });
@@ -874,8 +880,8 @@ function lanesSvg(from: number, to: number) {
     else if (c.parents.length > 1) svg += `<circle ${at} r="4" fill="${color(l)}"/>`;
     else
       svg +=
-        `<circle ${at} r="9" fill="${authorColor(c.author)}" style="stroke:${color(l)}" class="av${isHead(c) ? " head" : ""}"/>` +
-        `<text x="${X(l)}" y="${Y(i)}">${esc(initials(c.author))}</text>`;
+        `<use href="#${spriteId(c.author)}" x="${X(l) - 9}" y="${Y(i) - 9}" width="18" height="18"/>` +
+        `<circle ${at} r="9" style="stroke:${color(l)}" class="av${isHead(c) ? " head" : ""}"/>`;
     // labelled commits get a line from their label column to the dot, under it
     if (labels(c).length) svg = `<path d="M0 ${Y(i) + 0.5}H${X(l)}" stroke="${color(l)}" class="link"/>` + svg;
   }
@@ -1390,11 +1396,7 @@ async function copy(text: string) {
   }
 }
 
-function avatar(name: string) {
-  const a = h("span", { className: "avatar", textContent: initials(name) });
-  a.style.background = authorColor(name);
-  return a;
-}
+const avatar = (name: string) => h("span", { className: "avatar", title: name, innerHTML: avatarSvg(name) });
 
 function authorBlock(c: Commit) {
   return [avatar(c.author), h("div", {}, c.author, h("small", { textContent: `authored ${dateFmt.format(c.time * 1000)}` }))];
@@ -2338,7 +2340,7 @@ function paintBlame() {
       const num = String(n).padStart(digits);
       if (!first) return `<span class="bl-av"></span> ${on ? " ".repeat(BLAME_W + 1) : ""} ${num}`;
       const text = on ? `${b.summary.slice(0, BLAME_SUBJECT).padEnd(BLAME_SUBJECT)}  ${dayFmt.format(b.time * 1000).padEnd(10)} ` : "";
-      return `<span class="bl-av" data-i="${esc(initials(b.author))}" style="background:${authorColor(b.author)}"></span> ${esc(text)} ${num}`;
+      return `${avatarSvg(b.author, "bl-av")} ${esc(text)} ${num}`;
     },
   });
   // who and when over each run of lines from one commit, and its strip, colored by its row

@@ -110,6 +110,25 @@ export function parseBlame(text) {
   return lines;
 }
 
+/** An author's pixel sprite: 7x7 cells mirrored left to right, with two eyes, and a hue (0-359), all from `seed`. */
+export function sprite(seed) {
+  // FNV-1a seeds mulberry32: a name always draws the same sprite
+  let s = 2166136261;
+  for (const ch of seed) s = Math.imul(s ^ ch.charCodeAt(0), 16777619);
+  const rand = () => {
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const half = Array.from({ length: 7 }, () => Array.from({ length: 4 }, () => rand() < 0.5));
+  // an eye is a hole ringed by body; empty corners keep the sprite inside its circle
+  half[2][1] = false;
+  for (const [r, c] of [[1, 1], [3, 1], [2, 0], [2, 2]]) half[r][c] = true;
+  half[0][0] = half[6][0] = false;
+  return { cells: half.map((row) => [...row, ...row.slice(0, 3).reverse()]), hue: Math.floor(rand() * 360) };
+}
+
 /** Lane of each commit and the lanes each parent edge travels through, `commits` in topo order. */
 export function layoutGraph(commits) {
   const row = new Map(commits.map((c, i) => [c.hash, i]));

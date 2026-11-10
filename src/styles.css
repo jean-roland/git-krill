@@ -273,9 +273,8 @@ body.home main { grid-template-columns: 1fr; }
 .lanes circle.wip { fill: var(--bg); stroke: var(--dim); stroke-dasharray: 2 2; }
 .lanes rect.stash { fill: var(--bg); stroke: var(--dim); stroke-width: 1.5; stroke-dasharray: 2 2; }
 .lanes svg.stash path { stroke: var(--text); }
-.lanes circle.av { stroke-width: 2; }
+.lanes circle.av { fill: none; stroke-width: 2; }
 .lanes circle.av.head { stroke: var(--text) !important; }
-.lanes text { font: 700 8px system-ui, sans-serif; fill: #111; text-anchor: middle; dominant-baseline: central; }
 .row {
   display: flex;
   align-items: center;
@@ -429,7 +428,9 @@ textarea.msg-in { height: 104px; resize: vertical; }
 #c-author { display: flex; align-items: center; gap: 10px; padding: 4px 10px 10px; }
 #c-author:empty { display: none; }
 #c-author small { display: block; color: var(--dim); font-size: 12px; }
-.avatar { flex: none; width: 32px; height: 32px; border-radius: 50%; font: 600 13px/32px system-ui, sans-serif; text-align: center; color: var(--on-accent); }
+.avatar { flex: none; width: 32px; height: 32px; border-radius: 50%; }
+.avatar svg { display: block; width: 100%; height: 100%; }
+#sprites { position: absolute; }
 #c-head { user-select: text; font-family: var(--mono); }
 #c-stats { border-top: 1px solid var(--border); }
 
@@ -593,7 +594,7 @@ footer {
 .h-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); cursor: pointer; }
 .h-row:hover { background: var(--hover); }
 .h-row.on { background: var(--sel); }
-.h-row .avatar { width: 28px; height: 28px; font-size: 11px; line-height: 28px; }
+.h-row .avatar { width: 28px; height: 28px; }
 .h-row > div { flex: 1; min-width: 0; }
 .h-row > div > * { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .h-row small { color: var(--dim); font-size: 12px; }
@@ -604,9 +605,8 @@ footer {
 /* the blame gutter is the line numbers' text: spaces line it up */
 #h-file .line-numbers { white-space: pre; }
 /* sized in the gutter font's digits, which Monaco counts the gutter width in */
-.bl-av { display: inline-block; width: 2ch; height: 2ch; border-radius: 50%; line-height: 2ch; text-align: center; vertical-align: middle; }
-.bl-av::after { content: attr(data-i); font: 700 8px system-ui, sans-serif; color: #111; }
-.bl-av[data-i] { cursor: pointer; }
+.bl-av { display: inline-block; width: 2ch; height: 2ch; vertical-align: middle; }
+svg.bl-av { cursor: pointer; }
 #merge { position: absolute; inset: 0; z-index: 10; display: flex; flex-direction: column; background: var(--bg); }
 #m-path { font: 12px var(--mono); }
 #m-count { margin-right: auto; color: var(--dim); font-size: 12px; }

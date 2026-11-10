@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { splitLines, applyChanges, allLines, pickLines, layoutGraph, parseConflicts, mergeSides, parseBlame } from "../src/core.js";
+import { splitLines, applyChanges, allLines, pickLines, layoutGraph, parseConflicts, mergeSides, parseBlame, sprite } from "../src/core.js";
 
 test("splitLines keeps terminators", () => {
   assert.deepEqual(splitLines("a\r\nb\nc"), ["a\r\n", "b\n", "c"]);
@@ -71,4 +71,13 @@ test("parseBlame: details from a commit's first header, one entry per line", () 
   assert.deepEqual(lines.map((l) => l.hash), [a, b, a]);
   assert.deepEqual(lines[2], { hash: a, author: "Ann Lee", time: 100, summary: "first" });
   assert.equal(lines[1].author, "Bob");
+});
+
+test("sprite: same name same sprite, mirrored, eyes open, names differ", () => {
+  const a = sprite("Ann Lee");
+  assert.deepEqual(sprite("Ann Lee"), a);
+  assert.ok(a.cells.every((row) => row.length === 7 && row.join() === [...row].reverse().join()));
+  assert.equal(a.cells[2][1], false);
+  assert.equal(a.cells[1][1] && a.cells[3][1] && a.cells[2][0] && a.cells[2][2], true);
+  assert.notDeepEqual(sprite("Bob Martin"), a);
 });
