@@ -74,8 +74,22 @@ export function parseConflicts(text) {
   return chunks;
 }
 
-/** Lines a conflict resolves to: the picked sides in click order, else its base. */
-export const pickedLines = (c, pick) => (pick.length ? pick.flatMap((s) => (s === "a" ? c.cur : c.inc)) : c.base);
+/** Lines a conflict resolves to: its picked lines in click order, else its base. A pick is [side, line], line -1 taking an empty side. */
+export const pickedLines = (c, pick) => (pick.length ? pick.flatMap(([s, i]) => (i < 0 ? [] : [(s === "a" ? c.cur : c.inc)[i]])) : c.base);
+
+// a side's line indexes, -1 alone for an empty side
+const sideLines = (c, side) => ((side === "a" ? c.cur : c.inc).length ? (side === "a" ? c.cur : c.inc).map((_, i) => i) : [-1]);
+const picked = (pick, side, i) => pick.some(([s, j]) => s === side && j === i);
+
+/** Whether every line of `side` is in `pick`. */
+export const hasSide = (c, pick, side) => sideLines(c, side).every((i) => picked(pick, side, i));
+
+/** `pick` with `side`'s missing lines appended, or without any of its lines when all were in. */
+export const toggleSide = (c, pick, side) =>
+  hasSide(c, pick, side) ? pick.filter(([s]) => s !== side) : [...pick, ...sideLines(c, side).filter((i) => !picked(pick, side, i)).map((i) => [side, i])];
+
+/** `pick` with line `i` of `side` appended, or dropped when it was in. */
+export const toggleLine = (pick, side, i) => (picked(pick, side, i) ? pick.filter(([s, j]) => s !== side || j !== i) : [...pick, [side, i]]);
 
 /** The current (a) and incoming (b) texts, the output for `picks`, and each conflict's [first line, count] in all three. */
 export function mergeSides(chunks, picks) {

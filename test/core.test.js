@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { splitLines, applyChanges, allLines, pickLines, layoutGraph, parseConflicts, mergeSides, parseBlame, sprite } from "../src/core.js";
+import { splitLines, applyChanges, allLines, pickLines, layoutGraph, parseConflicts, mergeSides, parseBlame, sprite, pickedLines, toggleSide, toggleLine, hasSide } from "../src/core.js";
 
 test("splitLines keeps terminators", () => {
   assert.deepEqual(splitLines("a\r\nb\nc"), ["a\r\n", "b\n", "c"]);
@@ -55,9 +55,25 @@ test("parseConflicts + mergeSides: picks in click order, base when none", () => 
   assert.equal(none.b, "a\nY1\nY2\nz\n");
   assert.equal(none.out, "a\nB\nz\n");
   assert.deepEqual(none.regions, [{ a: [2, 1], b: [2, 2], out: [2, 1] }]);
-  const both = mergeSides(chunks, [["b", "a"]]);
+  const both = mergeSides(chunks, [toggleSide(chunks[1], toggleSide(chunks[1], [], "b"), "a")]);
   assert.equal(both.out, "a\nY1\nY2\nX\nz\n");
   assert.deepEqual(both.regions[0].out, [2, 3]);
+});
+
+test("line picks: click order, a side's box adds its missing lines then drops them all", () => {
+  const c = { cur: ["X1\n", "X2\n"], base: ["B\n"], inc: ["Y\n"] };
+  let p = toggleLine(toggleLine([], "a", 1), "b", 0);
+  assert.deepEqual(pickedLines(c, p), ["X2\n", "Y\n"]);
+  assert.equal(hasSide(c, p, "a"), false);
+  p = toggleSide(c, p, "a");
+  assert.deepEqual(pickedLines(c, p), ["X2\n", "Y\n", "X1\n"]);
+  assert.equal(hasSide(c, p, "a"), true);
+  assert.deepEqual(pickedLines(c, toggleSide(c, p, "a")), ["Y\n"]);
+  assert.deepEqual(pickedLines(c, toggleLine(p, "b", 0)), ["X2\n", "X1\n"]);
+  // an empty side picked resolves to nothing, not to the base
+  const del = { cur: [], base: ["B\n"], inc: ["Y\n"] };
+  assert.deepEqual(pickedLines(del, toggleSide(del, [], "a")), []);
+  assert.deepEqual(pickedLines(del, []), ["B\n"]);
 });
 
 test("parseBlame: details from a commit's first header, one entry per line", () => {

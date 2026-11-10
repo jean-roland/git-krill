@@ -6,7 +6,7 @@ import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import { applyChanges, allLines, pickLines, layoutGraph, parseConflicts, mergeSides, pickedLines, parseBlame, sprite } from "./core.js";
+import { applyChanges, allLines, pickLines, layoutGraph, parseConflicts, mergeSides, pickedLines, parseBlame, sprite, toggleSide, toggleLine, hasSide } from "./core.js";
 
 type Change = { path: string; old: string | null; code: string; conflict?: string };
 type OpInfo = { state: string; current: string; incoming: string; currentCommit: string; incomingCommit: string; step: string; message: string };
@@ -2045,7 +2045,10 @@ type Conflict = Exclude<Chunk, string[]>;
 type Side = "a" | "b";
 // the file in the merge tool: its diff3 chunks, the sides picked per conflict in click order,
 // each conflict's lines in the two side panes, and its tracked range in the output
-let merging: { f: Change; chunks: Chunk[]; picks: Side[][]; spans: { a: number[]; b: number[] }[]; ids: string[]; at: number; dirty: boolean } | null = null;
+// a picked line: its side and its index in that side's conflict lines, -1 taking an empty side
+type Pick = [Side, number];
+// hover: the side line under the mouse, as "a:12"
+let merging: { f: Change; chunks: Chunk[]; picks: Pick[][]; spans: { a: number[]; b: number[] }[]; ids: string[]; at: number; dirty: boolean; hover: string } | null = null;
 let mergeEds: {
   a: Monaco.editor.IStandaloneCodeEditor;
   b: Monaco.editor.IStandaloneCodeEditor;
@@ -2055,8 +2058,8 @@ let mergeEds: {
 
 const conflictsOf = (chunks: Chunk[]) => chunks.filter((c): c is Conflict => !Array.isArray(c));
 const lineSpan = ([s, n]: number[]) => new monaco.Range(s, 1, s + n, 1);
-// a conflict's box sits on its first line, or on the line after an empty side
-const tickLine = (ed: Monaco.editor.ICodeEditor, [s]: number[]) => Math.min(s, ed.getModel()!.getLineCount());
+// a conflict's box sits at the middle of its lines (class half: between the two middle ones), or on the line after an empty side
+const tickLine = (ed: Monaco.editor.ICodeEditor, [s, n]: number[]) => Math.min(n ? s + Math.floor((n - 1) / 2) : s, ed.getModel()!.getLineCount());
 // NeverGrowsWhenTypingAtEdges, by value: Monaco is not loaded when this runs
 const tracked = { stickiness: 1 as Monaco.editor.TrackedRangeStickiness };
 
@@ -2075,18 +2078,38 @@ const plainOpts = (): Monaco.editor.IStandaloneEditorConstructionOptions => ({
 function mergeEditors() {
   if (mergeEds) return mergeEds;
   editor();
-  const opts = { ...plainOpts(), minimap: { enabled: false }, glyphMargin: true };
-  const a = monaco.editor.create($("m-a"), { ...opts, readOnly: true });
-  const b = monaco.editor.create($("m-b"), { ...opts, readOnly: true });
+  // no folding: its arrows would crowd the line buttons
+  const opts = { ...plainOpts(), minimap: { enabled: false }, glyphMargin: true, folding: false };
+  // the side panes' line buttons sit right of the line numbers
+  const a = monaco.editor.create($("m-a"), { ...opts, readOnly: true, lineDecorationsWidth: 22 });
+  const b = monaco.editor.create($("m-b"), { ...opts, readOnly: true, lineDecorationsWidth: 22 });
   const out = monaco.editor.create($("m-out"), opts);
-  // a click on a conflict's box in a side's gutter picks that side
-  for (const [ed, side] of [[a, "a"], [b, "b"]] as const)
+  // the gutter's CSS centres the boxes and draws the bars from these
+  $("merge").style.setProperty("--m-box", `${a.getLayoutInfo().glyphMarginWidth}px`);
+  $("merge").style.setProperty("--m-lh", `${a.getOption(monaco.editor.EditorOption.lineHeight)}px`);
+  for (const [ed, side] of [[a, "a"], [b, "b"]] as const) {
+    // the box column beside a conflict picks the whole side; a line's number or button, that line
     ed.onMouseDown((e) => {
-      const gutter = [monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN, monaco.editor.MouseTargetType.GUTTER_LINE_DECORATIONS];
-      if (!merging || !gutter.includes(e.target.type)) return;
-      const k = merging.spans.findIndex((s) => tickLine(ed, s[side]) === e.target.position?.lineNumber);
-      if (k >= 0) pick(k, side);
+      const ln = e.target.position?.lineNumber ?? 0, T = monaco.editor.MouseTargetType;
+      if (!merging) return;
+      if (e.target.type === T.GUTTER_GLYPH_MARGIN) {
+        // an empty side has no lines: its box is on the line after
+        const k = lineIn(side, ln)?.k ?? merging.spans.findIndex((s) => !s[side][1] && tickLine(ed, s[side]) === ln);
+        if (k >= 0) pick(k, side);
+      } else if (e.target.type === T.GUTTER_LINE_DECORATIONS || e.target.type === T.GUTTER_LINE_NUMBERS) {
+        const hit = lineIn(side, ln);
+        if (hit) pickLine(hit.k, side, hit.i);
+        // Monaco selects a clicked line number's line after this: drop it
+        setTimeout(() => ed.setSelection(new monaco.Selection(ln, 1, ln, 1)));
+      }
     });
+    const hover = (ln: number) => {
+      const h = merging && lineIn(side, ln) ? `${side}:${ln}` : "";
+      if (merging && h !== merging.hover) (merging.hover = h), paintMerge();
+    };
+    ed.onMouseMove((e) => hover(e.target.position?.lineNumber ?? 0));
+    ed.onMouseLeave(() => hover(0));
+  }
   out.onDidChangeModelContent(() => merging && (merging.dirty = true));
   out.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveMerge());
   // the panes follow each other, matching lines across the conflicts
@@ -2116,7 +2139,7 @@ async function openConflict(f: Change) {
   if (cur) return;
   const text = f.conflict === "UU" || f.conflict === "AA" ? await run<Blob>("conflict_text", { path: f.path }).catch(() => null) : null;
   if (!text || text.binary) return conflictBanner(f);
-  merging = { f, chunks: parseConflicts(text.text), picks: [], spans: [], ids: [], at: 0, dirty: false };
+  merging = { f, chunks: parseConflicts(text.text), picks: [], spans: [], ids: [], at: 0, dirty: false, hover: "" };
   $("merge").hidden = false;
   document.body.classList.add("diffing");
   $("m-path").textContent = f.path;
@@ -2167,18 +2190,33 @@ function mapLine(l: number, from: Pane, to: Pane) {
   return t + (l - f);
 }
 
+/** The conflict and index of line `ln` of a side pane, if it is a conflict line. */
+function lineIn(side: Side, ln: number) {
+  const k = merging!.spans.findIndex((s) => ln >= s[side][0] && ln < s[side][0] + s[side][1]);
+  return k < 0 ? null : { k, i: ln - merging!.spans[k][side][0] };
+}
+
+/** Conflict `k`'s box: add `side`'s missing lines, or drop them all. */
 function pick(k: number, side: Side) {
-  const m = merging!, p = m.picks[k];
-  m.picks[k] = p.includes(side) ? p.filter((x) => x !== side) : [...p, side];
+  const m = merging!;
+  m.picks[k] = toggleSide(conflictsOf(m.chunks)[k], m.picks[k], side);
+  writeConflict(k);
+  paintMerge();
+}
+
+/** Append line `i` of `side` to conflict `k`'s output, or drop it. */
+function pickLine(k: number, side: Side, i: number) {
+  const m = merging!;
+  m.picks[k] = toggleLine(m.picks[k], side, i);
   writeConflict(k);
   paintMerge();
 }
 
 /** Take or drop `side` in every conflict, as the header box of its pane. */
 function pickAll(side: Side) {
-  const m = merging!, all = m.picks.every((p) => p.includes(side));
+  const m = merging!, conflicts = conflictsOf(m.chunks), all = m.picks.every((p, k) => hasSide(conflicts[k], p, side));
   m.picks.forEach((p, k) => {
-    m.picks[k] = all ? p.filter((x) => x !== side) : p.includes(side) ? p : [...p, side];
+    if (all ? true : !hasSide(conflicts[k], p, side)) m.picks[k] = all ? p.filter(([s]) => s !== side) : toggleSide(conflicts[k], p, side);
     writeConflict(k);
   });
   paintMerge();
@@ -2197,19 +2235,28 @@ function writeConflict(k: number) {
 function paintMerge() {
   const m = merging!, eds = mergeEds!, model = eds.out.getModel()!, conflicts = conflictsOf(m.chunks);
   const line = (l: number, options: Monaco.editor.IModelDecorationOptions) => ({ range: new monaco.Range(l, 1, l, 1), options });
+  // a line of side a, b, or u (unresolved): tinted in the text and the gutter
+  const reg = (side: string, on = false) => ({ isWholeLine: true, className: `m-reg-${side}${on ? " on" : ""}`, marginClassName: `m-mreg ${side}${on ? " on" : ""}` });
   // an empty side shows as a dashed line where its lines would be
-  const span = (from: number, n: number, cls: string, glyph?: string) =>
-    n
-      ? Array.from({ length: n }, (_, i) => line(from + i, { isWholeLine: true, className: cls, glyphMarginClassName: glyph }))
-      : [line(from, { isWholeLine: true, className: "m-gap" })];
+  const span = (from: number, n: number, side: string, glyph?: string) =>
+    n ? Array.from({ length: n }, (_, i) => line(from + i, { ...reg(side), glyphMarginClassName: glyph })) : [line(from, { isWholeLine: true, className: "m-gap" })];
   for (const side of ["a", "b"] as const) {
     const ed = eds[side];
     eds.marks.get(ed)!.set(
       m.spans.flatMap((s, k) => {
-        const on = m.picks[k].includes(side);
+        const on = hasSide(conflicts[k], m.picks[k], side), [first, n] = s[side];
+        // each line: tinted once picked, a check on it, + or − under the mouse
+        const lines = Array.from({ length: n }, (_, i) => {
+          const taken = m.picks[k].some(([x, j]) => x === side && j === i), hovered = m.hover === `${side}:${first + i}`;
+          const button = hovered ? (taken ? "m-line drop" : "m-line add") : taken ? "m-line on" : "";
+          return line(first + i, { ...reg(side, taken), linesDecorationsClassName: button || undefined });
+        });
         return [
-          ...span(s[side][0], s[side][1], `m-reg-${side}${on ? " on" : ""}`),
-          line(tickLine(ed, s[side]), { glyphMarginClassName: `m-tick${on ? " on" : ""}`, glyphMarginHoverMessage: { value: on ? "Drop this side" : "Take this side" } }),
+          ...(n ? lines : span(first, 0, "")),
+          line(tickLine(ed, s[side]), {
+            glyphMarginClassName: `m-tick${on ? " on" : ""}${n && n % 2 === 0 ? " half" : ""}`,
+            glyphMarginHoverMessage: { value: on ? "Drop this side" : "Take this side" },
+          }),
         ];
       }),
     );
@@ -2217,18 +2264,14 @@ function paintMerge() {
   eds.marks.get(eds.out)!.set(
     m.ids.flatMap((id, k) => {
       const r = model.getDecorationRange(id)!, p = m.picks[k];
-      if (!p.length) return span(r.startLineNumber, r.endLineNumber - r.startLineNumber, "m-reg-u");
+      if (!p.length) return span(r.startLineNumber, r.endLineNumber - r.startLineNumber, "u");
       let at = r.startLineNumber;
-      return p.flatMap((side) => {
-        const n = (side === "a" ? conflicts[k].cur : conflicts[k].inc).length;
-        at += n;
-        return n ? span(at - n, n, `m-reg-${side}`, `m-src-${side}`) : [];
-      });
+      return p.flatMap(([side, i]) => (i < 0 ? [] : span(at++, 1, side, `m-src-${side}`)));
     }),
   );
   const left = m.picks.filter((p) => !p.length).length;
   $("m-count").textContent = `${m.ids.length} conflict${m.ids.length === 1 ? "" : "s"}${left ? `, ${left} without a pick` : ""}`;
-  for (const side of ["a", "b"] as const) input(`m-all-${side}`).checked = m.picks.length > 0 && m.picks.every((p) => p.includes(side));
+  for (const side of ["a", "b"] as const) input(`m-all-${side}`).checked = m.picks.length > 0 && m.picks.every((p, k) => hasSide(conflicts[k], p, side));
   $("m-at").textContent = m.ids.length ? `conflict ${m.at + 1} of ${m.ids.length}` : "";
 }
 

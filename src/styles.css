@@ -626,15 +626,28 @@ svg.bl-av { cursor: pointer; }
 .m-head .icon svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 #banner button { white-space: nowrap; }
 .m-ed { flex: 1; min-height: 0; }
-.m-reg-a { background: color-mix(in srgb, var(--m-a) 20%, transparent); }
-.m-reg-b { background: color-mix(in srgb, var(--m-b) 17%, transparent); }
-.m-reg-a.on { background: color-mix(in srgb, var(--m-a) 34%, transparent); }
-.m-reg-b.on { background: color-mix(in srgb, var(--m-b) 30%, transparent); }
-.m-reg-u { background: color-mix(in srgb, var(--m-u) 27%, transparent); }
+/* a conflict line's tint (m-reg in the text, m-mreg in the gutter) and the bar that marks it */
+.m-reg-a, .m-mreg.a { --bar: var(--m-a); --tint: color-mix(in srgb, var(--m-a) 20%, transparent); }
+.m-reg-b, .m-mreg.b { --bar: var(--m-b); --tint: color-mix(in srgb, var(--m-b) 17%, transparent); }
+.m-reg-a.on, .m-mreg.a.on { --tint: color-mix(in srgb, var(--m-a) 34%, transparent); }
+.m-reg-b.on, .m-mreg.b.on { --tint: color-mix(in srgb, var(--m-b) 30%, transparent); }
+.m-reg-u, .m-mreg.u { --bar: var(--m-u); --tint: color-mix(in srgb, var(--m-u) 27%, transparent); }
+.m-reg-a, .m-reg-b, .m-reg-u { background: var(--tint); }
+/* the gutter stays clear under the box column, then the bar, then the tint */
+.m-mreg { background: linear-gradient(90deg, transparent var(--m-box), var(--bar) 0 calc(var(--m-box) + 3px), var(--tint) 0); }
 .m-gap { box-shadow: inset 0 2px 0 var(--dim); }
 .m-tick { cursor: pointer; }
-.m-tick::after { content: ""; display: block; box-sizing: border-box; width: 13px; height: 13px; margin: 3px 0 0 4px; border: 1.5px solid var(--dim); border-radius: 3px; }
+.m-tick::after { content: ""; display: block; box-sizing: border-box; width: 13px; height: 13px; margin: calc((var(--m-lh) - 13px) / 2) 0 0 calc((var(--m-box) - 13px) / 2); border: 1.5px solid var(--dim); border-radius: 3px; }
+/* an even line count puts the middle between two lines */
+.m-tick.half::after { transform: translateY(calc(var(--m-lh) / 2)); }
 .m-tick.on::after { content: "✓"; border-color: var(--accent); background: var(--accent); color: var(--on-accent); font: 700 10px/10px system-ui, sans-serif; text-align: center; }
+/* a side line's button: + takes it, − drops it, ✓ marks it taken */
+.m-line { cursor: pointer; }
+/* drawn, not typed: a font's + and − sit off the circle's centre */
+.m-line::after { content: ""; display: block; width: 16px; height: 16px; margin: calc((var(--m-lh) - 16px) / 2) 0 0 3px; border-radius: 50%; --ink: linear-gradient(#111, #111); }
+.m-line.add::after { background: var(--ink) center / 8px 2px no-repeat, var(--ink) center / 2px 8px no-repeat, var(--add); }
+.m-line.drop::after { background: var(--ink) center / 8px 2px no-repeat, var(--del); }
+.m-line.on::after { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.5 8.5l2.5 2.5 4.5-5' fill='none' stroke='%23111' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 100% no-repeat, var(--add); }
 .m-src-a::after, .m-src-b::after { display: block; padding-left: 6px; font: 700 11px/18px var(--mono); }
 .m-src-a::after { content: "A"; color: var(--m-a); }
 .m-src-b::after { content: "B"; color: var(--m-b); }
