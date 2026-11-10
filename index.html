@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>krill</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+  <body>
+    <nav id="tabs">
+      <div id="tablist"></div>
+      <button id="new-tab" title="New tab (Ctrl+T)">+</button>
+      <button id="tab-find" title="Search tabs"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+      <div id="tab-search" hidden>
+        <input id="tab-q" placeholder="Search tabs" spellcheck="false" />
+        <div class="head">Open tabs</div>
+        <div id="tab-hits"></div>
+      </div>
+    </nav>
+    <header>
+      <div class="h-side"><span id="repo-name"></span><span id="branch"></span></div>
+      <div class="h-mid">
+        <button class="tool" id="undo" title="Undo"><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>Undo</button>
+        <button class="tool" id="redo" title="Redo"><svg viewBox="0 0 24 24"><path d="m15 14 5-5-5-5M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>Redo</button>
+        <i class="sep"></i>
+        <button class="tool" data-op="fetch" title="Fetch all remotes"><svg viewBox="0 0 24 24"><path d="M12 13v8m-4-4 4 4 4-4M4.4 15.3A7 7 0 1 1 15.7 8h1.8a4.5 4.5 0 0 1 2.4 8.3"/></svg>Fetch</button>
+        <button class="tool" data-op="pull" title="Pull"><svg viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M5 21h14"/></svg>Pull<small id="behind"></small></button>
+        <button class="tool" data-op="push" title="Push"><svg viewBox="0 0 24 24"><path d="M12 21V9m-5 5 5-5 5 5M5 3h14"/></svg>Push<small id="ahead"></small></button>
+        <i class="sep"></i>
+        <button class="tool" data-op="stash" title="Stash all changes"><svg viewBox="0 0 24 24"><path d="M3 4h18v4H3zM5 8v12h14V8M10 12h4"/></svg>Stash</button>
+        <button class="tool" data-op="pop" title="Pop the last stash"><svg viewBox="0 0 24 24"><path d="M3 4h18v4H3zM5 8v12h14V8M12 18v-6m-3 3 3-3 3 3"/></svg>Pop</button>
+        <i class="sep"></i>
+        <button class="tool" id="term-btn" title="Terminal (Ctrl+`)"><svg viewBox="0 0 24 24"><path d="M4 17l6-6-6-6M12 19h8"/></svg>Terminal</button>
+      </div>
+      <div class="h-side right">
+        <span id="opstate" hidden title="Show the work in progress"><b id="opname"></b> in progress</span>
+        <button class="tool" id="refresh" title="Refresh (F5)"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4L21 8M21 3v5h-5"/></svg>Refresh</button>
+      </div>
+    </header>
+    <main>
+      <div class="col-grip" id="side-grip"></div>
+      <div class="col-grip" id="panel-grip"></div>
+      <aside id="side"></aside>
+      <section id="center">
+        <div id="view">
+          <div id="home" hidden>
+            <div class="home-box">
+              <h1>krill</h1>
+              <div class="home-actions">
+                <button id="open-repo" class="primary" title="Ctrl+O">Open repository…</button>
+                <button id="init-repo">Init repository…</button>
+              </div>
+              <div class="home-actions">
+                <input id="clone-url" spellcheck="false" placeholder="Clone URL: git@host:org/repo.git" />
+                <button id="clone-btn">Clone into…</button>
+              </div>
+              <div class="head">Recent</div>
+              <div id="recent"></div>
+            </div>
+          </div>
+          <div id="find" hidden>
+            <input id="find-q" placeholder="Search commits: message, author, branch, hash" spellcheck="false" />
+            <small id="find-n"></small>
+            <button class="icon" id="find-prev" title="Previous (Shift+Enter)"><svg viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button>
+            <button class="icon" id="find-next" title="Next (Enter)"><svg viewBox="0 0 24 24"><path d="M12 5v14m-6-6 6 6 6-6"/></svg></button>
+            <button class="icon" id="find-close" title="Close (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+          </div>
+          <div id="graph">
+            <div id="cols"><span class="refs">Branch / Tag</span><span class="g-col">Graph</span><span class="subject">Commit message</span></div>
+            <div id="rows"></div>
+          </div>
+          <div id="diff" hidden>
+            <div class="bar">
+              <span id="d-path"></span>
+              <button class="icon" id="prev-change" title="Previous change"><svg viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button>
+              <button class="icon" id="next-change" title="Next change"><svg viewBox="0 0 24 24"><path d="M12 5v14m-6-6 6 6 6-6"/></svg></button>
+              <span class="seg">
+                <button data-mode="hunk" title="Changed hunks only"><svg viewBox="0 0 24 24"><path d="M4 5h16M4 9h11M4 15h16M4 19h11"/></svg>Hunk</button><button data-mode="inline" title="Whole file, one column"><svg viewBox="0 0 24 24"><path d="M4 5h16M4 10h16M4 15h16M4 20h16"/></svg>Inline</button><button data-mode="split" title="Whole file, side by side"><svg viewBox="0 0 24 24"><path d="M3 4h18v16H3zM12 4v16"/></svg>Split</button>
+              </span>
+              <button id="save" class="primary" hidden>Save</button>
+              <button id="d-history" title="The commits that touched this file">File history</button>
+              <button id="open-editor" title="Open the working tree file in VS Code">Open in editor</button>
+              <button class="icon" id="close" title="Close (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+            </div>
+            <div id="editor"></div>
+            <div id="binary" hidden>Binary or non-UTF-8 file: whole-file actions only.</div>
+            <div id="h-file" hidden></div>
+          </div>
+          <div id="hist" hidden>
+            <div class="col-grip" id="h-grip"></div>
+            <div class="bar">
+              <span id="h-path"></span>
+              <span class="h-mid">
+                <span class="seg">
+                  <button data-hview="file" title="The file as of the commit"><svg viewBox="0 0 24 24"><path d="M14 3H6v18h12V7zM14 3v4h4"/></svg>File</button><button data-hview="diff" title="The commit's changes to the file"><svg viewBox="0 0 24 24"><path d="M12 4v16M5 7h4M7 5v4M15 17h4"/></svg>Diff</button>
+                </span>
+                <button id="h-blame" class="toggle"><svg viewBox="0 0 24 24"><path d="M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0"/></svg>Blame</button>
+              </span>
+              <button class="icon" id="h-close" title="Close (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+            </div>
+            <div id="h-list"></div>
+            <div id="h-main"></div>
+          </div>
+          <div id="merge" hidden>
+            <div class="bar">
+              <span id="m-path"></span>
+              <span id="m-count"></span>
+              <button id="m-sync" class="toggle" title="Scroll the three panes together"><svg viewBox="0 0 24 24"><path d="M8 3v18M16 3v18M4 17l4 4 4-4M12 17l4 4 4-4"/></svg>Sync scrolling</button>
+              <button id="m-reset" title="Drop the picks and edits">Reset</button>
+              <button id="m-save" class="primary" title="Write the output and mark the file resolved (Ctrl+S)">Save</button>
+              <button class="icon" id="m-close" title="Close (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+            </div>
+            <div class="m-sides">
+              <div class="m-side"><label class="m-head"><input type="checkbox" id="m-all-a" /><b class="m-tag a">A</b>current <code id="m-a-commit"></code> on <b id="m-a-name"></b></label><div id="m-a" class="m-ed"></div></div>
+              <div class="m-side"><label class="m-head"><input type="checkbox" id="m-all-b" /><b class="m-tag b">B</b>incoming <code id="m-b-commit"></code> on <b id="m-b-name"></b></label><div id="m-b" class="m-ed"></div></div>
+            </div>
+            <div class="m-head m-out-head">
+              <span>Output</span>
+              <span class="m-nav">
+                <button class="icon" id="m-prev" title="Previous conflict"><svg viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button>
+                <span id="m-at"></span>
+                <button class="icon" id="m-next" title="Next conflict"><svg viewBox="0 0 24 24"><path d="M12 5v14m-6-6 6 6 6-6"/></svg></button>
+              </span>
+            </div>
+            <div id="m-out" class="m-ed"></div>
+          </div>
+        </div>
+        <div id="term" hidden>
+          <div id="term-grip"></div>
+          <div class="term-bar">Terminal<button id="term-close" title="Close (Ctrl+`)">×</button></div>
+        </div>
+      </section>
+      <aside id="panel">
+        <div id="wip">
+          <div class="p-title wip-head">
+            <button id="discard-all" title="Discard all changes"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 13h12l1-13M9 7V4h6v3"/></svg></button>
+            <span id="wip-title"></span>
+          </div>
+          <div class="files-opts"><span class="fo-left"><button class="sort" title="Sort the files"></button><button class="tree-all" data-open="1" title="Expand all folders"><svg viewBox="0 0 24 24"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></svg></button><button class="tree-all" data-open="" title="Collapse all folders"><svg viewBox="0 0 24 24"><path d="m7 20 5-5 5 5M7 4l5 5 5-5"/></svg></button></span><span class="seg"><button data-files="path">Path</button><button data-files="tree">Tree</button></span><span></span><input class="file-filter" placeholder="Filter files" spellcheck="false" /></div>
+          <div class="head"><span id="unstaged-label">Unstaged Files</span> <span id="unstaged-n"></span><button id="stage-all" class="good">Stage all changes</button></div>
+          <div id="unstaged" class="files"></div>
+          <div class="head"><span id="staged-label">Staged Files</span> <span id="staged-n"></span><button id="unstage-all" class="bad">Unstage all changes</button></div>
+          <div id="staged" class="files"></div>
+          <div id="commit-box">
+            <div class="cb-head">Commit<label id="amend-label"><input type="checkbox" id="amend" /> Amend previous commit</label></div>
+            <div class="summary"><input id="summary" class="msg-in" placeholder="Summary" spellcheck="false" /><small id="summary-n"></small></div>
+            <textarea id="desc" class="msg-in" placeholder="Description" spellcheck="false"></textarea>
+            <button id="commit-btn" class="primary"></button>
+            <div id="op-btns" hidden><button id="op-continue" class="primary"></button><button id="op-skip">Skip commit</button><button id="op-abort" class="bad"></button></div>
+          </div>
+        </div>
+        <div id="commit" hidden>
+          <div id="c-head" class="p-title"></div>
+          <div id="c-msg"><div id="c-summary"></div><div id="c-desc"></div></div>
+          <div id="c-grip" title="Drag to resize"></div>
+          <div id="c-author"></div>
+          <div id="c-stats" class="p-title"></div>
+          <div class="files-opts"><span class="fo-left"><button class="sort" title="Sort the files"></button><button class="tree-all" data-open="1" title="Expand all folders"><svg viewBox="0 0 24 24"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></svg></button><button class="tree-all" data-open="" title="Collapse all folders"><svg viewBox="0 0 24 24"><path d="m7 20 5-5 5 5M7 4l5 5 5-5"/></svg></button></span><span class="seg"><button data-files="path">Path</button><button data-files="tree">Tree</button></span><label><input type="checkbox" id="all-files" /> View all files</label><input class="file-filter" placeholder="Filter files" spellcheck="false" /></div>
+          <div id="c-files" class="files"></div>
+        </div>
+      </aside>
+    </main>
+    <footer id="status"></footer>
+    <div id="menu" class="menu" hidden></div>
+    <div id="submenu" class="menu" hidden></div>
+    <div id="banner" hidden></div>
+    <div id="dialog" hidden></div>
+    <div id="toasts"></div>
+  </body>
+</html>
