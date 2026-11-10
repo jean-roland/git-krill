@@ -370,7 +370,8 @@ fn conflict_text(repo: String, path: String) -> Result<Blob, String> {
 fn commit_info(repo: String, hash: String, parent: String) -> Result<CommitInfo, String> {
     let message = git(&repo, &["show", "-s", "--format=%B", rev(&hash)?])?;
     let out = if parent.is_empty() {
-        git(&repo, &["diff-tree", "-r", "-M", "-z", "--name-status", "--root", rev(&hash)?])?
+        // one commit: diff-tree prints its id first unless told not to
+        git(&repo, &["diff-tree", "-r", "-M", "-z", "--name-status", "--no-commit-id", "--root", rev(&hash)?])?
     } else {
         git(&repo, &["diff-tree", "-r", "-M", "-z", "--name-status", rev(&parent)?, rev(&hash)?])?
     };
