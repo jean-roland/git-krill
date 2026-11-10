@@ -761,7 +761,7 @@ function renderSide() {
     ),
   );
   const worktrees = refs.worktrees.map((w, k) => {
-    const here = w.path === repo;
+    const here = w === thisWorktree();
     const extra = w.prunable ? "gone" : w.locked ? "locked" : k ? "" : "main";
     const open = () => (w.prunable ? prune(w) : openWorktree(w.path));
     const el = sideItem(w.branch || `detached at ${short(w.head)}`, "worktree", w.head, extra, here ? "current" : "", worktreeMenu(w, k === 0), () => here || open());
@@ -769,8 +769,8 @@ function renderSide() {
     return el;
   });
   // a linked worktree names its main repository first
-  const main = refs.worktrees[0]?.path ?? repo;
-  $("repo-name").textContent = main === repo ? tabName(tabs[active]) : `${basename(main)} › ${tabName(tabs[active])}`;
+  const main = refs.worktrees[0];
+  $("repo-name").textContent = !main || main === thisWorktree() ? tabName(tabs[active]) : `${basename(main.path)} › ${tabName(tabs[active])}`;
   $("repo-name").title = repo;
   $("side").replaceChildren(
     section("local", "Local", local, true, "local"),
@@ -782,7 +782,9 @@ function renderSide() {
 }
 
 /** The worktree other than this one that has `branch` checked out, its folder still there. */
-const worktreeOf = (branch: string) => refs.worktrees.find((w) => w.branch === branch && w.path !== repo && !w.prunable);
+// this checkout's entry: the repo tool's checkouts list their git dir, not their folder, as the main worktree
+const thisWorktree = () => refs.worktrees.find((w) => w.path === repo) ?? refs.worktrees[0];
+const worktreeOf = (branch: string) => refs.worktrees.find((w) => w.branch === branch && w !== thisWorktree() && !w.prunable);
 
 const prune = (w: Worktree) =>
   ask(`The folder of ${basename(w.path)} is gone. Prune it from the worktree list?`, "Prune").then((ok) => ok && op("worktree-prune"));
