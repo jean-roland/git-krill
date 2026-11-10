@@ -620,6 +620,7 @@ fn git_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
     let state = op_state(&repo)?;
     let arg2 = arg2.unwrap_or_default();
     let upstream = format!("HEAD:refs/heads/{arg2}");
+    let tag = format!("refs/tags/{arg2}");
     if op == "stash-message" {
         // git cannot reword a stash: store it again under the new message, then drop the old entry
         let n: u32 = arg.strip_prefix("stash@{").and_then(|s| s.strip_suffix('}')).and_then(|s| s.parse().ok()).ok_or_else(|| format!("{arg} is not a stash"))?;
@@ -687,7 +688,10 @@ fn git_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         "branch-rename" => vec!["branch", "-m", rev(&arg)?, rev(&arg2)?],
         // annotated, the name as message: tag.gpgSign makes git refuse a tag without one
         "tag-create" => vec!["tag", "-m", &arg, rev(&arg)?, rev(&arg2)?],
-        // arg is the remote, arg2 the branch on it
+        "tag-delete" => vec!["tag", "-d", rev(&arg)?],
+        // arg is the remote, arg2 the tag
+        "tag-push" => vec!["push", rev(&arg)?, rev(&arg2).map(|_| tag.as_str())?],
+        // arg is the remote, arg2 the branch (or refs/tags/<tag>) on it
         "push-delete" => vec!["push", rev(&arg)?, "--delete", rev(&arg2)?],
         "fetch-remote" => vec!["fetch", "--prune", rev(&arg)?],
         // first push of a branch: arg is the remote, arg2 the branch name there

@@ -64,7 +64,9 @@ const KEEP_INDEX = new Set(["commit", "amend", "reword", "reset-soft", "reset-mi
 const DONE: Record<string, (arg: string, arg2: string, branch: string, upstream: string) => string> = {
   push: (_a, _b, branch, upstream) => `Pushed ${branch} to ${upstream}`,
   "push-upstream": (remote, name, branch) => `Pushed ${branch} to ${remote}/${name}`,
-  "push-delete": (remote, name) => `Deleted ${name} on ${remote}`,
+  "push-delete": (remote, name) => `Deleted ${name.replace(/^refs\/tags\//, "tag ")} on ${remote}`,
+  "tag-push": (remote, name) => `Pushed tag ${name} to ${remote}`,
+  "tag-delete": (name) => `Deleted tag ${name}`,
   "delete-branch": (name) => `Deleted branch ${name}`,
   "force-delete-branch": (name) => `Deleted branch ${name}`,
   "worktree-remove": (path) => `Removed worktree ${basename(path)}`,
@@ -1228,7 +1230,20 @@ async function deleteBranch(name: string, upstream: string) {
 }
 
 function tagMenu(name: string): MenuItem[] {
-  return [[`Checkout ${name} (detached)`, () => op("checkout", name)], ["Copy tag name", () => copy(name)]];
+  return [
+    [`Checkout ${name} (detached)`, () => op("checkout", name)],
+    null,
+    ...refs.remotes.map((r): MenuItem => [`Push ${name} to ${r}`, () => op("tag-push", [r, name])]),
+    [`Delete ${name}`, () => ask(`Delete tag ${name}?`, "Delete").then((ok) => ok && op("tag-delete", name))],
+    ...refs.remotes.map(
+      (r): MenuItem => [
+        `Delete ${name} on ${r}`,
+        () => ask(`Delete tag ${name} on ${r}? This pushes the deletion.`, "Delete").then((ok) => ok && op("push-delete", [r, `refs/tags/${name}`])),
+      ],
+    ),
+    null,
+    ["Copy tag name", () => copy(name)],
+  ];
 }
 
 /** What to do with commit `sha`, shared by the commit and branch menus. */
