@@ -288,7 +288,8 @@ body.home main { grid-template-columns: 1fr; }
 .row.sel { background: var(--sel); }
 .row.row-head .subject { font-weight: 600; }
 .row.wip .subject { color: var(--dim); font-style: italic; }
-.subject { flex: 1; min-width: 0; margin-left: var(--graph-w); overflow: hidden; text-overflow: ellipsis; }
+/* a pixel up: the lowercase letters' middle sits below the line box's */
+.subject { position: relative; top: -1px; flex: 1; min-width: 0; margin-left: var(--graph-w); overflow: hidden; text-overflow: ellipsis; }
 .subject .body { margin-left: 10px; font-weight: 400; color: var(--dim); }
 .refs { position: relative; flex: none; width: var(--refs-w); height: 100%; }
 /* the line from the label to the commit dot, the svg carries it on */
