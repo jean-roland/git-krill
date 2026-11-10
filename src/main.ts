@@ -19,7 +19,7 @@ type Refs = { refs: Ref[]; stashes: Stash[]; remotes: string[]; worktrees: Workt
 type Blob = { text: string; exists: boolean; binary: boolean };
 // file: a discard, the work tree text before and after (null: no file)
 type Step = { op: string; branch: [string, string]; head: [string, string]; file?: [string, string | null, string | null] };
-type Tab = { repo: string; selected: string[]; msg: string; scroll: number; undo: Step[]; redo: Step[] };
+type Tab = { repo: string; selected: string[]; msg: string; scroll: number; undo: Step[]; redo: Step[]; worktree: boolean };
 type Dir = { dirs: Map<string, Dir>; files: Change[] };
 type Label = { name: string; tag: boolean; head: boolean; local: boolean; remotes: string[] };
 type Kind = "unstaged" | "staged" | "commit";
@@ -87,6 +87,8 @@ const ICONS: Record<string, string> = {
   eye: "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zm10-3a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",
   info: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01",
   error: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM15 9l-6 6M9 9l6 6",
+  home: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM9 22V12h6v10",
+  repo: "M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z",
   eyeOff: "M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.1 4M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a10 10 0 0 0 5.4-1.6",
 };
 const SORTS: Record<string, string> = { "": "A–Z", desc: "Z–A", status: "Status" };
@@ -434,7 +436,12 @@ function saveTabs() {
   store("active", String(active));
 }
 
-const newTab = (repo: string): Tab => ({ repo, selected: ["WIP"], msg: "", scroll: 0, undo: [], redo: [] });
+function newTab(repo: string): Tab {
+  const t: Tab = { repo, selected: ["WIP"], msg: "", scroll: 0, undo: [], redo: [], worktree: false };
+  // a linked worktree's .git is a file
+  if (repo) invoke<boolean>("is_file", { path: `${repo}/.git` }).then((w) => w && ((t.worktree = true), renderTabs()));
+  return t;
+}
 const recentRepos = (): string[] => JSON.parse(store("recent") ?? "[]");
 
 function renderTabs() {
@@ -446,14 +453,44 @@ function renderTabs() {
           className: `tab${i === active ? " on" : ""}`,
           title: t.repo,
           onclick: () => i !== active && switchTab(i),
+          onpointerdown: (e: PointerEvent) => dragTab(e, i),
           onauxclick: (e: MouseEvent) => e.button === 1 && closeTab(i),
           oncontextmenu: (e: MouseEvent) => popup(e, tabMenu(i)),
         },
+        ico(t.repo ? (t.worktree ? ICONS.worktree : ICONS.repo) : ICONS.home),
         tabName(t),
         h("button", { className: "x", textContent: "×", title: "Close (Ctrl+W)", onclick: (e: Event) => (e.stopPropagation(), closeTab(i)) }),
       ),
     ),
   );
+}
+
+/** Drag tab `i` sideways to move it: it swaps with a neighbour once the pointer passes that neighbour's middle. */
+function dragTab(e: PointerEvent, i: number) {
+  if (e.button !== 0 || (e.target as HTMLElement).closest(".x, input")) return;
+  const x0 = e.clientX;
+  let at = i, moved = false;
+  const move = (m: PointerEvent) => {
+    if (!moved && Math.abs(m.clientX - x0) < 5) return;
+    moved = true;
+    const els = [...$("tablist").children] as HTMLElement[];
+    const to = els.filter((el, k) => k !== at && (({ left, width }) => left + width / 2 < m.clientX)(el.getBoundingClientRect())).length;
+    if (to !== at) {
+      const on = tabs[active];
+      tabs.splice(to, 0, ...tabs.splice(at, 1));
+      active = tabs.indexOf(on);
+      at = to;
+      renderTabs();
+    }
+    $("tablist").children[at].classList.add("drag");
+  };
+  const up = () => {
+    removeEventListener("pointermove", move);
+    $("tablist").children[at]?.classList.remove("drag");
+    if (moved) saveTabs();
+  };
+  addEventListener("pointermove", move);
+  addEventListener("pointerup", up, { once: true });
 }
 
 async function switchTab(i: number, save = true) {

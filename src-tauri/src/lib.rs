@@ -579,6 +579,12 @@ fn delete_file(repo: String, path: String) -> Result<(), String> {
     std::fs::remove_file(work_path(&repo, &path)?).map_err(|e| e.to_string())
 }
 
+/// \brief Whether `path` is a file: a linked worktree's `.git` is one.
+#[tauri::command]
+fn is_file(path: String) -> bool {
+    Path::new(&path).is_file()
+}
+
 /// \brief Whether `path` exists in the work tree.
 #[tauri::command]
 fn in_worktree(repo: String, path: String) -> Result<bool, String> {
@@ -791,7 +797,7 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(Ptys::default())
         .invoke_handler(tauri::generate_handler![
-            initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, write_file, stage_text, git_op, files, open_in_editor, in_worktree, is_merged,
+            initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, write_file, stage_text, git_op, files, open_in_editor, in_worktree, is_file, is_merged,
             remote_url, open_default, delete_file, open_url, remote_urls, edit_remote,
             pty_spawn, pty_write, pty_resize, pty_kill
         ])
