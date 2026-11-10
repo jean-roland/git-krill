@@ -927,8 +927,9 @@ function labels(c: Commit): Label[] {
       l.local = true;
       l.head ||= r !== ref;
     } else if (r.startsWith("refs/remotes/") && !r.endsWith("/HEAD")) {
-      const full = r.slice(13), slash = full.indexOf("/");
-      if (!hiddenSet.has(full.slice(0, slash))) get(full.slice(slash + 1)).remotes.push(full.slice(0, slash));
+      const full = r.slice(13), slash = full.indexOf("/"), remote = full.slice(0, slash);
+      // a remote ref of no configured remote, like the `repo` tool's m/<branch>, is no remote branch
+      if (!hiddenSet.has(remote) && refs.remotes.includes(remote)) get(full.slice(slash + 1)).remotes.push(remote);
     }
   }
   return [...out.values()].sort((a, b) => +b.head - +a.head || +a.tag - +b.tag || +b.local - +a.local);

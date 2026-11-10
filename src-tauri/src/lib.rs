@@ -188,6 +188,9 @@ fn clone(parent: String, url: String) -> Result<String, String> {
 
 #[tauri::command(async)]
 fn refs(repo: String) -> Result<Refs, String> {
+    let remotes: Vec<String> = git(&repo, &["remote"])?.lines().map(String::from).collect();
+    // refs/remotes/<x>/ of no configured remote: the `repo` tool's m/<branch> pointer
+    let stray = |name: &str| name.strip_prefix("refs/remotes/").is_some_and(|r| !remotes.iter().any(|m| r.starts_with(&format!("{m}/"))));
     let out = git(&repo, &["for-each-ref", "--format=%(refname)%00%(objectname)%00%(*objectname)%00%(upstream:short)%00%(upstream:track)",
                            "refs/heads", "refs/remotes", "refs/tags"])?;
     let refs = out
@@ -195,7 +198,7 @@ fn refs(repo: String) -> Result<Refs, String> {
         .filter_map(|l| {
             let f: Vec<&str> = l.split('\0').collect();
             // annotated tags point at the tag object, the commit is the peeled one
-            (f.len() == 5 && !f[0].ends_with("/HEAD")).then(|| Ref {
+            (f.len() == 5 && !f[0].ends_with("/HEAD") && !stray(f[0])).then(|| Ref {
                 name: f[0].to_string(),
                 hash: if f[2].is_empty() { f[1] } else { f[2] }.to_string(),
                 upstream: f[3].to_string(),
@@ -216,7 +219,6 @@ fn refs(repo: String) -> Result<Refs, String> {
             })
         })
         .collect();
-    let remotes = git(&repo, &["remote"])?.lines().map(String::from).collect();
     Ok(Refs { refs, stashes, remotes })
 }
 
