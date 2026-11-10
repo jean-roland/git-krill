@@ -1892,6 +1892,8 @@ function editor() {
     fontSize: 13,
     stickyScroll: { enabled: false },
     scrollBeyondLastLine: false,
+    // its height lands ~200 ms late, once long lines are measured, and rescales the change markers; Shift+wheel still scrolls sideways
+    scrollbar: { horizontal: "hidden" },
     // whitespace-only changes must show: they get staged too
     ignoreTrimWhitespace: false,
     originalEditable: false,
@@ -2096,7 +2098,11 @@ async function openDiff(kind: Kind, f: Change, c?: Commit, inHistory = false) {
   $("editor").hidden = binary;
   $("binary").hidden = !binary;
   $("save").hidden = true;
-  if (!binary) setModels(false);
+  if (binary) return;
+  // the folds land a moment after the text: the bare file would flash in between
+  if (!inHistory) $("diff").classList.add("blank");
+  setModels(false);
+  diffDrawn().then(() => requestAnimationFrame(() => $("diff").classList.remove("blank")));
 }
 
 function paintOpenEditor() {
@@ -2537,14 +2543,15 @@ document.head.append(h("style", { textContent: COLORS.map((c, i) => `.bl-c${i} {
 async function openHistory(path: string, c?: Commit) {
   await loadMonaco();
   if (!(await closeMerge())) return;
-  await closeDiff();
-  if (cur) return;
   let revs: [Commit, Change][];
   try {
     revs = await run<[Commit, Change][]>("file_log", { revs: c ? ["HEAD", c.hash] : ["HEAD"], path });
   } catch (e) {
     return say(String(e), true);
   }
+  // closed only now: the graph would show while git log runs
+  await closeDiff();
+  if (cur) return;
   // the working tree file as a commit on top of HEAD: blob and diff take WORKTREE as a revision
   if (wipFiles().some((f) => f.path === path))
     revs.unshift([{ hash: "WORKTREE", parents: ["HEAD"], author: "", time: 0, refs: [], subject: "Uncommitted changes", body: "" }, { path, old: null, code: "M" }]);
@@ -2623,7 +2630,8 @@ const reveal = (drawn?: Promise<unknown>) => (drawn ?? Promise.resolve()).then((
 // a diff's hunks and folds land a moment after its text
 const diffDrawn = () =>
   new Promise((done) => {
-    const d = editor().onDidUpdateDiff(() => (d.dispose(), done(0)));
+    // the first update only drops the old diff: wait for one with changes computed
+    const d = editor().onDidUpdateDiff(() => editor().getLineChanges() && (d.dispose(), done(0)));
     setTimeout(() => (d.dispose(), done(0)), 500);
   });
 

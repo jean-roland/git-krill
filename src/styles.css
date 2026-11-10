@@ -483,7 +483,8 @@ textarea.msg-in { height: 104px; resize: vertical; }
 .seg button { border-radius: 0; margin-left: -1px; }
 .seg button:first-child { border-radius: 6px 0 0 6px; }
 .seg button:last-child { border-radius: 0 6px 6px 0; }
-.seg button.on { background: var(--sel); border-color: var(--accent); }
+/* above its neighbours, which overlap its border by a pixel */
+.seg button.on { position: relative; z-index: 1; background: var(--sel); border-color: var(--accent); }
 .seg button svg { width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 #editor { flex: 1; min-height: 0; }
 #binary { padding: 20px; color: var(--dim); }
@@ -625,8 +626,8 @@ footer {
 #h-list { overflow-y: auto; border-right: 1px solid var(--border); }
 #h-main { position: relative; min-width: 0; }
 #h-file { flex: 1; min-height: 0; }
-/* a view switch shows nothing until the new view is drawn */
-#h-main.blank #editor, #h-main.blank #h-file { visibility: hidden; }
+/* a switch shows nothing until the new view is drawn; WebKit ignores visibility on Monaco's layers */
+#h-main.blank #editor, #h-main.blank #h-file, #diff.blank #editor { opacity: 0; }
 .h-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); cursor: pointer; }
 .h-row:hover { background: var(--hover); }
 .h-row.on { background: var(--sel); }
