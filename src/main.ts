@@ -2746,7 +2746,8 @@ addEventListener("contextmenu", (e) => !(e.target as HTMLElement).closest("input
 addEventListener("keydown", (e) => {
   const key = e.key.toLowerCase();
   if (e.ctrlKey && e.code === "Backquote") (e.preventDefault(), toggleTerm());
-  else if (e.ctrlKey && e.key === "Tab") (e.preventDefault(), switchTab((active + (e.shiftKey ? tabs.length - 1 : 1)) % tabs.length));
+  // GTK turns Shift+Tab into ISO_Left_Tab: the physical key is the sure one
+  else if (e.ctrlKey && e.code === "Tab") (e.preventDefault(), switchTab((active + (e.shiftKey ? tabs.length - 1 : 1)) % tabs.length));
   // the shell owns every other key
   else if ((e.target as HTMLElement).closest?.("#term")) return;
   else if (e.key === "F5") (e.preventDefault(), refresh());
