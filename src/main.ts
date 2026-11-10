@@ -54,7 +54,7 @@ const loadMonaco = () =>
   }));
 
 const ROW = 26, LANE = 22, LOG_LIMIT = 3000;
-const COLORS = ["#26d4ca", "#4f8cff", "#b467ff", "#3ee88f", "#ffcf3f", "#ff4fa0", "#ff7a4d", "#ff5470"];
+const COLORS = ["#46b1ab", "#5d88d9", "#9c5dd9", "#5bc78e", "#d9ba5d", "#d95d96", "#d97d5d", "#d95d72"];
 // ops that move HEAD, walked back with a reset or a checkout
 const UNDOABLE = new Set([
   "commit", "amend", "reword", "checkout", "merge", "rebase", "cherry-pick", "pull",
@@ -90,6 +90,9 @@ const ICONS: Record<string, string> = {
   eye: "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zm10-3a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",
   info: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01",
   error: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM15 9l-6 6M9 9l6 6",
+  folder: "M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z",
+  folderOpen: "M3 18.5v-12A1.5 1.5 0 0 1 4.5 5H9l2 2.5h7A1.5 1.5 0 0 1 19.5 9v1.5M3 18.5l2.6-7A1.5 1.5 0 0 1 7 10.5h14l-2.8 8.5a1.5 1.5 0 0 1-1.4 1H4.5A1.5 1.5 0 0 1 3 18.5z",
+  globe: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20z",
   home: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM9 22V12h6v10",
   repo: "M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z",
   eyeOff: "M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.1 4M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a10 10 0 0 0 5.4-1.6",
@@ -771,7 +774,7 @@ function renderSide() {
   $("repo-name").title = repo;
   $("side").replaceChildren(
     section("local", "Local", local, true, "local"),
-    section("remote", "Remote", [...remotes].map(([name, items]) => remoteSection(section(`remote/${name}`, name, items), name)), true, "remote"),
+    section("remote", "Remote", [...remotes].map(([name, items]) => remoteSection(section(`remote/${name}`, name, items, true, "globe"), name)), true, "remote"),
     ...(worktrees.length > 1 ? [section("worktrees", "Worktrees", worktrees, true, "worktree")] : []),
     section("tags", "Tags", tags, false, "tag"),
     section("stashes", "Stashes", stashes, true, "stash"),
@@ -1129,7 +1132,7 @@ const CHUNK = 40;
 function fillChunk(k: number) {
   const from = k * CHUNK, to = Math.min(shown.length, from + CHUNK);
   chunks[k].innerHTML = lanesSvg(from, to);
-  chunks[k].append(...shown.slice(from, to).map((c, i) => graphRow(c, rowColors[from + i])));
+  chunks[k].append(...shown.slice(from, to).map((c, i) => graphRow(c, rowColors[from + i], laneX(laid.nodes[from + i]))));
 }
 
 /** Draw the chunks around the view, empty the others. */
@@ -1197,7 +1200,7 @@ function chip(l: Label) {
   return el;
 }
 
-function graphRow(c: Commit, lane: string) {
+function graphRow(c: Commit, lane: string, nodeX: number) {
   const ls = labels(c), stash = stashOf(c.hash);
   const row = h(
     "div",
@@ -1228,6 +1231,7 @@ function graphRow(c: Commit, lane: string) {
   );
   row.dataset.hash = c.hash;
   row.style.setProperty("--lane", lane);
+  row.style.setProperty("--node-x", `${nodeX}px`);
   return row;
 }
 
@@ -1560,7 +1564,7 @@ function fileList(
         const path = prefix + name, shut = treeOpen === flipped.has(path);
         if (shown) {
           const toggle = () => (flipped.has(path) ? flipped.delete(path) : flipped.add(path), draw());
-          const folder = h("div", { className: "folder", onclick: toggle, title: path }, h("span", { className: "twisty", textContent: shut ? "▸" : "▾" }), name);
+          const folder = h("div", { className: "folder", onclick: toggle, title: path }, h("span", { className: "twisty", textContent: shut ? "▸" : "▾" }), ico(shut ? ICONS.folder : ICONS.folderOpen), name);
           if (shut) folder.append(...fileCounts(within(sub)));
           folder.style.paddingLeft = `${8 + depth * 14}px`;
           rows.push(folder);
@@ -1645,10 +1649,18 @@ function panelCommit(): { c: Commit; message?: string; head: (Node | string)[]; 
 /** A short hash that copies the full one on click. */
 const sha = (hash: string) => h("span", { className: "sha", textContent: short(hash), title: `Copy ${hash}`, onclick: () => copy(hash) });
 
+// where the last click landed: "Copied!" pops up there
+let clickAt = [0, 0];
+addEventListener("pointerdown", (e) => (clickAt = [e.clientX, e.clientY]), true);
+
 async function copy(text: string) {
   try {
     await navigator.clipboard.writeText(text);
     say(`copied ${text.length > 60 ? `${text.slice(0, 60)}…` : text}`);
+    const tip = h("div", { className: "copied", textContent: "Copied!" });
+    Object.assign(tip.style, { left: `${clickAt[0]}px`, top: `${clickAt[1] - 30}px` });
+    document.body.append(tip);
+    setTimeout(() => tip.remove(), 1200);
   } catch (e) {
     say(String(e), true);
   }
