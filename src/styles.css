@@ -82,6 +82,8 @@ header {
 .tool:hover, .tool.on { color: var(--accent); background: var(--hover); }
 .tool:disabled { opacity: 0.35; pointer-events: none; }
 .tool svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.tool.caret { min-width: 0; align-self: stretch; justify-content: center; margin-left: -2px; padding: 0 2px; }
+.tool.caret svg { width: 12px; height: 12px; }
 /* ahead/behind count as a badge on the icon */
 .tool small:not(:empty) {
   position: absolute;

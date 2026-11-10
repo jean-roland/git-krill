@@ -662,7 +662,12 @@ fn git_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
     }
     let args: Vec<&str> = match op.as_str() {
         "fetch" => vec!["fetch", "--all", "--prune"],
-        "pull" => vec!["pull"],
+        "pull" => match arg.as_str() {
+            "ff-only" => vec!["pull", "--ff-only"],
+            "rebase" => vec!["pull", "--rebase"],
+            // fast-forward when possible, else a merge commit
+            _ => vec!["pull", "--no-rebase"],
+        },
         "push" => vec!["push"],
         "stash" => vec!["stash", "push", "-u"],
         "pop" => vec!["stash", "pop"],

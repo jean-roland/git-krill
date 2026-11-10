@@ -94,6 +94,8 @@ const ICONS: Record<string, string> = {
   eyeOff: "M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.1 4M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a10 10 0 0 0 5.4-1.6",
 };
 const SORTS: Record<string, string> = { "": "A–Z", desc: "Z–A", status: "Status" };
+// how Pull reconciles a diverged branch, by git_op's pull argument
+const PULLS: Record<string, string> = { "": "fast-forward if possible", "ff-only": "fast-forward only", rebase: "rebase" };
 const hue = (s: string) => [...s].reduce((a, ch) => a + ch.charCodeAt(0), 0) % COLORS.length;
 // each author's sprite is one <symbol> in #sprites, which every avatar of theirs uses
 const spriteIds = new Map<string, string>();
@@ -298,6 +300,21 @@ function linkify(text: string) {
     .split(/(https?:\/\/[^\s'"<>]+)/)
     .map((part, i) => (i % 2 ? h("a", { textContent: part, onclick: () => invoke("open_url", { url: part }).catch((e) => say(String(e), true)) }) : part));
 }
+
+const pull = () => op("pull", store("pull") ?? "");
+
+/** The Pull modes under the toolbar's caret: picking one makes it the default and pulls. */
+function pullMenu(e: MouseEvent) {
+  e.stopPropagation();
+  const mode = store("pull") ?? "", r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  showMenu(
+    Object.entries(PULLS).map(([k, label]): MenuItem => [`Pull, ${label}${k === mode ? "  ✓" : ""}`, () => (store("pull", k), paintPull(), pull())]),
+    r.left,
+    r.bottom,
+  );
+}
+
+const paintPull = () => ($("pull").title = `Pull, ${PULLS[store("pull") ?? ""]}`);
 
 /** Push; a branch without upstream first asks where to, in a banner. */
 function push() {
@@ -1205,7 +1222,7 @@ function branchMenu(name: string, remote: boolean): MenuItem[] {
   return [
     ...refMenu(name, remote),
     null,
-    ...(current ? ([["Pull", () => op("pull")], ["Push", push], null] as MenuItem[]) : []),
+    ...(current ? ([["Pull", pull], ["Push", push], null] as MenuItem[]) : []),
     ...commitItems(sha),
     ...(current ? ([["Edit commit message", rewordHead]] as MenuItem[]) : []),
     null,
@@ -2746,7 +2763,9 @@ function resizer(grip: HTMLElement, box: HTMLElement, key: string, size: (m: Poi
 
 /* wiring */
 
-document.querySelectorAll<HTMLElement>("[data-op]").forEach((b) => (b.onclick = () => (b.dataset.op === "push" ? push() : op(b.dataset.op!))));
+document.querySelectorAll<HTMLElement>("[data-op]").forEach((b) => (b.onclick = () => (b.dataset.op === "push" ? push() : b.dataset.op === "pull" ? pull() : op(b.dataset.op!))));
+$("pull-mode").onclick = pullMenu;
+paintPull();
 document.querySelectorAll<HTMLElement>("[data-mode]").forEach((b) => (b.onclick = () => b.classList.contains("off") || setMode(b.dataset.mode as Mode)));
 $("new-tab").onclick = addTab;
 $("graph").addEventListener("scroll", () => drawRows(), { passive: true });
