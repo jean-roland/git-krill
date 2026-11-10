@@ -1,12 +1,15 @@
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::os::unix::fs::DirBuilderExt;
+use std::os::unix::net::{UnixListener, UnixStream};
+use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{mpsc, Mutex, OnceLock};
 use tauri::ipc::{Channel, InvokeResponseBody};
-use tauri::State;
+use tauri::{Emitter, Manager, State};
 
 #[derive(Serialize)]
 struct Commit {
@@ -103,18 +106,31 @@ struct Blob {
     binary: bool,
 }
 
+// krill's own binary and the socket it answers on, for ssh and git to ask a passphrase or password through
+static ASKPASS: OnceLock<(PathBuf, PathBuf)> = OnceLock::new();
+
 fn git_run(repo: &str, args: &[&str], input: Option<&[u8]>) -> Result<std::process::Output, String> {
-    let mut child = Command::new("git")
-        .current_dir(repo)
+    git_cmd(repo, args, input, true)
+}
+
+/// \brief Run git; with `ask`, ssh and https prompts reach krill's dialog, without they fail at once and say so.
+fn git_cmd(repo: &str, args: &[&str], input: Option<&[u8]>, ask: bool) -> Result<std::process::Output, String> {
+    let mut git = Command::new("git");
+    git.current_dir(repo)
         .args(args)
         // never block on an editor or a credential prompt: there is no tty
         .env("GIT_EDITOR", "true")
         .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| e.to_string())?;
+        .stderr(Stdio::piped());
+    match ASKPASS.get() {
+        Some((exe, sock)) => git.env("SSH_ASKPASS", exe).env("GIT_ASKPASS", exe).env("SSH_ASKPASS_REQUIRE", "force").env("KRILL_ASKPASS", if ask { sock.as_os_str() } else { "".as_ref() }),
+        None => git.env("SSH_ASKPASS_REQUIRE", "never").env_remove("SSH_ASKPASS").env_remove("GIT_ASKPASS"),
+    };
+    // its own session, off the terminal krill may run from: ssh would wait there for a key passphrase
+    unsafe { git.pre_exec(|| (libc::setsid() >= 0).then_some(()).ok_or_else(std::io::Error::last_os_error)) };
+    let mut child = git.spawn().map_err(|e| e.to_string())?;
     if let Some(data) = input {
         child.stdin.take().unwrap().write_all(data).map_err(|e| e.to_string())?;
     }
@@ -656,6 +672,11 @@ fn git_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
     if op == "continue" && state == "rebase" && !arg.is_empty() && git(&repo, &["diff", "--cached", "--quiet"]).is_err() {
         git(&repo, &["commit", "-q", "-m", &arg])?;
     }
+    // in the background: a key that needs its passphrase fails quietly instead of asking
+    if op == "auto-fetch" {
+        let out = git_cmd(&repo, &["fetch", "--all", "--prune"], None, false)?;
+        return if out.status.success() { Ok(both(&out)) } else { Err(both(&out)) };
+    }
     if op == "discard-all" {
         git(&repo, &["reset", "-q", "--hard"])?;
         return git_loud(&repo, &["clean", "-fd"]);
@@ -744,6 +765,59 @@ struct Pty {
 #[derive(Default)]
 struct Ptys(Mutex<(u32, HashMap<u32, Pty>)>);
 
+// where the window's answer to the pending prompt goes
+#[derive(Default)]
+struct Askpass(Mutex<Option<mpsc::Sender<Option<String>>>>);
+
+/// \brief The helper ssh and git start: send their prompt to the running krill, print its answer; no answer is a cancel.
+fn askpass(sock: &Path, prompt: &str) -> i32 {
+    let Ok(mut s) = UnixStream::connect(sock) else { return 1 };
+    let mut answer = String::new();
+    if writeln!(s, "{}", prompt.replace('\n', " ")).is_err() || s.read_to_string(&mut answer).is_err() || answer.is_empty() {
+        return 1;
+    }
+    print!("{answer}");
+    0
+}
+
+/// \brief Listen for askpass helpers in a folder only this user can enter.
+fn start_askpass(app: &tauri::AppHandle) -> std::io::Result<()> {
+    let dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join(format!("krill-{}", std::process::id()));
+    // a dead krill with the same pid left it
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::DirBuilder::new().mode(0o700).create(&dir)?;
+    let sock = dir.join("askpass");
+    let listener = UnixListener::bind(&sock)?;
+    // the path as started: a rebuild replaces the file, and its new binary answers the same way
+    let _ = ASKPASS.set((std::env::current_exe()?, sock));
+    let app = app.clone();
+    std::thread::spawn(move || {
+        // one prompt at a time: ssh asks again only after the answer
+        for mut s in listener.incoming().flatten() {
+            let mut prompt = String::new();
+            if BufReader::new(&s).read_line(&mut prompt).is_err() {
+                continue;
+            }
+            let (tx, rx) = mpsc::channel();
+            *app.state::<Askpass>().0.lock().unwrap() = Some(tx);
+            if app.emit("askpass", prompt.trim_end()).is_ok() {
+                if let Ok(Some(answer)) = rx.recv() {
+                    let _ = writeln!(s, "{answer}");
+                }
+            }
+        }
+    });
+    Ok(())
+}
+
+/// \brief The window's answer to the pending prompt, `None` when cancelled.
+#[tauri::command]
+fn askpass_reply(answer: Option<String>, ask: State<Askpass>) {
+    if let Some(tx) = ask.0.lock().unwrap().take() {
+        let _ = tx.send(answer);
+    }
+}
+
 const fn pty_size(cols: u16, rows: u16) -> PtySize {
     PtySize { rows, cols, pixel_width: 0, pixel_height: 0 }
 }
@@ -801,15 +875,38 @@ fn pty_kill(ptys: State<'_, Ptys>, id: u32) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // started by ssh or git as their askpass helper: the question goes to the running krill
+    if let Some(sock) = std::env::var_os("KRILL_ASKPASS") {
+        let prompt = std::env::args().nth(1).unwrap_or_default();
+        // no socket: a background run nobody can answer, so only say what was needed
+        if sock.is_empty() {
+            eprintln!("krill: needs a passphrase or password: {prompt}");
+            std::process::exit(1);
+        }
+        std::process::exit(askpass(Path::new(&sock), &prompt));
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(Ptys::default())
+        .manage(Askpass::default())
+        .setup(|app| {
+            if let Err(e) = start_askpass(app.handle()) {
+                eprintln!("no passphrase prompts: {e}");
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, write_file, stage_text, git_op, files, open_in_editor, in_worktree, is_file, is_merged,
             remote_url, open_default, delete_file, open_url, remote_urls, edit_remote,
-            pty_spawn, pty_write, pty_resize, pty_kill
+            pty_spawn, pty_write, pty_resize, pty_kill, askpass_reply
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|_, event| {
+            // the askpass socket's folder goes with us
+            if let (tauri::RunEvent::Exit, Some((_, sock))) = (event, ASKPASS.get()) {
+                let _ = sock.parent().map(std::fs::remove_dir_all);
+            }
+        });
 }

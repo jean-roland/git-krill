@@ -1,5 +1,6 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type * as Monaco from "monaco-editor/esm/vs/editor/edcore.main";
 import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
@@ -541,6 +542,7 @@ async function switchTab(i: number, save = true) {
   $("repo-name").textContent = tabName(t);
   await refresh();
   $("graph").scrollTop = t.scroll;
+  autoFetch();
 }
 
 async function closeTab(i: number) {
@@ -856,13 +858,36 @@ async function editRemote(name: string) {
 }
 
 /** A small form over the app; `save` gets the trimmed field values in order. */
-function dialog(title: string, fields: [string, string][], action: string, save: (values: string[]) => unknown, more: [string, () => unknown][] = []) {
-  const inputs = fields.map(([, value]) => h("input", { value, spellcheck: false }));
-  const close = () => ($("dialog").hidden = true);
+// what closing the open dialog without its action means, if anything
+let dialogCancel: (() => unknown) | null = null;
+
+/** Hide the dialog: Cancel, its ×, Esc and a click beside it all end here. */
+function closeDialog() {
+  $("dialog").hidden = true;
+  const cancel = dialogCancel;
+  dialogCancel = null;
+  cancel?.();
+}
+
+/** A dialog of `fields` ([label, value, input type]); a password is kept as typed, the rest trimmed. */
+function dialog(
+  title: string,
+  fields: [string, string, string?][],
+  action: string,
+  save: (values: string[]) => unknown,
+  more: [string, () => unknown][] = [],
+  cancel?: () => unknown,
+) {
+  const inputs = fields.map(([, value, type = "text"]) => h("input", { value, type, spellcheck: false }));
+  const close = () => {
+    dialogCancel = null;
+    $("dialog").hidden = true;
+  };
   const submit = () => {
     close();
-    save(inputs.map((i) => i.value.trim()));
+    save(inputs.map((i) => (i.type === "password" ? i.value : i.value.trim())));
   };
+  dialogCancel = cancel ?? null;
   for (const i of inputs) {
     i.onkeydown = (e) => {
       if (e.key === "Enter") submit();
@@ -872,12 +897,12 @@ function dialog(title: string, fields: [string, string][], action: string, save:
     h(
       "div",
       { className: "dlg" },
-      h("div", { className: "dlg-head" }, h("b", { textContent: title }), h("button", { className: "x", textContent: "×", title: "Close (Esc)", onclick: close })),
+      h("div", { className: "dlg-head" }, h("b", { textContent: title }), h("button", { className: "x", textContent: "×", title: "Close (Esc)", onclick: closeDialog })),
       ...fields.flatMap(([label], k) => [h("label", { textContent: label }), inputs[k]]),
       h(
         "div",
         { className: "dlg-actions" },
-        h("button", { textContent: "Cancel", onclick: close }),
+        h("button", { textContent: "Cancel", onclick: closeDialog }),
         ...more.map(([label, fn]) => h("button", { textContent: label, onclick: () => (close(), fn()) })),
         h("button", { className: "primary", textContent: action, onclick: submit }),
       ),
@@ -888,7 +913,14 @@ function dialog(title: string, fields: [string, string][], action: string, save:
 }
 
 // WebKitGTK's confirm() returns true without showing anything
-const ask = (question: string, action: string) => new Promise<boolean>((done) => dialog(question, [], action, () => done(true)));
+const ask = (question: string, action: string) => new Promise<boolean>((done) => dialog(question, [], action, () => done(true), [], () => done(false)));
+
+// ssh asking for a key's passphrase, or git for https credentials, while krill runs them
+listen<string>("askpass", ({ payload: prompt }) => {
+  const secret = /passphrase|password/i.test(prompt);
+  const reply = (answer: string | null) => invoke("askpass_reply", { answer });
+  dialog(/passphrase/i.test(prompt) ? "SSH key passphrase" : "Sign in", [[prompt, "", secret ? "password" : "text"]], "OK", ([v]) => reply(v), [], () => reply(null));
+});
 
 const hiddenRemotes = (): string[] => JSON.parse(store(`hide:${repo}`) ?? "[]");
 
@@ -2766,6 +2798,26 @@ function resizer(grip: HTMLElement, box: HTMLElement, key: string, size: (m: Poi
 document.querySelectorAll<HTMLElement>("[data-op]").forEach((b) => (b.onclick = () => (b.dataset.op === "push" ? push() : b.dataset.op === "pull" ? pull() : op(b.dataset.op!))));
 $("pull-mode").onclick = pullMenu;
 paintPull();
+// when each repository was last fetched in the background
+const fetchedAt = new Map<string, number>();
+// repositories whose background fetch was told to need a passphrase or password, once a run
+const toldAuth = new Set<string>();
+/** A quiet fetch of the open repository, at most once a minute each: ahead/behind and remote branches stay fresh; failures (offline) stay silent. */
+function autoFetch() {
+  const r = repo;
+  if (!r || Date.now() - (fetchedAt.get(r) ?? 0) < 60_000 || document.body.classList.contains("busy")) return;
+  fetchedAt.set(r, Date.now());
+  run("git_op", { op: "auto-fetch", arg: "" }).then(
+    () => void (r === repo && refresh()),
+    (e) => {
+      if (!String(e).includes("krill: needs a passphrase or password") || toldAuth.has(r)) return;
+      toldAuth.add(r);
+      toast(`Auto-fetch skipped: ${aliases()[r] ?? basename(r)}`, "Its remote needs a passphrase or password, which a background fetch cannot ask for. Use Fetch to enter it.", "info");
+    },
+  );
+}
+addEventListener("focus", () => autoFetch());
+setInterval(() => autoFetch(), 5 * 60_000);
 document.querySelectorAll<HTMLElement>("[data-mode]").forEach((b) => (b.onclick = () => b.classList.contains("off") || setMode(b.dataset.mode as Mode)));
 $("new-tab").onclick = addTab;
 $("graph").addEventListener("scroll", () => drawRows(), { passive: true });
@@ -2779,7 +2831,7 @@ $("tab-find").onclick = () => {
 $("tab-q").oninput = renderTabHits;
 $("dialog").onclick = (e) => {
   // a click on the dimmed backdrop closes it
-  if (e.target === $("dialog")) $("dialog").hidden = true;
+  if (e.target === $("dialog")) closeDialog();
 };
 $("tab-q").onkeydown = (e) => {
   if (e.key === "Enter") $("tab-hits").querySelector<HTMLElement>(".tab-hit")?.click();
@@ -2961,7 +3013,7 @@ addEventListener("keydown", (e) => {
   else if (e.key === "Escape") {
     if (!$("menu").hidden) $("menu").hidden = $("submenu").hidden = true;
     else if (!$("banner").hidden) $("banner").hidden = true;
-    else if (!$("dialog").hidden) $("dialog").hidden = true;
+    else if (!$("dialog").hidden) closeDialog();
     else if (!$("tab-search").hidden) $("tab-search").hidden = true;
     else if (!$("find").hidden && !openFile()) closeFind();
     else if (hist) closeHistory();
