@@ -436,6 +436,8 @@ const exists = (path: string) => invoke("repo_root", { path }).then(() => true, 
 function renderToolbar() {
   if (!st) return;
   $("branch").textContent = st.branch || "detached HEAD";
+  $("repo-ico").innerHTML = svg(tabs[active].worktree ? ICONS.worktree : ICONS.repo);
+  $("branch-ico").innerHTML = svg(ICONS.branch);
   $("behind").textContent = st.behind ? `↓${st.behind}` : "";
   $("ahead").textContent = st.ahead ? `↑${st.ahead}` : "";
   $("opstate").hidden = !st.state;
@@ -1743,7 +1745,7 @@ async function renderPanel() {
   try {
     const info = await run<{ message: string; files: Change[] }>("commit_info", { hash: view.c.hash, parent: view.c.parents[0] ?? "" });
     if (n !== panelSeq) return;
-    const all = input("all-files").checked ? await run<string[]>("files", { at: view.c.hash }) : [];
+    const all = $("all-files").classList.contains("on") ? await run<string[]>("files", { at: view.c.hash }) : [];
     if (n !== panelSeq) return;
     const msg = view.message ?? info.message;
     $("c-head").replaceChildren(...view.head);
@@ -1809,12 +1811,14 @@ function conflictLine(): (Node | string)[] {
   return [ico(ICONS.error), `${k} file conflict${k === 1 ? "" : "s"} · `, ...opLine()];
 }
 
+const amending = () => $("amend").classList.contains("on");
+
 function renderCommitBtn() {
-  const amend = input("amend").checked, staged = st?.staged.length ?? 0;
+  const amend = amending(), staged = st?.staged.length ?? 0;
   const b = $("commit-btn") as HTMLButtonElement;
   countLeft(input("summary"), $("summary-n"));
   // an operation in progress commits through its Continue
-  b.hidden = $("amend-label").hidden = !!opInfo;
+  b.hidden = $("amend").hidden = !!opInfo;
   $("op-btns").hidden = !opInfo;
   if (opInfo) {
     const left = conflictCount(), c = $("op-continue");
@@ -1836,10 +1840,10 @@ function renderCommitBtn() {
 }
 
 async function commit() {
-  const amend = input("amend").checked;
+  const amend = amending();
   if (($("commit-btn") as HTMLButtonElement).disabled) return;
   if (await op(amend ? "amend" : "commit", getMsg())) {
-    input("amend").checked = false;
+    $("amend").classList.remove("on");
     setMsg("");
   }
 }
@@ -2984,9 +2988,10 @@ for (const id of ["summary", "desc"]) {
   };
 }
 $("summary").oninput = renderCommitBtn;
-$("amend").onchange = async () => {
+$("amend").onclick = async () => {
+  $("amend").classList.toggle("on");
   renderCommitBtn();
-  if (!input("amend").checked || getMsg()) return;
+  if (!amending() || getMsg()) return;
   const info = await run<{ message: string }>("commit_info", { hash: "HEAD", parent: "" }).catch(() => null);
   if (info) setMsg(info.message);
 };
@@ -2994,7 +2999,7 @@ $("term-btn").onclick = () => toggleTerm();
 $("term-close").onclick = () => toggleTerm(false);
 $("undo").onclick = () => walk(true);
 $("redo").onclick = () => walk(false);
-$("all-files").onchange = renderPanel;
+$("all-files").onclick = () => ($("all-files").classList.toggle("on"), renderPanel());
 document.querySelectorAll<HTMLElement>("[data-files]").forEach(
   (b) =>
     (b.onclick = () => {

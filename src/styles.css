@@ -69,6 +69,9 @@ header {
 .h-mid { display: flex; align-items: center; gap: 2px; }
 .sep { width: 1px; height: 28px; margin: 0 8px; background: var(--border); }
 #repo-name { font-weight: 600; font-size: 14px; }
+.h-side .ico svg { width: 15px; height: 15px; }
+#repo-ico { margin-right: -2px; color: var(--dim); }
+#branch-ico { margin: 0 -2px 0 8px; color: var(--accent); }
 #branch { font-weight: 600; color: var(--accent); }
 #opstate { color: var(--mod); }
 .tool {
@@ -102,7 +105,8 @@ header {
 }
 
 /* tabs */
-#tabs { display: flex; align-items: flex-end; gap: 2px; padding: 6px 8px 0; background: var(--panel); }
+/* a shade under the toolbar; the active tab takes the toolbar's colour and opens into it */
+#tabs { display: flex; align-items: flex-end; gap: 2px; padding: 6px 8px 0; background: var(--bg); }
 #tablist { display: flex; gap: 2px; min-width: 0; overflow-x: auto; }
 .tab {
   position: relative;
@@ -119,17 +123,19 @@ header {
 }
 .tab:hover { background: var(--hover); }
 .tab.drag { cursor: grabbing; background: var(--sel); }
-/* a line between two tabs, none beside the active one */
-.tab + .tab:not(.on, .on + .tab)::before { content: ""; position: absolute; left: -2px; top: 9px; bottom: 9px; width: 2px; border-radius: 1px; background: color-mix(in srgb, var(--dim) 55%, transparent); }
+/* a line between two tabs */
+.tab + .tab::before { content: ""; position: absolute; left: -2px; top: 9px; bottom: 9px; width: 2px; border-radius: 1px; background: color-mix(in srgb, var(--dim) 55%, transparent); }
 .tab .ico svg { width: 15px; height: 15px; }
-.tab.on { background: var(--bg); color: var(--text); box-shadow: inset 0 2px var(--accent); }
+.tab.on { background: var(--panel); color: var(--text); box-shadow: inset 0 2px var(--accent); }
 .tab .x { border: none; background: none; padding: 0 5px; color: var(--dim); visibility: hidden; }
 .tab:hover .x, .tab.on .x { visibility: visible; }
 .tab .x:hover { color: var(--text); background: var(--hover); }
 .tab-alias { width: 140px; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--accent); border-radius: 4px; padding: 0 4px; }
 #new-tab { border: none; background: none; color: var(--dim); font-size: 18px; padding: 4px 12px; }
-#tab-find { margin: 0 0 4px auto; padding: 2px 6px; border: none; background: none; color: var(--dim); line-height: 0; }
+#tab-find { margin: 0 0 4px auto; padding: 3px 6px; border: none; background: none; color: color-mix(in srgb, var(--text) 75%, transparent); line-height: 0; }
+#tab-find:hover, #new-tab:hover { color: var(--accent); background: var(--hover); }
 #tab-find svg, #find svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#tab-find svg { width: 20px; height: 20px; }
 #tab-search {
   position: fixed;
   top: 34px;
@@ -362,7 +368,8 @@ body.home main { grid-template-columns: 1fr; }
 .head > button { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 600; font-size: 13px; }
 .p-title { display: flex; gap: 12px; padding: 10px 10px 6px; color: var(--dim); font-size: 13px; }
 .files-opts { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 4px 10px 6px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--dim); }
-.files-opts label { justify-self: end; }
+.files-opts label, #all-files { justify-self: end; }
+#all-files { padding: 1px 10px; }
 .file-filter { grid-column: 1 / -1; margin-top: 6px; }
 .fo-left { display: flex; gap: 4px; justify-self: start; }
 .fo-left button { padding: 1px 6px; font-size: 12px; }
@@ -405,7 +412,7 @@ body.home main { grid-template-columns: 1fr; }
 .c-r { color: var(--ren); }
 #commit-box { display: flex; flex-direction: column; gap: 6px; padding: 10px; border-top: 1px solid var(--border); }
 .cb-head { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--dim); }
-.cb-head label { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 13px; }
+.cb-head #amend { padding: 1px 10px; text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 13px; }
 .summary { position: relative; }
 .summary small { position: absolute; right: 8px; top: 7px; font-size: 12px; color: var(--dim); }
 .summary small.over { color: var(--del); }
@@ -448,7 +455,8 @@ textarea.msg-in { height: 104px; resize: vertical; }
 .edit-btns button { padding: 6px; }
 .edit-btns .good { background: color-mix(in srgb, var(--add) 22%, transparent); border-color: var(--add); color: var(--text); }
 .edit-btns .bad { background: color-mix(in srgb, var(--del) 22%, transparent); border-color: var(--del); color: var(--text); }
-.sha { cursor: pointer; }
+/* brighter than the text around it: it can be clicked */
+.sha { cursor: pointer; color: var(--text); }
 .sha:hover { color: var(--accent); text-decoration: underline; }
 #c-summary { font-size: 16px; font-weight: 600; white-space: pre-wrap; }
 #c-desc:not(:empty) { white-space: pre-wrap; font-size: 13.5px; color: color-mix(in srgb, var(--text) 78%, var(--bg)); }
