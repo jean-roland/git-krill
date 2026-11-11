@@ -1,0 +1,943 @@
+// Monaco views: the diff with hunk and line staging, the merge tool, file history and blame.
+import type * as Monaco from "monaco-editor/esm/vs/editor/edcore.main";
+import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
+import { applyChanges, allLines, pickLines, parseConflicts, mergeSides, pickedLines, parseBlame, toggleSide, toggleLine, hasSide, pickedOf } from "./core.js";
+import { Blob, Change, Commit, active, dropEdits, gitOp, headHash, opInfo, recordUndo, refresh, run, status, tabs } from "./repo";
+import { $, COLORS, MenuItem, ask, avatar, avatarSvg, basename, colorIndex, copy, dateFmt, dayFmt, esc, h, input, popup, say, short, store, toast } from "./ui";
+import { isConflict, markOpenFile, wipFiles } from "./panel";
+
+export type DiffSource = "unstaged" | "staged" | "commit";
+export type Mode = "hunk" | "inline" | "split";
+type LineChange = { os: number; oe: number; ms: number; me: number };
+type Lines = { removed: Set<number>; added: Set<number> };
+
+(self as any).MonacoEnvironment = { getWorker: () => new EditorWorker() };
+// most of the bundle: loaded after the first paint, awaited by whatever opens a diff
+export let monaco: typeof Monaco;
+let monacoLoad: Promise<void> | null = null;
+export const loadMonaco = () =>
+  (monacoLoad ??= Promise.all([
+    import("monaco-editor/esm/vs/editor/edcore.main"),
+    import("monaco-editor/esm/vs/basic-languages/monaco.contribution"),
+    import("monaco-editor/esm/vs/basic-languages/cpp/cpp.js"),
+  ]).then(([m, , cpp]) => {
+    monaco = m;
+    // VS Code colors C names from its language server: guess macros, calls and types from their shape
+    const root = [
+      [/[A-Z][A-Z0-9_]+\b/, "identifier.macro"],
+      [/[a-zA-Z_]\w*(?=\s*\()/, { cases: { "@keywords": "keyword.$0", "@default": "identifier.function" } }],
+      [/[a-zA-Z_]\w*_t\b/, "type"],
+      ...cpp.language.tokenizer.root,
+    ] as Monaco.languages.IMonarchLanguageRule[];
+    for (const id of ["c", "cpp"]) monaco.languages.setMonarchTokensProvider(id, { ...cpp.language, tokenizer: { ...cpp.language.tokenizer, root } });
+  }));
+export let diffFile: { kind: DiffSource; f: Change; c?: Commit; orig: Blob; mod: Blob; dirty: boolean } | null = null;
+export let diffEditor: Monaco.editor.IStandaloneDiffEditor | null = null;
+// hunk header bars, as view zone ids per side
+let hunkZones: { mod: string[]; orig: string[]; nodes: HTMLElement[] } = { mod: [], orig: [], nodes: [] };
+let hunks: LineChange[] = [];
+let lastSide: "orig" | "mod" = "mod";
+let modelSeq = 0;
+
+/* diff */
+
+export function editor() {
+  if (diffEditor) return diffEditor;
+  monaco.editor.defineTheme("krill", {
+    base: "vs-dark",
+    inherit: true,
+    // VS Code's Dark Modern syntax colors
+    rules: [
+      { token: "comment", foreground: "6a9955" },
+      { token: "keyword", foreground: "569cd6" },
+      { token: "keyword.directive", foreground: "c586c0" },
+      ...["if", "else", "for", "while", "do", "switch", "case", "default", "break", "continue", "return", "goto"].map((k) => ({ token: `keyword.${k}`, foreground: "c586c0" })),
+      { token: "string", foreground: "ce9178" },
+      { token: "string.escape", foreground: "d7ba7d" },
+      { token: "number", foreground: "b5cea8" },
+      { token: "type", foreground: "4ec9b0" },
+      { token: "identifier", foreground: "9cdcfe" },
+      { token: "identifier.function", foreground: "dcdcaa" },
+      { token: "identifier.macro", foreground: "569cd6" },
+      { token: "regexp", foreground: "d16969" },
+      { token: "delimiter", foreground: "cccccc" },
+    ],
+    colors: {
+      "editor.foreground": "#cccccc",
+      "editor.background": "#1b1f27",
+      "editorGutter.background": "#1b1f27",
+      "editorLineNumber.foreground": "#5d6575",
+      "editorLineNumber.activeForeground": "#e4e8ef",
+      "editor.lineHighlightBackground": "#222833",
+      "editor.selectionBackground": "#1a9ea666",
+      "editorWidget.background": "#232832",
+      "scrollbarSlider.background": "#ffffff14",
+      "diffEditor.insertedLineBackground": "#3ee88f14",
+      "diffEditor.insertedTextBackground": "#3ee88f38",
+      "diffEditor.removedLineBackground": "#ff547014",
+      "diffEditor.removedTextBackground": "#ff547038",
+      "diffEditor.diagonalFill": "#ffffff0c",
+      "diffEditorGutter.insertedLineBackground": "#3ee88f30",
+      "diffEditorGutter.removedLineBackground": "#ff547030",
+    },
+  });
+
+  diffEditor = monaco.editor.createDiffEditor($("editor"), {
+    theme: "krill",
+    automaticLayout: true,
+    fontFamily: getComputedStyle(document.body).getPropertyValue("--mono"),
+    fontSize: 13,
+    stickyScroll: { enabled: false },
+    scrollBeyondLastLine: false,
+    // its height lands ~200 ms late, once long lines are measured, and rescales the change markers; Shift+wheel still scrolls sideways
+    scrollbar: { horizontal: "hidden" },
+    // whitespace-only changes must show: they get staged too
+    ignoreTrimWhitespace: false,
+    originalEditable: false,
+    renderMarginRevertIcon: false,
+    renderGutterMenu: false,
+    useInlineViewWhenSpaceIsLimited: false,
+    // ours instead: line actions, no command palette
+    contextmenu: false,
+  });
+  const me = diffEditor.getModifiedEditor();
+  lineActions(me, false);
+  lineActions(diffEditor.getOriginalEditor(), true);
+  me.onDidFocusEditorText(() => (lastSide = "mod"));
+  diffEditor.getOriginalEditor().onDidFocusEditorText(() => (lastSide = "orig"));
+  diffEditor.onDidUpdateDiff(updateHunkBars);
+  me.onDidLayoutChange(fitHunkBars);
+  // the text layer covers view zones and Monaco hit-tests itself: match the mouse to a bar button by position
+  const barButton = (e: Monaco.editor.IEditorMouseEvent) => {
+    if (e.target.type !== monaco.editor.MouseTargetType.CONTENT_VIEW_ZONE) return undefined;
+    const node = hunkZones.nodes[hunkZones.mod.indexOf(e.target.detail.viewZoneId)];
+    const { clientX: x, clientY: y } = e.event.browserEvent;
+    return [...(node?.querySelectorAll("button") ?? [])].find((b) => {
+      const r = b.getBoundingClientRect();
+      return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    });
+  };
+  let hovered: HTMLElement | undefined;
+  const hoverButton = (b?: HTMLElement) => {
+    hovered?.classList.remove("hover");
+    (hovered = b)?.classList.add("hover");
+    me.getDomNode()!.classList.toggle("on-button", !!b);
+  };
+  me.onMouseMove((e) => hoverButton(barButton(e)));
+  me.onMouseLeave(() => hoverButton());
+  me.onMouseDown((e) => barButton(e)?.click());
+  me.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => save().then(refresh));
+  setMode((store("mode") as Mode) || "hunk");
+  return diffEditor;
+}
+
+/** The line-level actions of one side: a +/− on the hovered changed line and the right-click menu. */
+function lineActions(ed: Monaco.editor.ICodeEditor, orig: boolean) {
+  const hover = ed.createDecorationsCollection();
+  const staging = () => !!diffFile && diffFile.kind !== "commit";
+  const changed = (l: number) => hunks.some((c) => (orig ? c.oe && l >= c.os && l <= c.oe : c.me && l >= c.ms && l <= c.me));
+  const act = () => (diffFile?.kind === "staged" ? "unstage" : "stage");
+  let at = -1;
+  ed.onMouseMove((e) => {
+    // a view zone reports the line next to it
+    const zone = [monaco.editor.MouseTargetType.CONTENT_VIEW_ZONE, monaco.editor.MouseTargetType.GUTTER_VIEW_ZONE].includes(e.target.type);
+    const l = zone ? 0 : (e.target.position?.lineNumber ?? 0);
+    if (l === at) return;
+    at = l;
+    const on = staging() && changed(l);
+    const cls = `line-act ${act()}`;
+    hover.set(on ? [{ range: new monaco.Range(l, 1, l, 1), options: { glyphMarginClassName: cls, glyphMarginHoverMessage: { value: `${act() === "stage" ? "Stage" : "Unstage"} this line` } } }] : []);
+  });
+  ed.onMouseLeave(() => ((at = -1), hover.clear()));
+  ed.onMouseDown((e) => {
+    at = -1;
+    const l = e.target.position?.lineNumber ?? 0;
+    // the + spills from the glyph margin into the line decorations column
+    const gutter = [monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN, monaco.editor.MouseTargetType.GUTTER_LINE_DECORATIONS];
+    if (!gutter.includes(e.target.type) || !staging() || !changed(l)) return;
+    const one = new Set([l]), none = new Set<number>();
+    applyLines(orig ? { removed: one, added: none } : { removed: none, added: one }, act());
+  });
+  if (!orig) removedLineActions(ed, staging, act);
+  ed.onContextMenu((e) => {
+    lastSide = orig ? "orig" : "mod";
+    const sel = ed.getSelection(), model = ed.getModel();
+    const text = sel && model ? (sel.isEmpty() ? model.getLineContent(sel.startLineNumber) : model.getValueInRange(sel)) : "";
+    const lines = (action: "stage" | "unstage" | "discard") => () => applyLines(selectedLines(), action);
+    popup(e.event.browserEvent, [
+      ...(diffFile?.kind === "unstaged" && staging()
+        ? ([["Discard selected lines", lines("discard")], ["Stage selected lines", lines("stage")]] as MenuItem[])
+        : []),
+      ...(diffFile?.kind === "staged" ? ([["Unstage selected lines", lines("unstage")]] as MenuItem[]) : []),
+      null,
+      ["Copy", () => copy(text)],
+    ]);
+  });
+}
+
+/** The +/− of each removed line in inline view, where Monaco draws them in a view zone, not as editor lines. */
+function removedLineActions(ed: Monaco.editor.ICodeEditor, staging: () => boolean, act: () => "stage" | "unstage") {
+  const mark = h("div", {});
+  const lh = () => ed.getOption(monaco.editor.EditorOption.lineHeight);
+  // ours, not Monaco's deleted-lines menu
+  mark.addEventListener("mousedown", (ev) => ev.stopPropagation());
+  mark.addEventListener("pointerdown", (ev) => {
+    ev.stopPropagation();
+    ev.preventDefault();
+    mark.remove();
+    applyLines({ removed: new Set([Number(mark.dataset.line)]), added: new Set() }, act());
+  });
+  ed.onMouseMove((e) => {
+    const t = e.target;
+    const zone = t.type === monaco.editor.MouseTargetType.CONTENT_VIEW_ZONE || t.type === monaco.editor.MouseTargetType.GUTTER_VIEW_ZONE ? t.detail : undefined;
+    const margin = zone && ed.getDomNode()!.querySelector<HTMLElement>(`.inline-deleted-margin-view-zone[monaco-view-zone="${zone.viewZoneId}"]`);
+    // a deletion at the top of the file follows line 0
+    const after = zone?.positionBefore ? zone.afterLineNumber : 0;
+    const c = hunks.find((c) => c.oe && (c.me ? c.ms - 1 : c.ms) === after);
+    const i = margin ? Math.floor((e.event.browserEvent.clientY - margin.getBoundingClientRect().top) / lh()) : -1;
+    if (!margin || !c || !staging() || i < 0 || c.os + i > c.oe) return mark.remove();
+    const lay = ed.getLayoutInfo();
+    mark.className = `line-act ${act()}`;
+    mark.title = `${act() === "stage" ? "Stage" : "Unstage"} this line`;
+    mark.dataset.line = String(c.os + i);
+    Object.assign(mark.style, { position: "absolute", top: `${i * lh()}px`, left: `${lay.glyphMarginLeft}px`, width: `${lay.glyphMarginWidth}px`, height: `${lh()}px` });
+    margin.append(mark);
+  });
+  ed.onMouseLeave(() => mark.remove());
+}
+
+function setOptions(o: Monaco.editor.IDiffEditorOptions) {
+  editor().updateOptions(o);
+  // the diff editor forces its sub-editors' minimap off on every update; hunk view hides too much for one
+  const minimap = { enabled: store("mode") !== "hunk", renderCharacters: false, showSlider: "always" as const };
+  editor().getModifiedEditor().updateOptions({ minimap });
+}
+
+export function setMode(m: Mode) {
+  store("mode", m);
+  setOptions({ renderSideBySide: m === "split", hideUnchangedRegions: { enabled: m === "hunk" } });
+  updateHunkBars();
+  document.querySelectorAll<HTMLElement>("[data-mode]").forEach((b) => b.classList.toggle("on", b.dataset.mode === m));
+}
+
+const lineChanges = (): LineChange[] =>
+  (editor().getLineChanges() ?? []).map((c) => ({
+    os: c.originalStartLineNumber,
+    oe: c.originalEndLineNumber,
+    ms: c.modifiedStartLineNumber,
+    me: c.modifiedEndLineNumber,
+  }));
+
+/** Undo hunk `c` of the shown commit in the working tree, where it shows up unstaged for review. */
+async function revertHunk(c: LineChange) {
+  if (!diffFile?.c) return;
+  const { f } = diffFile, at = diffFile.c;
+  try {
+    await run("revert_hunk", { commit: at.hash, parent: at.parents[0] ?? "", path: f.path, line: c.ms });
+    toast(`Reverted a hunk of ${basename(f.path)}`, `From ${short(at.hash)}: the change is in the working tree, unstaged.`, "info");
+  } catch (e) {
+    say(String(e), true);
+  }
+  refresh();
+}
+
+/** A header bar above each hunk with its stage / unstage / discard / revert buttons. */
+function updateHunkBars() {
+  const ed = editor(), split = store("mode") === "split";
+  const acts: [string, string][] =
+    !diffFile ? []
+    : diffFile.kind === "unstaged" ? [["discard", "Discard hunk"], ["stage", "Stage hunk"]]
+    : diffFile.kind === "staged" ? [["unstage", "Unstage hunk"]]
+    : diffFile.c?.hash !== "WORKTREE" ? [["revert", "Revert hunk"]]
+    : [];
+  hunks = diffFile ? lineChanges() : [];
+  // bars head the hunks between folds; in the whole file the line numbers say where a change is
+  const shown = store("mode") === "hunk" ? hunks : [];
+  const bar = (c: LineChange, buttons: boolean) => {
+    const count = (s: number, e: number) => (e ? e - s + 1 : 0);
+    const el = h("div", { className: "hunk-bar" }, h("span", { textContent: `@@ -${c.os},${count(c.os, c.oe)} +${c.ms},${count(c.ms, c.me)} @@` }));
+    if (buttons)
+      for (const [act, label] of acts) {
+        el.append(h("button", { className: `hunk-${act}`, textContent: label, onclick: () => (act === "revert" ? revertHunk(c) : applyLines(allLines([c]), act as "stage" | "unstage" | "discard")) }));
+      }
+    // Monaco sets display on the zone node itself: the flex bar goes inside it
+    return h("div", {}, el);
+  };
+  // a pure insertion or deletion sits after its anchor line, a change replaces lines from its start
+  ed.getModifiedEditor().changeViewZones((z) => {
+    hunkZones.mod.forEach((id) => z.removeZone(id));
+    hunkZones.nodes = shown.map((c) => bar(c, true));
+    hunkZones.mod = shown.map((c, i) => z.addZone({ afterLineNumber: c.me ? c.ms - 1 : c.ms, heightInPx: 30, domNode: hunkZones.nodes[i] }));
+  });
+  // the original side gets the same bars in split view, so both sides stay aligned
+  ed.getOriginalEditor().changeViewZones((z) => {
+    hunkZones.orig.forEach((id) => z.removeZone(id));
+    hunkZones.orig = split ? shown.map((c) => z.addZone({ afterLineNumber: c.oe ? c.os - 1 : c.os, heightInPx: 30, domNode: bar(c, false) })) : [];
+  });
+  fitHunkBars();
+}
+
+/** Hunk bars as wide as the visible text area, not the longest line, so the buttons stay in view. */
+function fitHunkBars() {
+  const lay = editor().getModifiedEditor().getLayoutInfo();
+  editor().getContainerDomNode().querySelectorAll<HTMLElement>(".hunk-bar").forEach((b) => (b.style.width = `${lay.contentWidth - lay.verticalScrollbarWidth}px`));
+}
+
+async function fetchSides(kind: DiffSource, f: Change, c?: Commit): Promise<[Blob, Blob]> {
+  const none: Blob = { text: "", exists: false, binary: false };
+  const blob = (at: string, path: string) => (at ? run<Blob>("blob", { at, path }) : Promise.resolve(none));
+  const old = f.old ?? f.path;
+  if (kind === "unstaged") return Promise.all([blob("INDEX", f.path), blob("WORKTREE", f.path)]);
+  if (kind === "staged") return Promise.all([blob("HEAD", old), blob("INDEX", f.path)]);
+  return Promise.all([blob(c!.parents[0] ?? "", old), blob(c!.hash, f.path)]);
+}
+
+export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistory = false) {
+  await loadMonaco();
+  // a file picked outside the history leaves it
+  if (hist && !inHistory) await closeHistory();
+  if (kind === "unstaged" && isConflict(f)) return openConflict(f);
+  // clicking the open file again closes it
+  if (diffFile && diffFile.kind === kind && diffFile.f.path === f.path && diffFile.c?.hash === c?.hash && diffFile.c?.parents[0] === c?.parents[0]) return closeDiff();
+  if (!(await dropEdits())) return;
+  let orig: Blob, mod: Blob;
+  try {
+    [orig, mod] = await fetchSides(kind, f, c);
+  } catch (e) {
+    return say(String(e), true);
+  }
+  diffFile = { kind, f, c, orig, mod, dirty: false };
+  $("diff").hidden = false;
+  document.body.classList.add("diffing");
+  const range = c ? `  ·  ${c.parents[0] ? short(c.parents[0]) : "root"}..${short(c.hash)}` : "";
+  $("d-path").textContent = (f.old ? `${f.old} → ${f.path}` : f.path) + range;
+  paintOpenEditor();
+  markOpenFile();
+  // Monaco normalizes line endings, so a CRLF<->LF rewrite would not show at all
+  const eol = (t: string) => (t.includes("\r\n") ? "CRLF" : t.includes("\n") ? "LF" : "");
+  if (eol(orig.text) && eol(mod.text) && eol(orig.text) !== eol(mod.text))
+    say(`${f.path}: line endings changed ${eol(orig.text)} → ${eol(mod.text)}, not shown in the diff`, true);
+  const binary = orig.binary || mod.binary;
+  $("editor").hidden = binary;
+  $("binary").hidden = !binary;
+  $("save").hidden = true;
+  if (binary) return;
+  // the folds land a moment after the text: the bare file would flash in between
+  if (!inHistory) $("diff").classList.add("blank");
+  setModels(false);
+  diffDrawn().then(() => requestAnimationFrame(() => $("diff").classList.remove("blank")));
+}
+
+function paintOpenEditor() {
+  if (!diffFile) return;
+  const { f } = diffFile;
+  // a file from another branch may not be on disk: say so on the button, not as an error
+  const ed = $("open-editor");
+  run<boolean>("in_worktree", { path: f.path }).then((ok) => {
+    if (diffFile?.f.path !== f.path) return;
+    // a class, not `disabled`: WebKit shows no tooltip on a disabled button
+    ed.classList.toggle("off", !ok);
+    ed.title = ok ? "Open the working tree file in VS Code" : `${f.path} is not in the working tree (not on the checked out branch)`;
+  });
+}
+
+function setModels(keepView: boolean) {
+  if (!diffFile) return;
+  const ed = editor();
+  const view = keepView ? ed.saveViewState() : null;
+  const prev = ed.getModel();
+  const uri = (side: string) => monaco.Uri.from({ scheme: "krill", path: `/${++modelSeq}/${side}/${diffFile!.f.path}` });
+  const modified = monaco.editor.createModel(diffFile.mod.text, undefined, uri("b"));
+  ed.setModel({ original: monaco.editor.createModel(diffFile.orig.text, undefined, uri("a")), modified });
+  prev?.original.dispose();
+  prev?.modified.dispose();
+  setOptions({ readOnly: !(diffFile.kind === "unstaged" && diffFile.mod.exists), glyphMargin: diffFile.kind !== "commit" });
+  modified.onDidChangeContent(() => {
+    if (!diffFile) return;
+    diffFile.dirty = true;
+    $("save").hidden = false;
+  });
+  if (view) ed.restoreViewState(view);
+}
+
+export async function reloadDiff() {
+  if (!diffFile || diffFile.dirty || !status) return;
+  // the file may have moved between lists or changed status code
+  if (diffFile.kind !== "commit") diffFile.f = status[diffFile.kind].find((x) => x.path === diffFile!.f.path) ?? diffFile.f;
+  // a commit's sides never change, the uncommitted row of a file history aside
+  else if (diffFile.c?.hash !== "WORKTREE") return paintOpenEditor();
+  const [orig, mod] = await fetchSides(diffFile.kind, diffFile.f, diffFile.c);
+  if (!diffFile || diffFile.dirty) return;
+  paintOpenEditor();
+  if (orig.text === diffFile.orig.text && mod.text === diffFile.mod.text && orig.binary === diffFile.orig.binary) return;
+  Object.assign(diffFile, { orig, mod });
+  if (!orig.binary && !mod.binary) setModels(true);
+}
+
+export async function closeDiff(force = false) {
+  if (!force && diffFile?.dirty && !(await ask(`Drop unsaved edits to ${diffFile.f.path}?`, "Drop edits"))) return;
+  diffFile = null;
+  $("diff").hidden = true;
+  document.body.classList.remove("diffing");
+  markOpenFile();
+}
+
+export async function save() {
+  if (!diffFile?.dirty) return;
+  const text = editor().getModifiedEditor().getModel()!.getValue(monaco.editor.EndOfLinePreference.TextDefined, true);
+  try {
+    await run("write_file", { path: diffFile.f.path, text });
+  } catch (e) {
+    return say(String(e), true);
+  }
+  diffFile.mod.text = text;
+  diffFile.dirty = false;
+  $("save").hidden = true;
+  say(`saved ${diffFile.f.path}`);
+}
+
+/** Changed lines under the selection of the side that had focus last. */
+function selectedLines(): Lines {
+  const fromOrig = lastSide === "orig" && store("mode") === "split";
+  const side = fromOrig ? editor().getOriginalEditor() : editor().getModifiedEditor();
+  const sel = new Set<number>();
+  for (const s of side.getSelections() ?? []) {
+    // a drag ending at column 1 does not take that line
+    const end = s.endLineNumber > s.startLineNumber && s.endColumn === 1 ? s.endLineNumber - 1 : s.endLineNumber;
+    for (let l = s.startLineNumber; l <= end; l++) sel.add(l);
+  }
+  return pickLines(lineChanges(), sel, fromOrig);
+}
+
+async function applyLines(pick: Lines, action: "stage" | "unstage" | "discard") {
+  if (!diffFile) return;
+  if (!pick.removed.size && !pick.added.size) return say("no changed line under the cursor/selection", true);
+  await save();
+  const { f, orig, mod } = diffFile;
+  const ch = lineChanges(), all = allLines(ch);
+  const whole = pick.removed.size === all.removed.size && pick.added.size === all.added.size;
+  const minus = (a: Set<number>, b: Set<number>) => new Set([...a].filter((x) => !b.has(x)));
+  const keep = () => applyChanges(orig.text, mod.text, ch, minus(all.removed, pick.removed), minus(all.added, pick.added));
+  if (action === "discard") return discard(f.path, f.code === "?", whole ? undefined : keep());
+  if (whole) {
+    await gitOp(action, f.path);
+    return;
+  }
+  try {
+    if (action === "stage") await run("stage_text", { path: f.path, text: applyChanges(orig.text, mod.text, ch, pick.removed, pick.added) });
+    if (action === "unstage") await run("stage_text", { path: f.path, text: keep() });
+    say(`${action}d ${pick.removed.size + pick.added.size} line(s) of ${f.path}`);
+  } catch (e) {
+    say(String(e), true);
+  }
+  await refresh();
+}
+
+/** Discard `path` back to the index, or to `text` for some of its lines; undone by writing the old text back. */
+export async function discard(path: string, untracked: boolean, text?: string) {
+  const t = tabs[active];
+  const read = async () => {
+    const b = await run<Blob>("blob", { at: "WORKTREE", path });
+    return b.binary ? undefined : b.exists ? b.text : null;
+  };
+  const before = await read().catch(() => undefined);
+  if (text === undefined) await gitOp(untracked ? "clean" : "discard", path);
+  else await run("write_file", { path, text }).then(() => say(`discarded lines of ${path}`), (e) => say(String(e), true));
+  const after = await read().catch(() => undefined);
+  await refresh();
+  // a binary file has no text to put back
+  if (before === undefined || after === undefined || before === after) return;
+  const head = headHash(), branch = status?.branch ?? "";
+  recordUndo(t, { op: "discard", branch: [branch, branch], head: [head, head], file: [path, before, after] });
+}
+
+/* merge tool */
+
+type Chunk = ReturnType<typeof parseConflicts>[number];
+type Conflict = Exclude<Chunk, string[]>;
+type Side = "a" | "b";
+// a picked line: its side and its index in that side's conflict lines, -1 taking an empty side
+type Pick = [Side, number];
+// the file in the merge tool: its diff3 chunks, the sides picked per conflict in click order,
+// each conflict's lines in the two side panes, and its tracked range in the output
+// hover: the side line under the mouse, as "a:12"
+export let merging: { f: Change; chunks: Chunk[]; picks: Pick[][]; spans: { a: number[]; b: number[] }[]; ids: string[]; at: number; dirty: boolean; hover: string } | null = null;
+let mergeEds: {
+  a: Monaco.editor.IStandaloneCodeEditor;
+  b: Monaco.editor.IStandaloneCodeEditor;
+  out: Monaco.editor.IStandaloneCodeEditor;
+  marks: Map<Monaco.editor.IStandaloneCodeEditor, Monaco.editor.IEditorDecorationsCollection>;
+} | null = null;
+
+const conflictsOf = (chunks: Chunk[]) => chunks.filter((c): c is Conflict => !Array.isArray(c));
+const lineSpan = ([s, n]: number[]) => new monaco.Range(s, 1, s + n, 1);
+// a conflict's box sits at the middle of its lines (class half: between the two middle ones), or on the line after an empty side
+const boxLine = (ed: Monaco.editor.ICodeEditor, [s, n]: number[]) => Math.min(n ? s + Math.floor((n - 1) / 2) : s, ed.getModel()!.getLineCount());
+// NeverGrowsWhenTypingAtEdges, by value: Monaco is not loaded when this runs
+const tracked = { stickiness: 1 as Monaco.editor.TrackedRangeStickiness };
+
+/** A plain editor's options, like the diff editor's. */
+const plainOpts = (): Monaco.editor.IStandaloneEditorConstructionOptions => ({
+  theme: "krill",
+  automaticLayout: true,
+  fontFamily: getComputedStyle(document.body).getPropertyValue("--mono"),
+  fontSize: 13,
+  scrollBeyondLastLine: false,
+  stickyScroll: { enabled: false },
+  contextmenu: false,
+});
+
+/** The merge tool's three editors, made on first use. */
+function mergeEditors() {
+  if (mergeEds) return mergeEds;
+  editor();
+  // no folding: its arrows would crowd the line buttons
+  const opts = { ...plainOpts(), minimap: { enabled: false }, glyphMargin: true, folding: false };
+  // the side panes' line buttons sit right of the line numbers
+  const a = monaco.editor.create($("m-a"), { ...opts, readOnly: true, lineDecorationsWidth: 22 });
+  const b = monaco.editor.create($("m-b"), { ...opts, readOnly: true, lineDecorationsWidth: 22 });
+  const out = monaco.editor.create($("m-out"), opts);
+  // the gutter's CSS centres the boxes and draws the bars from these
+  $("merge").style.setProperty("--m-box", `${a.getLayoutInfo().glyphMarginWidth}px`);
+  $("merge").style.setProperty("--m-lh", `${a.getOption(monaco.editor.EditorOption.lineHeight)}px`);
+  for (const [ed, side] of [[a, "a"], [b, "b"]] as const) {
+    // the box column beside a conflict picks the whole side; a line's number or button, that line
+    ed.onMouseDown((e) => {
+      const ln = e.target.position?.lineNumber ?? 0, T = monaco.editor.MouseTargetType;
+      if (!merging) return;
+      if (e.target.type === T.GUTTER_GLYPH_MARGIN) {
+        // an empty side has no lines: its box is on the line after
+        const k = lineIn(side, ln)?.k ?? merging.spans.findIndex((s) => !s[side][1] && boxLine(ed, s[side]) === ln);
+        if (k >= 0) pick(k, side);
+      } else if (e.target.type === T.GUTTER_LINE_DECORATIONS || e.target.type === T.GUTTER_LINE_NUMBERS) {
+        const hit = lineIn(side, ln);
+        if (hit) pickLine(hit.k, side, hit.i);
+        // Monaco selects a clicked line number's line after this: drop it
+        setTimeout(() => ed.setSelection(new monaco.Selection(ln, 1, ln, 1)));
+      }
+    });
+    const hover = (ln: number) => {
+      const h = merging && lineIn(side, ln) ? `${side}:${ln}` : "";
+      if (merging && h !== merging.hover) (merging.hover = h), paintMerge();
+    };
+    ed.onMouseMove((e) => hover(e.target.position?.lineNumber ?? 0));
+    ed.onMouseLeave(() => hover(0));
+  }
+  out.onDidChangeModelContent(() => merging && (merging.dirty = true));
+  out.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveMerge());
+  // the panes follow each other, matching lines across the conflicts
+  const panes = [[a, "a"], [b, "b"], [out, "out"]] as const;
+  let syncing = false;
+  for (const [ed, from] of panes)
+    ed.onDidScrollChange((e) => {
+      if (syncing || !merging || !$("m-sync").classList.contains("on") || !(e.scrollTopChanged || e.scrollLeftChanged)) return;
+      syncing = true;
+      const lh = ed.getOption(monaco.editor.EditorOption.lineHeight), top = e.scrollTop / lh;
+      for (const [other, to] of panes)
+        if (other !== ed) {
+          other.setScrollLeft(e.scrollLeft);
+          other.setScrollTop((mapLine(Math.floor(top) + 1, from, to) - 1 + (top % 1)) * lh);
+        }
+      syncing = false;
+    });
+  mergeEds = { a, b, out, marks: new Map([a, b, out].map((ed) => [ed, ed.createDecorationsCollection()])) };
+  return mergeEds;
+}
+
+/** A conflicted file: the merge tool when both sides have text, else a banner to pick a whole side. */
+async function openConflict(f: Change) {
+  if (merging?.f.path === f.path) return closeMerge();
+  if (!(await closeMerge())) return;
+  await closeDiff();
+  if (diffFile) return;
+  const text = f.conflict === "UU" || f.conflict === "AA" ? await run<Blob>("conflict_text", { path: f.path }).catch(() => null) : null;
+  if (!text || text.binary) return conflictBanner(f);
+  merging = { f, chunks: parseConflicts(text.text), picks: [], spans: [], ids: [], at: 0, dirty: false, hover: "" };
+  $("merge").hidden = false;
+  document.body.classList.add("diffing");
+  $("m-path").textContent = f.path;
+  $("m-a-name").textContent = opInfo?.current ?? "";
+  $("m-b-name").textContent = opInfo?.incoming ?? "";
+  $("m-a-commit").textContent = opInfo?.currentCommit ?? "";
+  $("m-b-commit").textContent = opInfo?.incomingCommit ?? "";
+  loadMerge();
+  markOpenFile();
+}
+
+/** Fill the panes from the chunks, nothing picked: the output holds each conflict's base. */
+export function loadMerge() {
+  const m = merging!, eds = mergeEditors(), s = mergeSides(m.chunks, []);
+  m.picks = s.regions.map(() => []);
+  m.spans = s.regions.map((r) => ({ a: r.a, b: r.b }));
+  for (const [ed, text, side] of [[eds.a, s.a, "a"], [eds.b, s.b, "b"], [eds.out, s.out, "out"]] as const) {
+    const old = ed.getModel();
+    ed.setModel(monaco.editor.createModel(text, undefined, monaco.Uri.from({ scheme: "krill", path: `/${++modelSeq}/${side}/${m.f.path}` })));
+    old?.dispose();
+  }
+  // edits move the output's conflicts around: decorations keep track of them
+  m.ids = eds.out.getModel()!.deltaDecorations([], s.regions.map((r) => ({ range: lineSpan(r.out), options: tracked })));
+  m.dirty = false;
+  paintMerge();
+  goConflict(0);
+}
+
+type Pane = Side | "out";
+
+/** Conflict `k`'s [first line, count] in a pane. */
+function paneSpan(p: Pane, k: number) {
+  if (p !== "out") return merging!.spans[k][p];
+  const r = mergeEds!.out.getModel()!.getDecorationRange(merging!.ids[k])!;
+  return [r.startLineNumber, r.endLineNumber - r.startLineNumber];
+}
+
+/** Line `l` of one pane in another: common lines match one to one, a conflict's lines go to that conflict. */
+function mapLine(l: number, from: Pane, to: Pane) {
+  // the first line after the previous conflict in each pane
+  let f = 1, t = 1;
+  for (let k = 0; k < merging!.ids.length; k++) {
+    const [fs, fn] = paneSpan(from, k), [ts, tn] = paneSpan(to, k);
+    if (l < fs) break;
+    if (l < fs + fn) return ts + Math.min(l - fs, Math.max(tn - 1, 0));
+    [f, t] = [fs + fn, ts + tn];
+  }
+  return t + (l - f);
+}
+
+/** The conflict and index of line `ln` of a side pane, if it is a conflict line. */
+function lineIn(side: Side, ln: number) {
+  const k = merging!.spans.findIndex((s) => ln >= s[side][0] && ln < s[side][0] + s[side][1]);
+  return k < 0 ? null : { k, i: ln - merging!.spans[k][side][0] };
+}
+
+/** Conflict `k`'s box: add `side`'s missing lines, or drop them all. */
+function pick(k: number, side: Side) {
+  const m = merging!;
+  m.picks[k] = toggleSide(conflictsOf(m.chunks)[k], m.picks[k], side);
+  writeConflict(k);
+  paintMerge();
+}
+
+/** Append line `i` of `side` to conflict `k`'s output, or drop it. */
+function pickLine(k: number, side: Side, i: number) {
+  const m = merging!;
+  m.picks[k] = toggleLine(m.picks[k], side, i);
+  writeConflict(k);
+  paintMerge();
+}
+
+/** Take or drop `side` in every conflict, as the header box of its pane. */
+export function pickAll(side: Side) {
+  const m = merging!, conflicts = conflictsOf(m.chunks), all = m.picks.every((p, k) => hasSide(conflicts[k], p, side));
+  m.picks.forEach((p, k) => {
+    if (all ? true : !hasSide(conflicts[k], p, side)) m.picks[k] = all ? p.filter(([s]) => s !== side) : toggleSide(conflicts[k], p, side);
+    writeConflict(k);
+  });
+  paintMerge();
+}
+
+/** Put conflict `k`'s picked lines in the output, in place of what it held. */
+function writeConflict(k: number) {
+  const m = merging!, model = mergeEds!.out.getModel()!, at = model.getDecorationRange(m.ids[k])!;
+  const lines = pickedLines(conflictsOf(m.chunks)[k], m.picks[k]);
+  model.pushEditOperations([], [{ range: at, text: lines.join("") }], () => null);
+  // the conflicts after this one moved with the edit, this one now spans its new lines
+  [m.ids[k]] = model.deltaDecorations([m.ids[k]], [{ range: lineSpan([at.startLineNumber, lines.length]), options: tracked }]);
+}
+
+/** The conflicts' colors, boxes and side labels in the three panes, and the counts above them. */
+function paintMerge() {
+  const m = merging!, eds = mergeEds!, model = eds.out.getModel()!, conflicts = conflictsOf(m.chunks);
+  const line = (l: number, options: Monaco.editor.IModelDecorationOptions) => ({ range: new monaco.Range(l, 1, l, 1), options });
+  // a line of side a, b, or u (unresolved): tinted in the text and the gutter
+  const reg = (side: string, on = false) => ({ isWholeLine: true, className: `m-reg-${side}${on ? " on" : ""}`, marginClassName: `m-mreg ${side}${on ? " on" : ""}` });
+  // an empty side shows as a dashed line where its lines would be
+  const span = (from: number, n: number, side: string, glyph?: string) =>
+    n ? Array.from({ length: n }, (_, i) => line(from + i, { ...reg(side), glyphMarginClassName: glyph })) : [line(from, { isWholeLine: true, className: "m-gap" })];
+  for (const side of ["a", "b"] as const) {
+    const ed = eds[side];
+    eds.marks.get(ed)!.set(
+      m.spans.flatMap((s, k) => {
+        const on = hasSide(conflicts[k], m.picks[k], side), picked = pickedOf(m.picks[k], side), [first, n] = s[side];
+        // each line: tinted once picked, a check on it, + or − under the mouse
+        const lines = Array.from({ length: n }, (_, i) => {
+          const taken = picked.has(i), hovered = m.hover === `${side}:${first + i}`;
+          const button = hovered ? (taken ? "m-line drop" : "m-line add") : taken ? "m-line on" : "";
+          return line(first + i, { ...reg(side, taken), linesDecorationsClassName: button || undefined });
+        });
+        return [
+          ...(n ? lines : span(first, 0, "")),
+          line(boxLine(ed, s[side]), {
+            glyphMarginClassName: `m-tick${on ? " on" : ""}${n && n % 2 === 0 ? " half" : ""}`,
+            glyphMarginHoverMessage: { value: on ? "Drop this side" : "Take this side" },
+          }),
+        ];
+      }),
+    );
+  }
+  eds.marks.get(eds.out)!.set(
+    m.ids.flatMap((id, k) => {
+      const r = model.getDecorationRange(id)!, p = m.picks[k];
+      if (!p.length) return span(r.startLineNumber, r.endLineNumber - r.startLineNumber, "u");
+      let at = r.startLineNumber;
+      return p.flatMap(([side, i]) => (i < 0 ? [] : span(at++, 1, side, `m-src-${side}`)));
+    }),
+  );
+  const left = m.picks.filter((p) => !p.length).length;
+  $("m-count").textContent = `${m.ids.length} conflict${m.ids.length === 1 ? "" : "s"}${left ? `, ${left} without a pick` : ""}`;
+  for (const side of ["a", "b"] as const) input(`m-all-${side}`).checked = m.picks.length > 0 && m.picks.every((p, k) => hasSide(conflicts[k], p, side));
+  $("m-at").textContent = m.ids.length ? `conflict ${m.at + 1} of ${m.ids.length}` : "";
+}
+
+export function goConflict(i: number) {
+  const m = merging!, eds = mergeEds!;
+  if (!m.ids.length) return;
+  m.at = (i + m.ids.length) % m.ids.length;
+  eds.out.revealLineInCenter(eds.out.getModel()!.getDecorationRange(m.ids[m.at])!.startLineNumber);
+  eds.a.revealLineInCenter(m.spans[m.at].a[0]);
+  eds.b.revealLineInCenter(m.spans[m.at].b[0]);
+  $("m-at").textContent = `conflict ${m.at + 1} of ${m.ids.length}`;
+}
+
+/** Write the output and mark the file resolved. */
+export async function saveMerge() {
+  const m = merging;
+  if (!m) return;
+  const left = m.picks.filter((p) => !p.length).length;
+  if (left && !(await ask(`${left} conflict${left === 1 ? " still holds" : "s still hold"} the base version. Save anyway?`, "Save"))) return;
+  const text = mergeEds!.out.getModel()!.getValue(monaco.editor.EndOfLinePreference.TextDefined, true);
+  try {
+    await run("write_file", { path: m.f.path, text });
+  } catch (e) {
+    return say(String(e), true);
+  }
+  await closeMerge(true);
+  gitOp("stage", m.f.path);
+}
+
+export async function closeMerge(force = false) {
+  if (!merging) return true;
+  if (!force && merging.dirty && !(await ask(`Drop the merge of ${merging.f.path}?`, "Drop"))) return false;
+  merging = null;
+  $("merge").hidden = true;
+  document.body.classList.remove("diffing");
+  markOpenFile();
+  return true;
+}
+
+/** No line-by-line merge for this file: say why and offer whole versions. */
+function conflictBanner(f: Change) {
+  const cur = opInfo?.current || "current", inc = opInfo?.incoming || "incoming";
+  const [text, choices]: [string, [string, string][]] =
+    f.conflict === "DU"
+      ? [`${f.path} was modified on ${inc}, but deleted on ${cur}.`, [["Keep modified version", "take-incoming"], ["Delete the file", "take-current"], ["Keep base version", "take-base"]]]
+      : f.conflict === "UD"
+        ? [`${f.path} was modified on ${cur}, but deleted on ${inc}.`, [["Keep modified version", "take-current"], ["Delete the file", "take-incoming"], ["Keep base version", "take-base"]]]
+        : f.conflict === "DD"
+          ? [`${f.path} was deleted on both sides.`, [["Delete the file", "take-current"]]]
+          : f.conflict === "AU"
+            ? [`${f.path} was added on ${cur} only.`, [["Keep the file", "take-current"], ["Delete the file", "take-incoming"]]]
+            : f.conflict === "UA"
+              ? [`${f.path} was added on ${inc} only.`, [["Keep the file", "take-incoming"], ["Delete the file", "take-current"]]]
+              : [`${f.path} cannot be merged line by line (binary, not UTF-8 or over 10 MB).`, [[`Take current (${cur})`, "take-current"], [`Take incoming (${inc})`, "take-incoming"]]];
+  const close = () => ($("banner").hidden = true);
+  $("banner").replaceChildren(
+    h("span", { textContent: text }),
+    ...choices.map(([label, o]) => h("button", { textContent: label, onclick: () => (close(), gitOp(o, f.path)) })),
+    h("button", { textContent: "Cancel", onclick: close }),
+  );
+  $("banner").hidden = false;
+}
+
+/* file history */
+
+type Blamed = { hash: string; author: string; time: number; summary: string };
+// the file's commits newest first, each with the file's name there, the one shown and its blame
+export let hist: { path: string; revs: [Commit, Change][]; at: number; blame: Blamed[] } | null = null;
+export let histEd: Monaco.editor.IStandaloneCodeEditor | null = null;
+let blameHovers: Monaco.editor.IEditorDecorationsCollection | null = null;
+// the blame text: subject, two spaces, date
+const BLAME_SUBJECT = 28, BLAME_W = BLAME_SUBJECT + 12;
+// the blame strips' colors, one class per palette entry
+document.head.append(h("style", { textContent: COLORS.map((c, i) => `.bl-c${i} { background: ${c}; }`).join("\n") }));
+
+/** The commits that touched `path`, from HEAD and from `c` when given, with the file at each; uncommitted changes on top. */
+export async function openHistory(path: string, c?: Commit) {
+  await loadMonaco();
+  if (!(await closeMerge())) return;
+  let revs: [Commit, Change][];
+  try {
+    revs = await run<[Commit, Change][]>("file_log", { revs: c ? ["HEAD", c.hash] : ["HEAD"], path });
+  } catch (e) {
+    return say(String(e), true);
+  }
+  // closed only now: the graph would show while git log runs
+  await closeDiff();
+  if (diffFile) return;
+  // the working tree file as a commit on top of HEAD: blob and diff take WORKTREE as a revision
+  if (wipFiles().some((f) => f.path === path))
+    revs.unshift([{ hash: "WORKTREE", parents: ["HEAD"], author: "", time: 0, refs: [], subject: "Uncommitted changes", body: "" }, { path, old: null, code: "M" }]);
+  if (!revs.length) return say(`${path} has no commits yet`);
+  hist = { path, revs, at: -1, blame: [] };
+  $("h-path").textContent = `File history: ${path}`;
+  $("h-list").replaceChildren(
+    ...revs.map(([r, f], i) =>
+      h("div", { className: "h-row", title: f.old ? `${f.old} → ${f.path}` : f.path, onclick: () => showRev(i) },
+        r.time ? avatar(r.author) : h("span", { className: "avatar wip" }),
+        h("div", {}, h("div", { textContent: r.subject }), h("small", { textContent: r.time ? `${dateFmt.format(r.time * 1000)} by ${r.author}` : "Working tree" })),
+        h("code", { textContent: r.time ? short(r.hash) : "" }),
+      ),
+    ),
+  );
+  // the history's file and diff show in the diff's pane, next to its list
+  $("h-main").append($("diff"));
+  $("h-main").classList.add("blank");
+  $("hist").hidden = false;
+  document.body.classList.add("history");
+  showRev(Math.max(0, revs.findIndex(([r]) => r.hash === c?.hash)));
+}
+
+/** Show the file at the history's `i`th commit, or that commit's diff of it. */
+export async function showRev(i: number) {
+  const m = hist;
+  if (!m || i === m.at || !m.revs[i]) return;
+  m.at = i;
+  $("h-list").querySelectorAll(".h-row").forEach((r, k) => r.classList.toggle("on", k === i));
+  $("h-list").children[i].scrollIntoView({ block: "nearest" });
+  const [c, f] = m.revs[i];
+  if (store("hist-view") === "diff") {
+    // openDiff closes a diff opened again
+    const opening = diffFile?.c?.hash !== c.hash;
+    if (opening) await openDiff("commit", f, c, true);
+    if (hist !== m || m.at !== i) return;
+    histPane(false);
+    return reveal(opening ? diffDrawn() : undefined);
+  }
+  await closeDiff(true);
+  histPane(true);
+  $("d-path").textContent = `${f.path} · ${short(c.hash)}`;
+  // the file shows first, its blame (slower) fills the gutter when it comes
+  const blame = run<string>("blame", { at: c.hash, path: f.path }).catch(() => "");
+  const blob = await run<Blob>("blob", { at: c.hash, path: f.path }).catch((e) => (say(String(e), true), null));
+  if (hist !== m || m.at !== i || !blob) return;
+  m.blame = [];
+  const ed = historyEditor(), view = ed.saveViewState(), old = ed.getModel();
+  const text = blob.binary ? "Binary, non-UTF-8 or over 10 MB" : blob.exists ? blob.text : `Deleted in ${short(c.hash)}`;
+  ed.setModel(monaco.editor.createModel(text, undefined, monaco.Uri.from({ scheme: "krill", path: `/${++modelSeq}/h/${f.path}` })));
+  old?.dispose();
+  // another version of the same file: stay around the same lines
+  if (view) ed.restoreViewState(view);
+  paintBlame();
+  reveal();
+  const blamed = parseBlame(await blame) as Blamed[];
+  if (hist !== m || m.at !== i) return;
+  // git's zero hash for uncommitted lines: the WIP row
+  const wip = blamed.find((b) => b && /^0+$/.test(b.hash));
+  if (wip) Object.assign(wip, { hash: "WORKTREE", summary: "Uncommitted changes" });
+  m.blame = blamed;
+  paintBlame();
+}
+
+/** The diff's pane holds the file view too: the bar stays, with the diff options dimmed. */
+function histPane(file: boolean) {
+  $("diff").hidden = false;
+  $("h-file").hidden = !file;
+  if (file) $("editor").hidden = $("binary").hidden = true;
+  dimDiffOpts(file);
+}
+
+const dimDiffOpts = (dim: boolean) =>
+  [$("prev-change"), $("next-change"), ...document.querySelectorAll<HTMLElement>("[data-mode]")].forEach((b) => b.classList.toggle("off", dim));
+
+/** Show the history's pane once `drawn` settles, a frame later so it is painted. */
+export const reveal = (drawn?: Promise<unknown>) => (drawn ?? Promise.resolve()).then(() => requestAnimationFrame(() => $("h-main").classList.remove("blank")));
+
+// a diff's hunks and folds land a moment after its text
+const diffDrawn = () =>
+  new Promise((done) => {
+    // the first update only drops the old diff: wait for one with changes computed
+    const d = editor().onDidUpdateDiff(() => editor().getLineChanges() && (d.dispose(), done(0)));
+    setTimeout(() => (d.dispose(), done(0)), 500);
+  });
+
+function historyEditor() {
+  if (histEd) return histEd;
+  editor();
+  histEd = monaco.editor.create($("h-file"), { ...plainOpts(), readOnly: true, minimap: { renderCharacters: false, showSlider: "always" } });
+  // a click in the blame gutter shows the line's commit
+  histEd.onMouseDown((e) => {
+    if (!hist || e.target.type !== monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS) return;
+    const b = hist.blame[e.target.position!.lineNumber - 1];
+    const i = hist.revs.findIndex(([c]) => c.hash === b?.hash);
+    if (i >= 0) showRev(i);
+  });
+  blameHovers = histEd.createDecorationsCollection();
+  return histEd;
+}
+
+/** An avatar where each commit's lines start, and its subject and date with Blame on. */
+export function paintBlame() {
+  const m = hist!, on = store("blame") === "on", digits = String(histEd!.getModel()!.getLineCount()).length;
+  // ponytail: Monaco inserts the line number string as HTML, so the gutter is drawn as text; a view zone per line if it starts escaping
+  histEd!.updateOptions({
+    lineNumbersMinChars: (on ? BLAME_W + 1 : 0) + 4 + digits,
+    lineNumbers: (n) => {
+      const b = m.blame[n - 1], first = !!b && m.blame[n - 2]?.hash !== b.hash;
+      const num = String(n).padStart(digits);
+      if (!first) return `<span class="bl-av"></span> ${on ? " ".repeat(BLAME_W + 1) : ""} ${num}`;
+      const text = on ? `${b.summary.slice(0, BLAME_SUBJECT).padEnd(BLAME_SUBJECT)}  ${dayFmt.format(b.time * 1000).padEnd(10)} ` : "";
+      return `${avatarSvg(b.author, "bl-av")} ${esc(text)} ${num}`;
+    },
+  });
+  // who and when over each run of lines from one commit, and its strip, colored by its row
+  const escapeMarkdown = (s: string) => s.replace(/[\\`*_{}[\]()#+\-.!<>|~]/g, "\\$&");
+  const color = (hash: string) => {
+    const row = m.revs.findIndex(([c]) => c.hash === hash);
+    return row < 0 ? colorIndex(hash) : row % COLORS.length;
+  };
+  blameHovers!.set(
+    m.blame.flatMap((b, k) => {
+      if (!b || m.blame[k - 1]?.hash === b.hash) return [];
+      let end = k;
+      while (m.blame[end + 1]?.hash === b.hash) end++;
+      const value = `**${escapeMarkdown(b.author)}**, ${dateFmt.format(b.time * 1000)} · \`${short(b.hash)}\`\n\n${escapeMarkdown(b.summary)}`;
+      const options = { lineNumberHoverMessage: { value }, linesDecorationsClassName: `bl-strip bl-c${color(b.hash)}` };
+      return [{ range: new monaco.Range(k + 1, 1, end + 1, 1), options }];
+    }),
+  );
+}
+
+/** Blame's three states: on, off, and dimmed in the diff view. */
+export function paintBlameBtn() {
+  const b = $("h-blame"), diff = store("hist-view") === "diff", on = store("blame") === "on";
+  // a class, not `disabled`: WebKit shows no tooltip on a disabled button
+  b.classList.toggle("off", diff);
+  b.classList.toggle("on", on && !diff);
+  b.title = diff ? "Blame: only in the File view" : on ? "Hide each line's commit" : "Show each line's commit next to it";
+}
+
+export function histView(v: string) {
+  if (hist && store("hist-view") === v) return;
+  store("hist-view", v);
+  document.querySelectorAll<HTMLElement>("[data-hview]").forEach((b) => b.classList.toggle("on", b.dataset.hview === v));
+  paintBlameBtn();
+  if (!hist) return;
+  const i = hist.at;
+  hist.at = -1;
+  $("h-main").classList.add("blank");
+  showRev(i);
+}
+
+export async function closeHistory() {
+  await closeDiff(true);
+  $("h-file").hidden = true;
+  dimDiffOpts(false);
+  hist = null;
+  $("hist").hidden = true;
+  document.body.classList.remove("history");
+  $("merge").before($("diff"));
+}
+
+/** Lay the shown editors out now: Monaco's own resize handling waits a frame, which flickers while dragging. */
+export function relayout() {
+  for (const ed of [diffEditor, histEd, mergeEds?.a, mergeEds?.b, mergeEds?.out]) if (ed?.getContainerDomNode().offsetParent) ed.layout();
+}

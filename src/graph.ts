@@ -1,0 +1,661 @@
+// The commit graph, the sidebar of refs, their menus and the find bar.
+import { invoke } from "@tauri-apps/api/core";
+import { layoutGraph } from "./core.js";
+import { Commit, LOG_LIMIT, Stash, Status, Worktree, active, commits, dropEdits, gitOp, headHash, hiddenBranches, hiddenRemotes, hideItem, isHead, isRepo, newTab, opInfo, openRepo, pull, push, redraw, refs, repo, run, selection, sideFolds, status, switchTab, tabName, tabs, toggleHidden, toggleRemote } from "./repo";
+import { $, COLORS, ICONS, MenuItem, ask, askName, basename, copy, dateFmt, dialog, h, ico, input, popup, say, short, spriteId, store, svg } from "./ui";
+import { dropTerm } from "./terminal";
+import { conflictCount, conflictLine, fileCounts, opLine, renderPanel, wipFiles } from "./panel";
+
+type Label = { name: string; tag: boolean; head: boolean; local: boolean; remotes: string[] };
+
+const ROW = 26, LANE = 22;
+// rows per chunk; the chunks within two of the view are drawn, a fast scroll fills one at a time
+const CHUNK = 40;
+let hiddenSet = new Set<string>();
+let findHits: string[] = [];
+let findAt = -1;
+// the graph rows and their lane colors, drawn by chunks: only those near the view are in the DOM
+export let shown: Commit[] = [];
+let rowColors: string[] = [];
+export let chunks: HTMLElement[] = [];
+let laneW = 0;
+let graphLayout: { width: number; nodes: number[]; edges: { row: number; lane: number; toRow: number; toLane: number; via: number }[] } = { width: 0, nodes: [], edges: [] };
+
+/* branches sidebar */
+
+function trackLabel(track: string) {
+  if (track === "[gone]") return "gone";
+  const ahead = track.match(/ahead (\d+)/)?.[1], behind = track.match(/behind (\d+)/)?.[1];
+  return [ahead && `↑${ahead}`, behind && `↓${behind}`].filter(Boolean).join(" ");
+}
+
+/** The eye at a sidebar row's left edge: hides `key` (a ref, or a stash's hash) from the graph, or shows it again. */
+function eye(key: string, hidden: boolean, toggle = () => toggleHidden(key)) {
+  return h("button", {
+    className: `eye${hidden ? " on" : ""}`,
+    title: hidden ? "Show in the graph" : "Hide from the graph",
+    innerHTML: svg(hidden ? ICONS.eyeOff : ICONS.eye),
+    // the row under it would jump, fold or check out
+    onclick: (e: Event) => (e.preventDefault(), e.stopPropagation(), toggle()),
+    ondblclick: (e: Event) => e.stopPropagation(),
+  });
+}
+
+/** A sidebar row; `hide` is what its eye keeps out of the graph, none on the checked out branch. */
+function sideItem(label: string, icon: string, hash: string, extra: string, cls: string, menu: MenuItem[], dbl?: () => unknown, hide?: string) {
+  const hidden = !!hide && hiddenSet.has(hide);
+  return h(
+    "div",
+    { className: `item ${cls}${hidden ? " hidden-ref" : ""}`, title: label, onclick: () => jumpTo(hash), ondblclick: dbl ?? null, oncontextmenu: (e: MouseEvent) => popup(e, menu) },
+    ...(cls === "current" ? [h("span", { className: "ico check", innerHTML: svg(ICONS.check) })] : hide ? [eye(hide, hidden)] : []),
+    ico(ICONS[icon]),
+    h("span", { className: "label", textContent: label }),
+    h("small", { textContent: extra }),
+  );
+}
+
+export function renderSide() {
+  // what the user folded stays folded, per repository
+  const r = repo, folds = sideFolds();
+  hiddenSet = new Set([...hiddenRemotes(), ...hiddenBranches()]);
+  const section = (key: string, title: string, items: HTMLElement[], open: boolean, icon = "") => {
+    const count = h("span", { className: "n", textContent: String(items.length) });
+    const d = h("details", { open: folds[key] ?? open }, h("summary", {}, ...(icon ? [ico(ICONS[icon])] : []), title, count), ...items);
+    d.ontoggle = () => r === repo && store(`side:${r}`, JSON.stringify({ ...sideFolds(), [key]: d.open }));
+    d.dataset.key = key;
+    return d;
+  };
+  const local: HTMLElement[] = [], tags: HTMLElement[] = [], remotes = new Map<string, HTMLElement[]>();
+  for (const r of refs.refs) {
+    if (r.name.startsWith("refs/heads/")) {
+      const name = r.name.slice(11), current = name === status?.branch;
+      local.push(sideItem(name, "branch", r.hash, trackLabel(r.track), current ? "current" : "", branchMenu(name, false), () => current || checkoutBranch(name, false), current ? undefined : r.name));
+    } else if (r.name.startsWith("refs/remotes/")) {
+      const full = r.name.slice(13), slash = full.indexOf("/");
+      const items = remotes.get(full.slice(0, slash)) ?? [];
+      items.push(sideItem(full.slice(slash + 1), "branch", r.hash, "", "", branchMenu(full, true), () => checkoutBranch(full, true), r.name));
+      remotes.set(full.slice(0, slash), items);
+    } else {
+      const name = r.name.slice(10);
+      tags.push(sideItem(name, "tag", r.hash, "", "", tagMenu(name), undefined, r.name));
+    }
+  }
+  const stashes = refs.stashes.map((s) =>
+    h(
+      "div",
+      {
+        className: `item${hiddenSet.has(s.hash) ? " hidden-ref" : ""}`,
+        title: `${s.name}: ${s.subject}`,
+        onclick: () => showStash(s, true),
+        oncontextmenu: (e: MouseEvent) => popup(e, stashMenu(s)),
+      },
+      eye(s.hash, hiddenSet.has(s.hash)),
+      ico(ICONS.stash),
+      h("span", { className: "label", textContent: s.subject }),
+    ),
+  );
+  const worktrees = refs.worktrees.map((w, k) => {
+    const here = w === thisWorktree();
+    const extra = w.prunable ? "gone" : w.locked ? "locked" : k ? "" : "main";
+    const open = () => (w.prunable ? prune(w) : openWorktree(w.path));
+    const el = sideItem(w.branch || `detached at ${short(w.head)}`, "worktree", w.head, extra, here ? "current" : "", worktreeMenu(w, k === 0), () => here || open());
+    el.title = w.path;
+    return el;
+  });
+  // a linked worktree names its main repository first
+  const main = refs.worktrees[0];
+  $("repo-name").textContent = !main || main === thisWorktree() ? tabName(tabs[active]) : `${basename(main.path)} › ${tabName(tabs[active])}`;
+  $("repo-name").title = repo;
+  $("side").replaceChildren(
+    section("local", "Local", local, true, "local"),
+    section("remote", "Remote", [...remotes].map(([name, items]) => remoteSection(section(`remote/${name}`, name, items, false, "globe"), name)), true, "remote"),
+    // the checkout alone is no list of worktrees
+    section("worktrees", "Worktrees", worktrees.length > 1 ? worktrees : [], false, "worktree"),
+    section("tags", "Tags", tags, false, "tag"),
+    section("stashes", "Stashes", stashes, false, "stash"),
+  );
+}
+
+// this checkout's entry: the repo tool's checkouts list their git dir, not their folder, as the main worktree
+const thisWorktree = () => refs.worktrees.find((w) => w.path === repo) ?? refs.worktrees[0];
+/** The worktree other than this one that has `branch` checked out, its folder still there. */
+const worktreeOf = (branch: string) => refs.worktrees.find((w) => w.branch === branch && w !== thisWorktree() && !w.prunable);
+
+const prune = (w: Worktree) =>
+  ask(`The folder of ${basename(w.path)} is gone. Prune it from the worktree list?`, "Prune").then((ok) => ok && gitOp("worktree-prune"));
+
+function worktreeMenu(w: Worktree, main: boolean): MenuItem[] {
+  const here = w.path === repo;
+  return [
+    { title: w.branch || basename(w.path), icon: ICONS.worktree },
+    ...(here || w.prunable ? [] : ([["Open worktree", () => openWorktree(w.path)], ["Open in a new tab", () => openRepo(w.path)]] as MenuItem[])),
+    ["Copy path", () => copy(w.path)],
+    ...(w.prunable
+      ? ([["Prune: its folder is gone", () => prune(w)]] as MenuItem[])
+      : main || here
+        ? []
+        : ([["Remove worktree…", () => removeWorktree(w)]] as MenuItem[])),
+  ];
+}
+
+/** Show worktree `path` in this tab, or switch to the tab that has it. */
+async function openWorktree(path: string) {
+  const i = tabs.findIndex((t) => t.repo === path);
+  if (i >= 0) return switchTab(i);
+  if (!(await isRepo(path))) return say(`${path} no longer exists`, true);
+  if (!(await dropEdits())) return;
+  // the shell ran in the old folder
+  dropTerm(tabs[active]);
+  tabs[active] = newTab(path);
+  await switchTab(active, false);
+}
+
+/** `git worktree remove`, forced after a warning when it has changes; its branch can go too. */
+async function removeWorktree(w: Worktree) {
+  const s = await invoke<Status>("status", { repo: w.path }).catch(() => null);
+  const dirty = !!s && s.staged.length + s.unstaged.length > 0;
+  const remove = (andBranch: boolean) => async () => {
+    if ((await gitOp(dirty ? "worktree-force-remove" : "worktree-remove", w.path)) && andBranch) deleteBranch(w.branch, "");
+  };
+  dialog(
+    dirty ? `${basename(w.path)} has uncommitted changes. Remove it and lose them?` : `Remove worktree ${basename(w.path)}? Its folder is deleted, its branch stays.`,
+    [],
+    dirty ? "Force remove" : "Remove",
+    remove(false),
+    w.branch ? [[`Remove and delete ${w.branch}`, remove(true)]] : [],
+  );
+}
+
+/** Eye toggle and menu on a remote's folder in the sidebar. */
+function remoteSection(d: HTMLElement, name: string) {
+  const hidden = hiddenRemotes().includes(name);
+  const sum = d.querySelector("summary")!;
+  sum.prepend(eye(name, hidden, () => toggleRemote(name)));
+  sum.oncontextmenu = (e) =>
+    popup(e, [
+      { title: name, icon: ICONS.globe },
+      ["Fetch", () => gitOp("fetch-remote", name)],
+      [hidden ? "Show in the graph" : "Hide from the graph", () => toggleRemote(name)],
+      ["Edit…", () => editRemote(name)],
+      null,
+      ["Copy link", async () => copy(await webUrl(name))],
+    ]);
+  d.classList.toggle("hidden-remote", hidden);
+  return d;
+}
+
+async function editRemote(name: string) {
+  const urls = await run<{ fetch: string; push: string }>("remote_urls", { name }).catch((e) => (say(String(e), true), null));
+  if (!urls) return;
+  const fields: [string, string][] = [["Name", name], ["Pull URL", urls.fetch], ["Push URL", urls.push]];
+  dialog("Edit remote", fields, "Save", async ([newName, fetch, push]) => {
+    try {
+      await run("edit_remote", { name, newName, fetch, push });
+      say(`remote ${newName} saved`);
+      // a hidden remote stays hidden under its new name
+      if (newName !== name) store(`hide:${repo}`, JSON.stringify(hiddenRemotes().map((r) => (r === name ? newName : r))));
+    } catch (e) {
+      say(String(e), true);
+    }
+    await redraw();
+  });
+}
+
+/** Browser URL of a remote: git@host:org/repo.git, ssh://git@host:22/org/repo, https://user@host/org/repo.git. */
+async function webUrl(remote: string) {
+  const url = await run<string>("remote_url", { name: remote });
+  const m = url.match(/^(?:\w+:\/\/)?(?:[^@/]+@)?([^:/]+)(?::\d+)?[:/](.+?)(?:\.git)?\/?$/);
+  return m ? `https://${m[1]}/${m[2]}` : url;
+}
+
+/** The remote links point at: the current branch's upstream, else the first remote. */
+function linkRemote() {
+  const up = refs.refs.find((r) => r.name === `refs/heads/${status?.branch}`)?.upstream;
+  const names = refs.refs.filter((r) => r.name.startsWith("refs/remotes/")).map((r) => r.name.slice(13).split("/")[0]);
+  return up ? up.split("/")[0] : (names[0] ?? "");
+}
+
+export function jumpTo(hash: string) {
+  if (!commits.some((c) => c.hash === hash)) return say(`${short(hash)} is older than the last ${LOG_LIMIT} commits`, true);
+  selection.stash = null;
+  selection.hashes = [hash];
+  selection.anchor = hash;
+  selection.isRange = false;
+  paintSelection();
+  showRow(hash, "center");
+  renderPanel();
+}
+
+function showStash(s: Stash, scroll = false) {
+  selection.stash = s;
+  selection.hashes = [];
+  selection.anchor = s.hash;
+  paintSelection();
+  if (scroll) showRow(s.hash, "center");
+  renderPanel();
+}
+
+const stashOf = (hash: string) => refs.stashes.find((s) => s.hash === hash);
+
+function stashMenu(s: Stash): MenuItem[] {
+  return [
+    { title: s.subject, icon: ICONS.stash },
+    ["Apply stash", () => gitOp("stash-apply", s.name)],
+    ["Pop stash", () => gitOp("stash-pop", s.name)],
+    ["Drop stash", () => ask(`Drop stash "${s.subject}"? It cannot be undone.`, "Drop").then((ok) => ok && gitOp("stash-drop", s.name))],
+    null,
+    ["Edit stash message…", () => dialog("Edit stash message", [["Message", s.subject]], "Save", ([m]) => m && gitOp("stash-message", [s.name, m]))],
+    hideItem(s.hash),
+  ];
+}
+
+/** Empty the graph, for another tab. */
+export function resetGraph() {
+  shown = [];
+  chunks = [];
+  $("rows").replaceChildren();
+}
+
+export function renderGraph() {
+  hiddenSet = new Set([...hiddenRemotes(), ...hiddenBranches()]);
+  const n = status ? status.staged.length + status.unstaged.length : 0;
+  const head = commits.find(isHead);
+  const wip: Commit = { hash: "WIP", parents: head ? [head.hash] : [], author: "", time: 0, refs: [], subject: "// WIP", body: "" };
+  // an operation in progress keeps the row: its controls live in the WIP panel
+  const list = n || opInfo ? [wip, ...commits] : [...commits];
+  // a stash hangs off its base commit
+  for (const s of refs.stashes) {
+    if (hiddenSet.has(s.hash)) continue;
+    const at = list.findIndex((c) => c.hash === s.parents[0]);
+    if (at >= 0) list.splice(at, 0, { hash: s.hash, parents: [s.parents[0]], author: "", time: 0, refs: [], subject: s.subject, body: "" });
+  }
+  graphLayout = layoutGraph(list);
+  // wide enough for its column title
+  laneW = Math.max(graphLayout.width * LANE + 10, 64);
+  $("graph").style.setProperty("--graph-w", `${laneW}px`);
+  shown = list;
+  rowColors = list.map((_, i) => laneColor(graphLayout.nodes[i]));
+  chunks = Array.from({ length: Math.ceil(list.length / CHUNK) }, (_, k) =>
+    h("div", { className: "chunk", style: `height: ${Math.min(CHUNK, list.length - k * CHUNK) * ROW}px` }),
+  );
+  $("rows").replaceChildren(...chunks);
+  drawRows();
+  if (!$("find").hidden) markHits();
+}
+
+const laneX = (l: number) => l * LANE + LANE / 2 + 4;
+const rowY = (r: number) => r * ROW + ROW / 2;
+const laneColor = (l: number) => COLORS[l % COLORS.length];
+
+/** The lanes of rows `from` to `to`: the edges crossing them, their dots and label links. */
+function lanesSvg(from: number, to: number) {
+  const X = laneX, Y = rowY, color = laneColor, list = shown;
+  let svg = "";
+  for (const e of graphLayout.edges) {
+    if (e.toRow < from || e.row >= to) continue;
+    const pts = [[e.lane, e.row]];
+    if (e.toRow - e.row > 1) {
+      if (e.via !== e.lane) pts.push([e.via, e.row + 1]);
+      if (e.via !== e.toLane) pts.push([e.via, e.toRow - 1]);
+    }
+    pts.push([e.toLane, e.toRow]);
+    let d = `M${X(pts[0][0])} ${Y(pts[0][1])}`;
+    for (let k = 1; k < pts.length; k++) {
+      const [l0, r0] = pts[k - 1], [l1, r1] = pts[k];
+      const ym = (Y(r0) + Y(r1)) / 2;
+      d += l0 === l1 ? `L${X(l1)} ${Y(r1)}` : `C${X(l0)} ${ym} ${X(l1)} ${ym} ${X(l1)} ${Y(r1)}`;
+    }
+    const dash = list[e.row].hash === "WIP" || stashOf(list[e.row].hash) ? ' stroke-dasharray="3 3"' : "";
+    // the hollow WIP ring: its line leaves from the rim
+    if (list[e.row].hash === "WIP") d = d.replace(/^M([\d.]+) ([\d.]+)/, (_, x, y) => `M${x} ${+y + 9}`);
+    svg += `<path d="${d}" stroke="${color(e.via)}"${dash}/>`;
+  }
+  // commits show their author, merges stay a small dot
+  for (let i = from; i < to; i++) {
+    const c = list[i], l = graphLayout.nodes[i], at = `cx="${X(l)}" cy="${Y(i)}"`;
+    // the size of an author's ring, dashed in its lane's colour like the line it starts
+    if (c.hash === "WIP") svg += `<circle ${at} r="9" style="stroke:${color(l)}" class="wip"/>`;
+    else if (stashOf(c.hash))
+      svg +=
+        `<rect x="${X(l) - 9}" y="${Y(i) - 9}" width="18" height="18" rx="3" class="stash"/>` +
+        `<svg x="${X(l) - 6}" y="${Y(i) - 6}" width="12" height="12" viewBox="0 0 24 24" class="stash"><path d="${ICONS.stash}"/></svg>`;
+    else if (c.parents.length > 1) svg += `<circle ${at} r="4" fill="${color(l)}"/>`;
+    else
+      svg +=
+        `<use href="#${spriteId(c.author)}" x="${X(l) - 9}" y="${Y(i) - 9}" width="18" height="18"/>` +
+        `<circle ${at} r="9" style="stroke:${color(l)}" class="av"/>`;
+    // labelled commits get a line from their label column to the dot, under it
+    if (labels(c).length) svg = `<path d="M0 ${Y(i) + 0.5}H${X(l)}" stroke="${color(l)}" class="link"/>` + svg;
+  }
+  // the view box keeps whole-graph coordinates, the svg clips the edges at the chunk ends
+  return `<svg class="lanes" width="${laneW}" height="${(to - from) * ROW}" viewBox="0 ${from * ROW} ${laneW} ${(to - from) * ROW}">${svg}</svg>`;
+}
+
+/** Redraw the WIP row alone, if drawn: its counts change far more often than the graph. */
+export function paintWipRow() {
+  const row = $("rows").querySelector(".row.wip");
+  if (row && shown[0]?.hash === "WIP") row.replaceWith(graphRow(shown[0], rowColors[0], laneX(graphLayout.nodes[0])));
+}
+function fillChunk(k: number) {
+  const from = k * CHUNK, to = Math.min(shown.length, from + CHUNK);
+  chunks[k].innerHTML = lanesSvg(from, to);
+  chunks[k].append(...shown.slice(from, to).map((c, i) => graphRow(c, rowColors[from + i], laneX(graphLayout.nodes[from + i]))));
+}
+
+/** Draw the chunks around the view, empty the others. */
+export function drawRows() {
+  const gr = $("graph"), first = Math.floor(gr.scrollTop / ROW / CHUNK) - 2, last = Math.floor((gr.scrollTop + gr.clientHeight) / ROW / CHUNK) + 2;
+  chunks.forEach((el, k) => {
+    const near = k >= first && k <= last;
+    if (near && !el.childElementCount) fillChunk(k);
+    else if (!near && el.childElementCount) el.replaceChildren();
+  });
+}
+
+/** Scroll the history to the row of `hash`, drawing its chunk first. */
+export function showRow(hash: string, block: ScrollLogicalPosition) {
+  const i = shown.findIndex((c) => c.hash === hash);
+  if (i < 0) return;
+  if (!chunks[Math.floor(i / CHUNK)].childElementCount) fillChunk(Math.floor(i / CHUNK));
+  document.querySelector(`.row[data-hash="${hash}"]`)?.scrollIntoView({ block });
+  drawRows();
+}
+
+/** One label per name: a local branch and its remotes on the same commit share it. */
+function labels(c: Commit): Label[] {
+  const out = new Map<string, Label>();
+  const get = (name: string, tag = false) => {
+    const key = `${tag}:${name}`;
+    if (!out.has(key)) out.set(key, { name, tag, head: false, local: false, remotes: [] });
+    return out.get(key)!;
+  };
+  for (const ref of c.refs) {
+    const r = ref.replace(/^HEAD -> /, "");
+    if (r.startsWith("tag: refs/tags/")) {
+      if (!hiddenSet.has(r.slice(5))) get(r.slice(15), true);
+    }
+    else if (hiddenSet.has(r)) continue;
+    else if (r.startsWith("refs/heads/")) {
+      const l = get(r.slice(11));
+      l.local = true;
+      l.head ||= r !== ref;
+    } else if (r.startsWith("refs/remotes/") && !r.endsWith("/HEAD")) {
+      const full = r.slice(13), slash = full.indexOf("/"), remote = full.slice(0, slash);
+      // a remote ref of no configured remote, like the `repo` tool's m/<branch>, is no remote branch
+      if (!hiddenSet.has(remote) && refs.remotes.includes(remote)) get(full.slice(slash + 1)).remotes.push(remote);
+    }
+  }
+  return [...out.values()].sort((a, b) => +b.head - +a.head || +a.tag - +b.tag || +b.local - +a.local);
+}
+
+function chip(l: Label) {
+  const el = h(
+    "span",
+    {
+      className: `ref${l.head ? " is-head" : ""}${l.tag ? " tag" : ""}`,
+      title: l.tag ? `${l.name} (tag)` : "Double-click to checkout",
+      ondblclick: (e: MouseEvent) => (e.stopPropagation(), !l.tag && !l.head && checkoutBranch(labelRef(l), !l.local)),
+      oncontextmenu: (e: MouseEvent) => (e.stopPropagation(), popup(e, l.tag ? tagMenu(l.name) : branchMenu(labelRef(l), !l.local))),
+    },
+    ...(l.head ? [ico(ICONS.check)] : []),
+    h("span", { className: "ref-name", textContent: l.name }),
+  );
+  if (l.tag) el.append(ico(ICONS.tag));
+  if (l.local) el.append(ico(ICONS.local, `${l.name} (local branch)`));
+  if (l.remotes.length) el.append(ico(ICONS.remote, l.remotes.map((r) => `${r} -> ${l.name} (remote branch)`).join("\n")));
+  const wt = l.local && worktreeOf(l.name);
+  if (wt) el.append(ico(ICONS.worktree, `Checked out in the worktree ${wt.path}`));
+  return el;
+}
+
+function graphRow(c: Commit, lane: string, nodeX: number) {
+  const ls = labels(c), stash = stashOf(c.hash);
+  const row = h(
+    "div",
+    {
+      className: `row${c.hash === "WIP" ? (conflictCount() ? " wip conflict" : " wip") : ""}${isHead(c) ? " row-head" : ""}${selection.hashes.includes(c.hash) || selection.stash?.hash === c.hash ? " sel" : ""}${findHits.includes(c.hash) ? " match" : ""}`,
+      onclick: (e: MouseEvent) => (stash ? showStash(stash) : clickRow(e, c.hash)),
+      oncontextmenu: (e: MouseEvent) => (stash ? popup(e, stashMenu(stash)) : c.hash !== "WIP" && commitMenu(e, c)),
+    },
+    h(
+      "div",
+      { className: `refs${ls.length ? " has" : ""}` },
+      h("div", { className: "refs-in" }, ...ls.map(chip), ...(ls.length > 1 ? [h("span", { className: "more", textContent: `+${ls.length - 1}` })] : [])),
+    ),
+    c.hash === "WIP"
+      ? h(
+          "span",
+          { className: "subject" },
+          ...(!opInfo ? [c.subject, ...fileCounts(wipFiles())] : conflictCount() ? conflictLine() : [c.subject, " · ", ...opLine(), ...fileCounts(wipFiles())]),
+        )
+      : stash
+      ? h("span", { className: "subject", title: stash.name }, c.subject)
+      : h(
+          "span",
+          { className: "subject", title: `${c.author} · ${dateFmt.format(c.time * 1000)}` },
+          c.subject,
+          h("span", { className: "body", textContent: c.body.replace(/\s*\n+\s*/g, " | ") }),
+        ),
+  );
+  row.dataset.hash = c.hash;
+  row.style.setProperty("--lane", lane);
+  row.style.setProperty("--node-x", `${nodeX}px`);
+  return row;
+}
+
+/** Click selects one commit, Ctrl+click picks commits to compare, Shift+click a range. */
+function clickRow(e: MouseEvent, hash: string) {
+  selection.stash = null;
+  const idx = (x: string) => commits.findIndex((c) => c.hash === x);
+  if (hash !== "WIP" && e.shiftKey && idx(selection.anchor) >= 0) {
+    const [a, b] = [idx(selection.anchor), idx(hash)].sort((x, y) => x - y);
+    selection.hashes = commits.slice(a, b + 1).map((c) => c.hash);
+    selection.isRange = true;
+  } else if (hash !== "WIP" && e.ctrlKey) {
+    const s = selection.hashes.filter((x) => x !== "WIP");
+    selection.hashes = s.includes(hash) ? s.filter((x) => x !== hash) : [...s, hash];
+    if (!selection.hashes.length) selection.hashes = ["WIP"];
+    selection.anchor = hash;
+    selection.isRange = false;
+  } else {
+    selection.hashes = [hash];
+    selection.anchor = hash;
+    selection.isRange = false;
+  }
+  paintSelection();
+  renderPanel();
+}
+
+export function paintSelection() {
+  document.querySelectorAll<HTMLElement>(".row").forEach((r) => r.classList.toggle("sel", selection.hashes.includes(r.dataset.hash!) || selection.stash?.hash === r.dataset.hash));
+}
+
+/** The ref a label stands for: its local branch, else its first remote's. */
+const labelRef = (l: Label) => (l.local ? l.name : `${l.remotes[0]}/${l.name}`);
+
+/** Check out `name`; a remote branch whose local one is elsewhere asks first: reset the local one to it, or take it as it is. */
+function checkoutBranch(name: string, remote: boolean) {
+  const local = remote ? name.slice(name.indexOf("/") + 1) : name;
+  // git refuses a branch another worktree has: open that worktree instead
+  const wt = !remote && worktreeOf(local);
+  if (wt) return openWorktree(wt.path);
+  // a worktree whose folder is gone still holds its branch until pruned
+  const stale = !remote && refs.worktrees.find((w) => w.branch === local && w.prunable);
+  if (stale)
+    return ask(`${local} is held by the worktree ${basename(stale.path)}, whose folder is gone. Prune it and checkout ${local}?`, "Prune and checkout").then(
+      async (ok) => ok && (await gitOp("worktree-prune")) && gitOp("checkout", local),
+    );
+  const mine = refs.refs.find((r) => r.name === `refs/heads/${local}`), theirs = refs.refs.find((r) => r.name === `refs/remotes/${name}`);
+  if (!remote || !mine || !theirs || mine.hash === theirs.hash) return gitOp("checkout", local);
+  // "[ahead 1, behind 2]" against its upstream
+  const track = mine.upstream === name && mine.track ? ` (${mine.track.slice(1, -1)})` : "";
+  const drops = /ahead/.test(track) ? `, its commits that are not on ${name} leave the branch` : "";
+  dialog(
+    `Local ${local} is not at ${name}${track}. Reset it to ${name}${drops}?`,
+    [],
+    `Reset ${local} to ${name}`,
+    () => gitOp("checkout-reset", [local, name]),
+    [[`Checkout ${local}`, () => gitOp("checkout", local)]],
+  );
+}
+
+/** Checkout, merge and rebase for branch `name` (a remote one as "remote/branch"). */
+/** Checkout, merge and rebase for branch `name`; `named` when other branches share the menu, else its title names it. */
+function refMenu(name: string, remote: boolean, named = true): MenuItem[] {
+  const branch = status?.branch || "HEAD";
+  // checking out a remote branch by its short name creates the tracking branch
+  const local = remote ? name.slice(name.indexOf("/") + 1) : name;
+  const items: MenuItem[] = [];
+  if (remote || name !== status?.branch) items.push([named ? `Checkout ${local}` : "Checkout", () => checkoutBranch(name, remote)]);
+  if (name !== status?.branch)
+    items.push(
+      [named ? `Merge ${name} into ${branch}` : `Merge into ${branch}`, () => gitOp("merge", name)],
+      [named ? `Rebase ${branch} onto ${name}` : `Rebase ${branch} onto this branch`, () => gitOp("rebase", name)],
+    );
+  return items;
+}
+
+function commitMenu(e: MouseEvent, c: Commit) {
+  const branch = status?.branch || "HEAD", ls = labels(c).filter((l) => !l.tag);
+  popup(e, [
+    { title: `${short(c.hash)} ${c.subject}`, icon: ICONS.commit },
+    ...ls.flatMap((l) => refMenu(labelRef(l), !l.local)),
+    null,
+    ["Checkout (detached)", () => gitOp("checkout", c.hash)],
+    [`Rebase ${branch} onto this commit`, () => gitOp("rebase", c.hash)],
+    ["Cherry-pick", () => gitOp("cherry-pick", c.hash)],
+    null,
+    ...commitItems(c.hash),
+    null,
+    ...copyItems(c.hash, ls[0]?.name ?? "", ls[0] && !ls[0].local ? ls[0].remotes[0] : linkRemote()),
+  ]);
+}
+
+/** Branch `name` (a remote one as "remote/branch"): the same menu in the sidebar and on graph labels. */
+function branchMenu(name: string, remote: boolean): MenuItem[] {
+  const ref = refs.refs.find((r) => r.name === (remote ? `refs/remotes/${name}` : `refs/heads/${name}`));
+  const sha = ref?.hash ?? "", current = !remote && name === status?.branch;
+  // where the branch lives on a remote: itself, or the local branch's upstream while that still exists
+  const up = ref?.upstream ?? "";
+  const onRemote = remote ? name : refs.refs.some((r) => r.name === `refs/remotes/${up}`) ? up : "";
+  const slash = onRemote.indexOf("/"), rem = onRemote.slice(0, slash), remBranch = onRemote.slice(slash + 1);
+  return [
+    { title: name, icon: ICONS.branch },
+    ...refMenu(name, remote, false),
+    null,
+    ...(current ? ([["Pull", pull], ["Push", push], null] as MenuItem[]) : []),
+    ...commitItems(sha),
+    ...(current ? ([["Edit commit message", rewordHead]] as MenuItem[]) : []),
+    null,
+    ...(remote ? [] : ([["Rename…", () => askName("New branch name", name, (n) => gitOp("branch-rename", [name, n]))]] as MenuItem[])),
+    ...(current || !ref ? [] : [hideItem(ref.name)]),
+    ...(remote || current ? [] : ([["Delete", () => deleteBranch(name, onRemote)]] as MenuItem[])),
+    // a local branch's upstream too: one menu for both
+    ...(onRemote
+      ? ([[remote ? `Delete on ${rem}` : `Delete ${remBranch} on ${rem}`, () => ask(`Delete branch ${remBranch} on ${rem}? This pushes the deletion.`, "Delete").then((ok) => ok && gitOp("push-delete", [rem, remBranch]))]] as MenuItem[])
+      : []),
+    null,
+    ...copyItems(sha, remote ? remBranch : name, rem || linkRemote(), remBranch),
+  ];
+}
+
+/** `git branch -d`, or `-D` after saying what is lost when the branch is merged nowhere. */
+async function deleteBranch(name: string, upstream: string) {
+  const merged = await run<boolean>("is_merged", { branch: name }).catch(() => false);
+  if (merged) return (await ask(`Delete branch ${name}?`, "Delete")) && gitOp("delete-branch", name);
+  // a squash-merged pull request leaves its branch unmerged here
+  const into = upstream || status?.branch || "HEAD";
+  if (await ask(`${name} is not merged into ${into}. Delete it with its unmerged commits?`, "Force delete")) gitOp("force-delete-branch", name);
+}
+
+function tagMenu(name: string): MenuItem[] {
+  return [
+    { title: name, icon: ICONS.tag },
+    ["Checkout (detached)", () => gitOp("checkout", name)],
+    null,
+    ...refs.remotes.map((r): MenuItem => [`Push to ${r}`, () => gitOp("tag-push", [r, name])]),
+    ["Delete", () => ask(`Delete tag ${name}?`, "Delete").then((ok) => ok && gitOp("tag-delete", name))],
+    ...refs.remotes.map(
+      (r): MenuItem => [
+        `Delete on ${r}`,
+        () => ask(`Delete tag ${name} on ${r}? This pushes the deletion.`, "Delete").then((ok) => ok && gitOp("push-delete", [r, `refs/tags/${name}`])),
+      ],
+    ),
+    null,
+    hideItem(`refs/tags/${name}`),
+    ["Copy tag name", () => copy(name)],
+  ];
+}
+
+/** What to do with commit `sha`, shared by the commit and branch menus. */
+function commitItems(sha: string): MenuItem[] {
+  const b = status?.branch || "HEAD";
+  const reset: MenuItem[] = [
+    ["Soft: keep the changes staged", () => gitOp("reset-soft", sha)],
+    ["Mixed: keep the changes unstaged", () => gitOp("reset-mixed", sha)],
+    ["Hard: discard every change", () => ask(`Reset ${b} to ${short(sha)} and discard every uncommitted change?`, "Reset").then((ok) => ok && gitOp("reset-hard", sha))],
+  ];
+  return [
+    ["Create branch here…", () => askName("New branch name", "", (n) => gitOp("branch-create", [n, sha]))],
+    [`Reset ${b} to this commit`, reset],
+    [`Revert ${short(sha)}`, () => gitOp("revert", sha)],
+    ["Create tag here…", () => askName("Tag name", "", (n) => gitOp("tag-create", [n, sha]))],
+  ];
+}
+
+function copyItems(sha: string, branch: string, remote: string, remoteBranch = branch): MenuItem[] {
+  return [
+    ...(branch ? ([["Copy branch name", () => copy(branch)]] as MenuItem[]) : []),
+    ["Copy commit SHA", () => copy(sha)],
+    ...(remote && remoteBranch ? ([[`Copy link to branch on ${remote}`, async () => copy(`${await webUrl(remote)}/tree/${remoteBranch}`)]] as MenuItem[]) : []),
+    ...(remote ? ([[`Copy link to commit on ${remote}`, async () => copy(`${await webUrl(remote)}/commit/${sha}`)]] as MenuItem[]) : []),
+  ];
+}
+
+/** Select HEAD and open its message editor. */
+async function rewordHead() {
+  jumpTo(headHash());
+  await renderPanel();
+  $("c-msg").querySelector<HTMLElement>(".edit")?.click();
+}
+
+/** Mark the commits matching the search box; non-matching rows dim. */
+function markHits() {
+  const q = input("find-q").value.trim().toLowerCase();
+  findHits = q
+    ? commits.filter((c) => c.hash.startsWith(q) || `${c.subject}\n${c.body}\n${c.author}\n${c.refs.join(" ")}`.toLowerCase().includes(q)).map((c) => c.hash)
+    : [];
+  const set = new Set(findHits);
+  $("rows").classList.toggle("finding", !!q);
+  document.querySelectorAll<HTMLElement>("#rows .row").forEach((r) => r.classList.toggle("match", set.has(r.dataset.hash!)));
+  $("find-n").textContent = q ? `${findHits.length ? findAt + 1 : 0}/${findHits.length}` : "";
+}
+
+export function findStep(step: number) {
+  if (!findHits.length) return;
+  findAt = (findAt + step + findHits.length) % findHits.length;
+  $("find-n").textContent = `${findAt + 1}/${findHits.length}`;
+  jumpTo(findHits[findAt]);
+}
+
+let findIdle = 0;
+/** Search as typed, once the typing pauses: a jump runs git. */
+export function findTyped() {
+  clearTimeout(findIdle);
+  findIdle = setTimeout(() => {
+    findAt = -1;
+    markHits();
+    findStep(1);
+  }, 150);
+}
+
+export function openFind() {
+  $("find").hidden = false;
+  input("find-q").select();
+  input("find-q").focus();
+}
+
+export function closeFind() {
+  $("find").hidden = true;
+  $("rows").classList.remove("finding");
+}
