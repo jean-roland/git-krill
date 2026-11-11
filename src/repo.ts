@@ -321,7 +321,15 @@ export async function restoreTabs() {
   if (!tabs.length) tabs.push(newTab(""));
   active = Math.min(Number(store("active-tab")) || 0, tabs.length - 1);
   const arg = await invoke<string>("initial_repo");
-  if (!arg || !(await openRepo(arg))) await switchTab(active, false);
+  const first = arg || tabs[active].repo;
+  if (first) $("splash-what").textContent = `${aliases()[first] ?? basename(first)} is loading…`;
+  try {
+    if (!arg || !(await openRepo(arg))) await switchTab(active, false);
+  } finally {
+    // the first view is drawn: the splash fades away
+    requestAnimationFrame(() => $("splash").classList.add("gone"));
+    setTimeout(() => ($("splash").hidden = true), 400);
+  }
 }
 
 function saveTabs() {
