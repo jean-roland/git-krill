@@ -19,8 +19,8 @@
       </div>
     </nav>
     <header>
-      <div class="h-side"><span class="ico" id="repo-ico"></span><span id="repo-name"></span><span class="ico" id="branch-ico"></span><span id="branch"></span></div>
-      <div class="h-mid">
+      <div class="top-side"><span class="ico" id="repo-ico"></span><span id="repo-name"></span><span class="ico" id="branch-ico"></span><span id="branch"></span></div>
+      <div class="top-mid">
         <button class="tool" id="undo" title="Undo"><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>Undo</button>
         <button class="tool" id="redo" title="Redo"><svg viewBox="0 0 24 24"><path d="m15 14 5-5-5-5M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>Redo</button>
         <i class="sep"></i>
@@ -34,14 +34,14 @@
         <i class="sep"></i>
         <button class="tool" id="term-btn" title="Terminal (Ctrl+`)"><svg viewBox="0 0 24 24"><path d="M4 17l6-6-6-6M12 19h8"/></svg>Terminal</button>
       </div>
-      <div class="h-side right">
+      <div class="top-side right">
         <span id="opstate" hidden title="Show the work in progress"><b id="opname"></b> in progress</span>
       </div>
     </header>
     <main>
-      <div class="col-grip" id="side-grip"></div>
-      <div class="col-grip" id="panel-grip"></div>
-      <aside id="side"></aside>
+      <div class="col-grip" id="sidebar-grip"></div>
+      <div class="col-grip" id="details-grip"></div>
+      <aside id="sidebar"></aside>
       <section id="center">
         <div id="view">
           <div id="home" hidden>
@@ -69,35 +69,35 @@
           </div>
           <div id="diff" hidden>
             <div class="bar">
-              <span id="d-path"></span>
+              <span id="diff-path"></span>
               <button class="icon" id="prev-change" title="Previous change"><svg data-icon="up"></svg></button>
               <button class="icon" id="next-change" title="Next change"><svg data-icon="down"></svg></button>
               <span class="seg">
                 <button data-mode="hunk" title="Changed hunks only"><svg viewBox="0 0 24 24"><path d="M4 5h16M4 9h11M4 15h16M4 19h11"/></svg>Hunk</button><button data-mode="inline" title="Whole file, one column"><svg viewBox="0 0 24 24"><path d="M4 5h16M4 10h16M4 15h16M4 20h16"/></svg>Inline</button><button data-mode="split" title="Whole file, side by side"><svg viewBox="0 0 24 24"><path d="M3 4h18v16H3zM12 4v16"/></svg>Split</button>
               </span>
-              <button id="save" class="primary" hidden>Save</button>
-              <button id="d-history" title="The commits that touched this file"><svg viewBox="0 0 24 24"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2"/></svg>File history</button>
+              <button id="diff-save" class="primary" hidden>Save</button>
+              <button id="diff-history" title="The commits that touched this file"><svg viewBox="0 0 24 24"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2"/></svg>File history</button>
               <button id="open-editor" title="Open the working tree file in VS Code"><svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>Open in editor</button>
-              <button class="icon" id="close" title="Close (Esc)"><svg data-icon="close"></svg></button>
+              <button class="icon" id="diff-close" title="Close (Esc)"><svg data-icon="close"></svg></button>
             </div>
-            <div id="editor"></div>
-            <div id="binary" hidden>Binary, non-UTF-8 or over 10 MB: whole-file actions only.</div>
-            <div id="h-file" hidden></div>
+            <div id="diff-editor"></div>
+            <div id="diff-binary" hidden>Binary, non-UTF-8 or over 10 MB: whole-file actions only.</div>
+            <div id="hist-file" hidden></div>
           </div>
           <div id="hist" hidden>
-            <div class="col-grip" id="h-grip"></div>
+            <div class="col-grip" id="hist-grip"></div>
             <div class="bar">
-              <span id="h-path"></span>
-              <span class="h-mid">
+              <span id="hist-path"></span>
+              <span class="hist-mid">
                 <span class="seg">
                   <button data-hview="file" title="The file as of the commit"><svg viewBox="0 0 24 24"><path d="M14 3H6v18h12V7zM14 3v4h4"/></svg>File</button><button data-hview="diff" title="The commit's changes to the file"><svg viewBox="0 0 24 24"><path d="M12 4v16M5 7h4M7 5v4M15 17h4"/></svg>Diff</button>
                 </span>
-                <button id="h-blame" class="toggle"><svg viewBox="0 0 24 24"><path d="M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0"/></svg>Blame</button>
+                <button id="hist-blame" class="toggle"><svg viewBox="0 0 24 24"><path d="M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0"/></svg>Blame</button>
               </span>
-              <button class="icon" id="h-close" title="Close (Esc)"><svg data-icon="close"></svg></button>
+              <button class="icon" id="hist-close" title="Close (Esc)"><svg data-icon="close"></svg></button>
             </div>
-            <div id="h-list"></div>
-            <div id="h-main"></div>
+            <div id="hist-list"></div>
+            <div id="hist-main"></div>
           </div>
           <div id="merge" hidden>
             <div class="bar">
@@ -128,19 +128,19 @@
           <div class="term-bar">Terminal<button id="term-close" title="Close (Ctrl+`)">×</button></div>
         </div>
       </section>
-      <aside id="panel">
+      <aside id="details">
         <div id="wip">
-          <div class="p-title wip-head">
+          <div class="panel-title wip-head">
             <button id="discard-all" title="Discard all changes"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 13h12l1-13M9 7V4h6v3"/></svg></button>
             <span id="wip-title"></span>
           </div>
-          <div class="files-opts"><span class="fo-left"><button class="sort" title="Sort the files"></button><button class="tree-all" data-open="1" title="Expand all folders"><svg viewBox="0 0 24 24"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></svg></button><button class="tree-all" data-open="" title="Collapse all folders"><svg viewBox="0 0 24 24"><path d="m7 20 5-5 5 5M7 4l5 5 5-5"/></svg></button></span><span class="seg"><button data-files="path" title="One row per file, folders in front"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>Path</button><button data-files="tree" title="Files under their folders"><svg viewBox="0 0 24 24"><path d="M4 5h8M7 5v13a1 1 0 0 0 1 1h9M7 12h10"/></svg>Tree</button></span><span></span><input class="file-filter" placeholder="Filter files" spellcheck="false" /></div>
+          <div class="files-opts"><span class="files-opts-left"><button class="sort" title="Sort the files"></button><button class="tree-all" data-open="1" title="Expand all folders"><svg viewBox="0 0 24 24"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></svg></button><button class="tree-all" data-open="" title="Collapse all folders"><svg viewBox="0 0 24 24"><path d="m7 20 5-5 5 5M7 4l5 5 5-5"/></svg></button></span><span class="seg"><button data-files="path" title="One row per file, folders in front"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>Path</button><button data-files="tree" title="Files under their folders"><svg viewBox="0 0 24 24"><path d="M4 5h8M7 5v13a1 1 0 0 0 1 1h9M7 12h10"/></svg>Tree</button></span><span></span><input class="file-filter" placeholder="Filter files" spellcheck="false" /></div>
           <div class="head"><span id="unstaged-label">Unstaged Files</span> <span id="unstaged-n"></span><button id="stage-all" class="good">Stage all changes</button></div>
           <div id="unstaged" class="files"></div>
           <div class="head"><span id="staged-label">Staged Files</span> <span id="staged-n"></span><button id="unstage-all" class="bad">Unstage all changes</button></div>
           <div id="staged" class="files"></div>
           <div id="commit-box">
-            <div class="cb-head">Commit<button id="amend" class="toggle" title="Rewrite the previous commit with the staged changes and this message"><svg data-icon="m"></svg>Amend</button></div>
+            <div class="commit-box-head">Commit<button id="amend" class="toggle" title="Rewrite the previous commit with the staged changes and this message"><svg data-icon="m"></svg>Amend</button></div>
             <div class="summary"><input id="summary" class="msg-in" placeholder="Summary" spellcheck="false" /><small id="summary-n"></small></div>
             <textarea id="desc" class="msg-in" placeholder="Description" spellcheck="false"></textarea>
             <button id="commit-btn" class="primary"></button>
@@ -148,13 +148,13 @@
           </div>
         </div>
         <div id="commit" hidden>
-          <div id="c-head" class="p-title"></div>
-          <div id="c-msg"><div id="c-summary"></div><div id="c-desc"></div></div>
-          <div id="c-grip" title="Drag to resize"></div>
-          <div id="c-author"></div>
-          <div id="c-stats" class="p-title"></div>
-          <div class="files-opts"><span class="fo-left"><button class="sort" title="Sort the files"></button><button class="tree-all" data-open="1" title="Expand all folders"><svg viewBox="0 0 24 24"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></svg></button><button class="tree-all" data-open="" title="Collapse all folders"><svg viewBox="0 0 24 24"><path d="m7 20 5-5 5 5M7 4l5 5 5-5"/></svg></button></span><span class="seg"><button data-files="path" title="One row per file, folders in front"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>Path</button><button data-files="tree" title="Files under their folders"><svg viewBox="0 0 24 24"><path d="M4 5h8M7 5v13a1 1 0 0 0 1 1h9M7 12h10"/></svg>Tree</button></span><button id="all-files" class="toggle" title="List every file of the commit, not only the changed ones"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>View all files</button><input class="file-filter" placeholder="Filter files" spellcheck="false" /></div>
-          <div id="c-files" class="files"></div>
+          <div id="commit-head" class="panel-title"></div>
+          <div id="commit-msg"><div id="commit-summary"></div><div id="commit-desc"></div></div>
+          <div id="commit-grip" title="Drag to resize"></div>
+          <div id="commit-author"></div>
+          <div id="commit-stats" class="panel-title"></div>
+          <div class="files-opts"><span class="files-opts-left"><button class="sort" title="Sort the files"></button><button class="tree-all" data-open="1" title="Expand all folders"><svg viewBox="0 0 24 24"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></svg></button><button class="tree-all" data-open="" title="Collapse all folders"><svg viewBox="0 0 24 24"><path d="m7 20 5-5 5 5M7 4l5 5 5-5"/></svg></button></span><span class="seg"><button data-files="path" title="One row per file, folders in front"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>Path</button><button data-files="tree" title="Files under their folders"><svg viewBox="0 0 24 24"><path d="M4 5h8M7 5v13a1 1 0 0 0 1 1h9M7 12h10"/></svg>Tree</button></span><button id="all-files" class="toggle" title="List every file of the commit, not only the changed ones"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>View all files</button><input class="file-filter" placeholder="Filter files" spellcheck="false" /></div>
+          <div id="commit-files" class="files"></div>
         </div>
       </aside>
     </main>

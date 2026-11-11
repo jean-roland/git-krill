@@ -136,20 +136,20 @@ export function recordUndo(t: Tab, step: UndoStep) {
   renderToolbar();
 }
 
-export const pull = () => gitOp("pull", store("pull") ?? "");
+export const pull = () => gitOp("pull", store("pull-mode") ?? "");
 
 /** The Pull modes under the toolbar's caret: picking one makes it the default and pulls. */
 export function pullMenu(e: MouseEvent) {
   e.stopPropagation();
-  const mode = store("pull") ?? "", r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  const mode = store("pull-mode") ?? "", r = (e.currentTarget as HTMLElement).getBoundingClientRect();
   showMenu(
-    Object.entries(PULLS).map(([k, label]): MenuItem => [`Pull, ${label}${k === mode ? "  ✓" : ""}`, () => (store("pull", k), paintPull(), pull())]),
+    Object.entries(PULLS).map(([k, label]): MenuItem => [`Pull, ${label}${k === mode ? "  ✓" : ""}`, () => (store("pull-mode", k), paintPull(), pull())]),
     r.left,
     r.bottom,
   );
 }
 
-export const paintPull = () => ($("pull").title = `Pull, ${PULLS[store("pull") ?? ""]}`);
+export const paintPull = () => ($("pull").title = `Pull, ${PULLS[store("pull-mode") ?? ""]}`);
 
 /** Push; a branch without upstream first asks where to, in a banner. */
 export function push() {
@@ -318,14 +318,14 @@ const closedTabs: string[] = [];
 export async function restoreTabs() {
   tabs = (JSON.parse(store("tabs") ?? "[]") as string[]).map(newTab);
   if (!tabs.length) tabs.push(newTab(""));
-  active = Math.min(Number(store("active")) || 0, tabs.length - 1);
+  active = Math.min(Number(store("active-tab")) || 0, tabs.length - 1);
   const arg = await invoke<string>("initial_repo");
   if (!arg || !(await openRepo(arg))) await switchTab(active, false);
 }
 
 function saveTabs() {
   store("tabs", JSON.stringify(tabs.map((t) => t.repo)));
-  store("active", String(active));
+  store("active-tab", String(active));
 }
 
 export function newTab(repo: string): Tab {
@@ -411,7 +411,7 @@ export async function switchTab(i: number, save = true) {
   opInfo = null;
   graphKey = sideKey = panelKey = opStep = "";
   resetGraph();
-  $("side").replaceChildren();
+  $("sidebar").replaceChildren();
   saveTabs();
   renderTabs();
   document.body.classList.toggle("home", !repo);
@@ -630,10 +630,10 @@ listen<string>("askpass", ({ payload: prompt }) => {
   dialog(/passphrase/i.test(prompt) ? "SSH key passphrase" : "Sign in", [[prompt, "", secret ? "password" : "text"]], "OK", ([v]) => reply(v), [], () => reply(null));
 });
 
-export const hiddenRemotes = (): string[] => JSON.parse(store(`hide:${repo}`) ?? "[]");
+export const hiddenRemotes = (): string[] => JSON.parse(store(`hidden-remotes:${repo}`) ?? "[]");
 // full ref names of the branches kept out of the graph
-export const hiddenBranches = (): string[] => JSON.parse(store(`hide-refs:${repo}`) ?? "[]");
-export const sideFolds = (): Record<string, boolean> => JSON.parse(store(`side:${repo}`) ?? "{}");
+export const hiddenBranches = (): string[] => JSON.parse(store(`hidden-refs:${repo}`) ?? "[]");
+export const sideFolds = (): Record<string, boolean> => JSON.parse(store(`sidebar-folds:${repo}`) ?? "{}");
 
 /** Show or hide `key` in the menus that offer it. */
 export const hideItem = (key: string): MenuItem => [hiddenBranches().includes(key) ? "Show in the graph" : "Hide from the graph", () => toggleHidden(key)];
@@ -644,8 +644,8 @@ function toggleListed(key: string, item: string) {
   store(key, JSON.stringify(list.includes(item) ? list.filter((x) => x !== item) : [...list, item]));
   redraw();
 }
-export const toggleHidden = (ref: string) => toggleListed(`hide-refs:${repo}`, ref);
-export const toggleRemote = (name: string) => toggleListed(`hide:${repo}`, name);
+export const toggleHidden = (ref: string) => toggleListed(`hidden-refs:${repo}`, ref);
+export const toggleRemote = (name: string) => toggleListed(`hidden-remotes:${repo}`, name);
 
 /** A row that is no commit of the log (WIP, a stash, uncommitted lines), shaped like one. */
 export const fakeCommit = (hash: string, parents: string[], subject: string): Commit => ({ hash, parents, author: "", time: 0, refs: [], subject, body: "" });

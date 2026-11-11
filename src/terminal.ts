@@ -76,7 +76,7 @@ export function dropTerm(tab: Tab) {
 
 /** Show the bottom panel with the active tab's shell when the panel is open. */
 export function showTerm(focus: boolean) {
-  const open = !!store("term") && !!repo;
+  const open = !!store("term-open") && !!repo;
   $("term").hidden = !open;
   // the editors above get the new height in this frame, not the next
   relayout();
@@ -96,6 +96,6 @@ export function showTerm(focus: boolean) {
 }
 
 export function toggleTerm(open = $("term").hidden) {
-  store("term", open ? "1" : "");
+  store("term-open", open ? "1" : "");
   showTerm(open);
 }

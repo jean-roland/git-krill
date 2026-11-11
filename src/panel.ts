@@ -76,7 +76,7 @@ function fileMenu(f: Change, kind: DiffSource, c?: Commit): MenuItem[] {
   ];
 }
 
-/* side panel */
+/* file lists */
 
 const CODE_ICON: Record<string, string> = { M: "m", T: "m", A: "a", "?": "a", D: "d", R: "r", C: "r", U: "u" };
 const STATUS_ORDER = "U?AMTRCD";
@@ -104,7 +104,7 @@ function fileList(
         oncontextmenu: (e: MouseEvent) => popup(e, menu(f)),
         title: f.old ? `${f.old} → ${f.path}` : f.path,
       },
-      h("span", { className: `code c-${code}`, innerHTML: code ? svg(ICONS[code]) : "", title: f.code }),
+      h("span", { className: `code code-${code}`, innerHTML: code ? svg(ICONS[code]) : "", title: f.code }),
       h("span", { className: "path" }, h("span", { className: "dir", textContent: dir }), h("span", { className: "name", textContent: f.path.slice(slash) })),
       ...actions.filter(([, , when]) => !when || when(f)).map(([label, fn]) => h("button", { textContent: label, onclick: (e: Event) => (e.stopPropagation(), fn(f)) })),
     );
@@ -195,7 +195,7 @@ export const wipFiles = () => [...new Map([...(status?.staged ?? []), ...(status
 export function fileCounts(files: Change[]) {
   return ["m", "a", "d", "r", "u"].flatMap((cls) => {
     const n = files.filter((f) => CODE_ICON[f.code] === cls).length;
-    return n ? [h("span", { className: `count c-${cls}`, innerHTML: `${svg(ICONS[cls])}${n}` })] : [];
+    return n ? [h("span", { className: `count code-${cls}`, innerHTML: `${svg(ICONS[cls])}${n}` })] : [];
   });
 }
 
@@ -242,7 +242,7 @@ function fileStats(files: Change[]) {
   const kinds: [string, string, string][] = [["MT", "modified", "m"], ["A", "added", "a"], ["D", "deleted", "d"], ["RC", "renamed", "r"]];
   return kinds.flatMap(([codes, label, cls]) => {
     const n = files.filter((f) => codes.includes(f.code)).length;
-    return n ? [h("span", { className: `c-${cls}`, innerHTML: `${svg(ICONS[cls])} ${n} ${label}` })] : [];
+    return n ? [h("span", { className: `code-${cls}`, innerHTML: `${svg(ICONS[cls])} ${n} ${label}` })] : [];
   });
 }
 
@@ -250,7 +250,7 @@ function fileStats(files: Change[]) {
 function editMessage(c: Commit, msg: string) {
   if (!isHead(c)) return say("only the checked out commit can be reworded", true);
   rewording = c.hash;
-  $("c-msg").ondblclick = null;
+  $("commit-msg").ondblclick = null;
   const [s, d] = splitMsg(msg);
   const summary = h("input", { className: "msg-in", value: s, spellcheck: false });
   const desc = h("textarea", { className: "msg-in", value: d, spellcheck: false, placeholder: "Description" });
@@ -264,8 +264,8 @@ function editMessage(c: Commit, msg: string) {
   summary.oninput = () => countLeft(summary, left);
   countLeft(summary, left);
   onCtrlEnter([summary, desc], update);
-  $("c-msg").classList.add("editing");
-  $("c-msg").replaceChildren(
+  $("commit-msg").classList.add("editing");
+  $("commit-msg").replaceChildren(
     h("div", { className: "summary" }, summary, left),
     desc,
     h("div", { className: "edit-btns" }, h("button", { className: "good", textContent: "Update Message", onclick: update }), h("button", { className: "bad", textContent: "Cancel Amend", onclick: cancel })),
@@ -313,25 +313,25 @@ async function renderCommitDetails(n: number) {
     const all = $("all-files").classList.contains("on") ? await runFixed<string[]>("tree_files", { at: view.c.hash }) : [];
     if (n !== panelSeq) return;
     const msg = view.message ?? info.message;
-    $("c-head").replaceChildren(...view.head);
+    $("commit-head").replaceChildren(...view.head);
     if (rewording !== view.c.hash) {
       rewording = "";
       const [summary, desc] = splitMsg(msg);
       const reword = view.author && isHead(view.c) ? () => editMessage(view.c, msg) : null;
-      $("c-msg").classList.remove("editing");
-      $("c-msg").replaceChildren(
-        h("div", { id: "c-summary", textContent: summary }),
-        h("div", { id: "c-desc", textContent: desc }),
+      $("commit-msg").classList.remove("editing");
+      $("commit-msg").replaceChildren(
+        h("div", { id: "commit-summary", textContent: summary }),
+        h("div", { id: "commit-desc", textContent: desc }),
         ...(reword ? [h("button", { className: "edit", textContent: "Edit", title: "Reword (double-click)", onclick: reword })] : []),
       );
-      $("c-msg").ondblclick = reword;
+      $("commit-msg").ondblclick = reword;
     }
-    $("c-author").replaceChildren(...(view.author ? authorBlock(view.author) : []));
-    $("c-stats").replaceChildren(...fileStats(info.files));
+    $("commit-author").replaceChildren(...(view.author ? authorBlock(view.author) : []));
+    $("commit-stats").replaceChildren(...fileStats(info.files));
     // all files: the commit's tree, with the changed ones marked
     const changed = new Map(info.files.map((f) => [f.path, f]));
     const files = all.length ? [...new Set([...all, ...changed.keys()])].sort().map((p) => changed.get(p) ?? { path: p, old: null, code: "" }) : info.files;
-    fileList($("c-files"), files, (f) => openDiff("commit", f, view.c), [], (f) => fileMenu(f, "commit", view.c));
+    fileList($("commit-files"), files, (f) => openDiff("commit", f, view.c), [], (f) => fileMenu(f, "commit", view.c));
   } catch (e) {
     say(String(e), true);
   }
@@ -345,7 +345,7 @@ export function markOpenFile() {
   document.querySelectorAll(".file.sel").forEach((r) => r.classList.remove("sel"));
   const open = openFile();
   if (!open) return;
-  const list = open.kind === "commit" ? "c-files" : open.kind;
+  const list = open.kind === "commit" ? "commit-files" : open.kind;
   $(list).querySelector(`.file[data-path="${CSS.escape(open.f.path)}"]`)?.classList.add("sel");
 }
 

@@ -61,7 +61,7 @@ export function renderSide() {
   const section = (key: string, title: string, items: HTMLElement[], open: boolean, icon = "") => {
     const count = h("span", { className: "n", textContent: String(items.length) });
     const d = h("details", { open: folds[key] ?? open }, h("summary", {}, ...(icon ? [ico(ICONS[icon])] : []), title, count), ...items);
-    d.ontoggle = () => r === repo && store(`side:${r}`, JSON.stringify({ ...sideFolds(), [key]: d.open }));
+    d.ontoggle = () => r === repo && store(`sidebar-folds:${r}`, JSON.stringify({ ...sideFolds(), [key]: d.open }));
     d.dataset.key = key;
     return d;
   };
@@ -103,7 +103,7 @@ export function renderSide() {
     return el;
   });
   paintRepoName();
-  $("side").replaceChildren(
+  $("sidebar").replaceChildren(
     section("local", "Local", local, true, "local"),
     section("remote", "Remote", [...remotes].map(([name, items]) => remoteSection(section(`remote/${name}`, name, items, false, "globe"), name)), true, "remote"),
     // the checkout alone is no list of worktrees
@@ -188,7 +188,7 @@ async function editRemote(name: string) {
       await run("edit_remote", { name, newName, fetch, push });
       say(`remote ${newName} saved`);
       // a hidden remote stays hidden under its new name
-      if (newName !== name) store(`hide:${repo}`, JSON.stringify(hiddenRemotes().map((r) => (r === name ? newName : r))));
+      if (newName !== name) store(`hidden-remotes:${repo}`, JSON.stringify(hiddenRemotes().map((r) => (r === name ? newName : r))));
     } catch (e) {
       say(String(e), true);
     }
@@ -612,7 +612,7 @@ function copyItems(sha: string, branch: string, remote: string, remoteBranch = b
 async function rewordHead() {
   jumpTo(headHash());
   await renderPanel();
-  $("c-msg").querySelector<HTMLElement>(".edit")?.click();
+  $("commit-msg").querySelector<HTMLElement>(".edit")?.click();
 }
 
 /** Mark the commits matching the search box; non-matching rows dim. */

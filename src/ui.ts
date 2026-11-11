@@ -69,6 +69,17 @@ export function h<K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<s
   return el;
 }
 
+// settings saved under their names before 2026-11-12 move to the new ones, once
+const MOVED: Record<string, string> = { mode: "diff-mode", term: "term-open", active: "active-tab", pull: "pull-mode", blame: "hist-blame", "side-width": "sidebar-width", "panel-width": "details-width" };
+const MOVED_PREFIX: Record<string, string> = { "hide:": "hidden-remotes:", "hide-refs:": "hidden-refs:", "side:": "sidebar-folds:" };
+for (const key of Object.keys(localStorage)) {
+  const prefix = Object.keys(MOVED_PREFIX).find((p) => key.startsWith(p));
+  const now = MOVED[key] ?? (prefix && MOVED_PREFIX[prefix] + key.slice(prefix.length));
+  if (!now) continue;
+  if (localStorage.getItem(now) === null) localStorage.setItem(now, localStorage.getItem(key)!);
+  localStorage.removeItem(key);
+}
+
 export function store(key: string, value?: string) {
   try {
     if (value === undefined) return localStorage.getItem(key);

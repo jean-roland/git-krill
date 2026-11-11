@@ -83,7 +83,7 @@ const newModel = (text: string, path: string) => monaco.editor.createModel(text,
 
 export function editor() {
   if (diffEditor) return diffEditor;
-  diffEditor = monaco.editor.createDiffEditor($("editor"), {
+  diffEditor = monaco.editor.createDiffEditor($("diff-editor"), {
     ...plainOpts(),
     // its height lands ~200 ms late, once long lines are measured, and rescales the change markers; Shift+wheel still scrolls sideways
     scrollbar: { horizontal: "hidden" },
@@ -121,7 +121,7 @@ export function editor() {
   me.onMouseLeave(() => hoverButton());
   me.onMouseDown((e) => barButton(e)?.click());
   me.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => save().then(refresh));
-  setMode((store("mode") as Mode) || "hunk");
+  setMode((store("diff-mode") as Mode) || "hunk");
   return diffEditor;
 }
 
@@ -203,12 +203,12 @@ function removedLineActions(ed: Monaco.editor.ICodeEditor, staging: () => boolea
 function setOptions(o: Monaco.editor.IDiffEditorOptions) {
   editor().updateOptions(o);
   // the diff editor forces its sub-editors' minimap off on every update; hunk view hides too much for one
-  const minimap = { enabled: store("mode") !== "hunk", renderCharacters: false, showSlider: "always" as const };
+  const minimap = { enabled: store("diff-mode") !== "hunk", renderCharacters: false, showSlider: "always" as const };
   editor().getModifiedEditor().updateOptions({ minimap });
 }
 
 export function setMode(m: Mode) {
-  store("mode", m);
+  store("diff-mode", m);
   setOptions({ renderSideBySide: m === "split", hideUnchangedRegions: { enabled: m === "hunk" } });
   updateHunkBars();
   document.querySelectorAll<HTMLElement>("[data-mode]").forEach((b) => b.classList.toggle("on", b.dataset.mode === m));
@@ -237,7 +237,7 @@ async function revertHunk(c: LineChange) {
 
 /** A header bar above each hunk with its stage / unstage / discard / revert buttons. */
 function updateHunkBars() {
-  const ed = editor(), split = store("mode") === "split";
+  const ed = editor(), split = store("diff-mode") === "split";
   const acts: [string, string][] =
     !diffFile ? []
     : diffFile.kind === "unstaged" ? [["discard", "Discard hunk"], ["stage", "Stage hunk"]]
@@ -246,7 +246,7 @@ function updateHunkBars() {
     : [];
   hunks = diffFile ? lineChanges() : [];
   // bars head the hunks between folds; in the whole file the line numbers say where a change is
-  const shown = store("mode") === "hunk" ? hunks : [];
+  const shown = store("diff-mode") === "hunk" ? hunks : [];
   const bar = (c: LineChange, buttons: boolean) => {
     const count = (s: number, e: number) => (e ? e - s + 1 : 0);
     const el = h("div", { className: "hunk-bar" }, h("span", { textContent: `@@ -${c.os},${count(c.os, c.oe)} +${c.ms},${count(c.ms, c.me)} @@` }));
@@ -304,7 +304,7 @@ export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistor
   $("diff").hidden = false;
   document.body.classList.add("diffing");
   const range = c ? `  ·  ${c.parents[0] ? short(c.parents[0]) : "root"}..${short(c.hash)}` : "";
-  $("d-path").textContent = (f.old ? `${f.old} → ${f.path}` : f.path) + range;
+  $("diff-path").textContent = (f.old ? `${f.old} → ${f.path}` : f.path) + range;
   paintOpenEditor();
   markOpenFile();
   // Monaco normalizes line endings, so a CRLF<->LF rewrite would not show at all
@@ -312,9 +312,9 @@ export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistor
   if (eol(orig.text) && eol(mod.text) && eol(orig.text) !== eol(mod.text))
     say(`${f.path}: line endings changed ${eol(orig.text)} → ${eol(mod.text)}, not shown in the diff`, true);
   const binary = orig.binary || mod.binary;
-  $("editor").hidden = binary;
-  $("binary").hidden = !binary;
-  $("save").hidden = true;
+  $("diff-editor").hidden = binary;
+  $("diff-binary").hidden = !binary;
+  $("diff-save").hidden = true;
   if (binary) return;
   // the folds land a moment after the text: the bare file would flash in between
   if (!inHistory) $("diff").classList.add("blank");
@@ -347,7 +347,7 @@ function setModels(keepView: boolean) {
   modified.onDidChangeContent(() => {
     if (!diffFile) return;
     diffFile.dirty = true;
-    $("save").hidden = false;
+    $("diff-save").hidden = false;
   });
   if (view) ed.restoreViewState(view);
 }
@@ -384,13 +384,13 @@ export async function save() {
   }
   diffFile.mod.text = text;
   diffFile.dirty = false;
-  $("save").hidden = true;
+  $("diff-save").hidden = true;
   say(`saved ${diffFile.f.path}`);
 }
 
 /** Changed lines under the selection of the side that had focus last. */
 function selectedLines(): Lines {
-  const fromOrig = lastSide === "orig" && store("mode") === "split";
+  const fromOrig = lastSide === "orig" && store("diff-mode") === "split";
   const side = fromOrig ? editor().getOriginalEditor() : editor().getModifiedEditor();
   const sel = new Set<number>();
   for (const s of side.getSelections() ?? []) {
@@ -642,7 +642,7 @@ function paintMerge() {
   const m = merging!, eds = mergeEds!, model = eds.out.getModel()!, conflicts = conflictsOf(m.chunks);
   const line = (l: number, options: Monaco.editor.IModelDecorationOptions) => ({ range: new monaco.Range(l, 1, l, 1), options });
   // a line of side a, b, or u (unresolved): tinted in the text and the gutter
-  const reg = (side: string, on = false) => ({ isWholeLine: true, className: `m-reg-${side}${on ? " on" : ""}`, marginClassName: `m-mreg ${side}${on ? " on" : ""}` });
+  const reg = (side: string, on = false) => ({ isWholeLine: true, className: `m-tint-${side}${on ? " on" : ""}`, marginClassName: `m-gutter ${side}${on ? " on" : ""}` });
   // an empty side shows as a dashed line where its lines would be
   const span = (from: number, n: number, side: string, glyph?: string) =>
     n ? Array.from({ length: n }, (_, i) => line(from + i, { ...reg(side), glyphMarginClassName: glyph })) : [line(from, { isWholeLine: true, className: "m-gap" })];
@@ -660,7 +660,7 @@ function paintMerge() {
         return [
           ...(n ? lines : span(first, 0, "")),
           line(boxLine(ed, s[side]), {
-            glyphMarginClassName: `m-tick${on ? " on" : ""}${n && n % 2 === 0 ? " half" : ""}`,
+            glyphMarginClassName: `m-side-box${on ? " on" : ""}${n && n % 2 === 0 ? " half" : ""}`,
             glyphMarginHoverMessage: { value: on ? "Drop this side" : "Take this side" },
           }),
         ];
@@ -750,7 +750,7 @@ let blameHovers: Monaco.editor.IEditorDecorationsCollection | null = null;
 // the blame text: subject, two spaces, date
 const BLAME_SUBJECT = 28, BLAME_W = BLAME_SUBJECT + 12;
 // the blame strips' colors, one class per palette entry
-document.head.append(h("style", { textContent: COLORS.map((c, i) => `.bl-c${i} { background: ${c}; }`).join("\n") }));
+document.head.append(h("style", { textContent: COLORS.map((c, i) => `.blame-c${i} { background: ${c}; }`).join("\n") }));
 
 /** The commits that touched `path`, from HEAD and from `c` when given, with the file at each; uncommitted changes on top. */
 export async function openHistory(path: string, c?: Commit) {
@@ -770,10 +770,10 @@ export async function openHistory(path: string, c?: Commit) {
     revs.unshift([fakeCommit("WORKTREE", ["HEAD"], "Uncommitted changes"), { path, old: null, code: "M" }]);
   if (!revs.length) return say(`${path} has no commits yet`);
   hist = { path, revs, at: -1, blame: [] };
-  $("h-path").textContent = `File history: ${path}`;
-  $("h-list").replaceChildren(
+  $("hist-path").textContent = `File history: ${path}`;
+  $("hist-list").replaceChildren(
     ...revs.map(([r, f], i) =>
-      h("div", { className: "h-row", title: f.old ? `${f.old} → ${f.path}` : f.path, onclick: () => showRev(i) },
+      h("div", { className: "hist-row", title: f.old ? `${f.old} → ${f.path}` : f.path, onclick: () => showRev(i) },
         r.time ? avatar(r.author) : h("span", { className: "avatar wip" }),
         h("div", {}, h("div", { textContent: r.subject }), h("small", { textContent: r.time ? `${dateFmt.format(r.time * 1000)} by ${r.author}` : "Working tree" })),
         h("code", { textContent: r.time ? short(r.hash) : "" }),
@@ -781,8 +781,8 @@ export async function openHistory(path: string, c?: Commit) {
     ),
   );
   // the history's file and diff show in the diff's pane, next to its list
-  $("h-main").append($("diff"));
-  $("h-main").classList.add("blank");
+  $("hist-main").append($("diff"));
+  $("hist-main").classList.add("blank");
   $("hist").hidden = false;
   document.body.classList.add("history");
   showRev(Math.max(0, revs.findIndex(([r]) => r.hash === c?.hash)));
@@ -793,8 +793,8 @@ export async function showRev(i: number) {
   const m = hist;
   if (!m || i === m.at || !m.revs[i]) return;
   m.at = i;
-  $("h-list").querySelectorAll(".h-row").forEach((r, k) => r.classList.toggle("on", k === i));
-  $("h-list").children[i].scrollIntoView({ block: "nearest" });
+  $("hist-list").querySelectorAll(".hist-row").forEach((r, k) => r.classList.toggle("on", k === i));
+  $("hist-list").children[i].scrollIntoView({ block: "nearest" });
   const [c, f] = m.revs[i];
   if (store("hist-view") === "diff") {
     // openDiff closes a diff opened again
@@ -806,7 +806,7 @@ export async function showRev(i: number) {
   }
   await closeDiff(true);
   histPane(true);
-  $("d-path").textContent = `${f.path} · ${short(c.hash)}`;
+  $("diff-path").textContent = `${f.path} · ${short(c.hash)}`;
   // the file shows first, its blame (slower) fills the gutter when it comes
   const blame = run<string>("blame", { at: c.hash, path: f.path }).catch(() => "");
   const blob = await run<Blob>("blob", { at: c.hash, path: f.path }).catch((e) => (say(String(e), true), null));
@@ -832,8 +832,8 @@ export async function showRev(i: number) {
 /** The diff's pane holds the file view too: the bar stays, with the diff options dimmed. */
 function histPane(file: boolean) {
   $("diff").hidden = false;
-  $("h-file").hidden = !file;
-  if (file) $("editor").hidden = $("binary").hidden = true;
+  $("hist-file").hidden = !file;
+  if (file) $("diff-editor").hidden = $("diff-binary").hidden = true;
   dimDiffOpts(file);
 }
 
@@ -841,7 +841,7 @@ const dimDiffOpts = (dim: boolean) =>
   [$("prev-change"), $("next-change"), ...document.querySelectorAll<HTMLElement>("[data-mode]")].forEach((b) => b.classList.toggle("off", dim));
 
 /** Show the history's pane once `drawn` settles, a frame later so it is painted. */
-export const reveal = (drawn?: Promise<unknown>) => (drawn ?? Promise.resolve()).then(() => requestAnimationFrame(() => $("h-main").classList.remove("blank")));
+export const reveal = (drawn?: Promise<unknown>) => (drawn ?? Promise.resolve()).then(() => requestAnimationFrame(() => $("hist-main").classList.remove("blank")));
 
 // a diff's hunks and folds land a moment after its text
 const diffDrawn = () =>
@@ -853,7 +853,7 @@ const diffDrawn = () =>
 
 function historyEditor() {
   if (histEd) return histEd;
-  histEd = monaco.editor.create($("h-file"), { ...plainOpts(), readOnly: true, minimap: { renderCharacters: false, showSlider: "always" } });
+  histEd = monaco.editor.create($("hist-file"), { ...plainOpts(), readOnly: true, minimap: { renderCharacters: false, showSlider: "always" } });
   // a click in the blame gutter shows the line's commit
   histEd.onMouseDown((e) => {
     if (!hist || e.target.type !== monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS) return;
@@ -867,16 +867,16 @@ function historyEditor() {
 
 /** An avatar where each commit's lines start, and its subject and date with Blame on. */
 export function paintBlame() {
-  const m = hist!, on = store("blame") === "on", digits = String(histEd!.getModel()!.getLineCount()).length;
+  const m = hist!, on = store("hist-blame") === "on", digits = String(histEd!.getModel()!.getLineCount()).length;
   // ponytail: Monaco inserts the line number string as HTML, so the gutter is drawn as text; a view zone per line if it starts escaping
   histEd!.updateOptions({
     lineNumbersMinChars: (on ? BLAME_W + 1 : 0) + 4 + digits,
     lineNumbers: (n) => {
       const b = m.blame[n - 1], first = !!b && m.blame[n - 2]?.hash !== b.hash;
       const num = String(n).padStart(digits);
-      if (!first) return `<span class="bl-av"></span> ${on ? " ".repeat(BLAME_W + 1) : ""} ${num}`;
+      if (!first) return `<span class="blame-av"></span> ${on ? " ".repeat(BLAME_W + 1) : ""} ${num}`;
       const text = on ? `${b.summary.slice(0, BLAME_SUBJECT).padEnd(BLAME_SUBJECT)}  ${dayFmt.format(b.time * 1000).padEnd(10)} ` : "";
-      return `${avatarSvg(b.author, "bl-av")} ${esc(text)} ${num}`;
+      return `${avatarSvg(b.author, "blame-av")} ${esc(text)} ${num}`;
     },
   });
   // who and when over each run of lines from one commit, and its strip, colored by its row
@@ -891,7 +891,7 @@ export function paintBlame() {
       let end = k;
       while (m.blame[end + 1]?.hash === b.hash) end++;
       const value = `**${escapeMarkdown(b.author)}**, ${dateFmt.format(b.time * 1000)} · \`${short(b.hash)}\`\n\n${escapeMarkdown(b.summary)}`;
-      const options = { lineNumberHoverMessage: { value }, linesDecorationsClassName: `bl-strip bl-c${color(b.hash)}` };
+      const options = { lineNumberHoverMessage: { value }, linesDecorationsClassName: `blame-strip blame-c${color(b.hash)}` };
       return [{ range: new monaco.Range(k + 1, 1, end + 1, 1), options }];
     }),
   );
@@ -899,7 +899,7 @@ export function paintBlame() {
 
 /** Blame's three states: on, off, and dimmed in the diff view. */
 export function paintBlameBtn() {
-  const b = $("h-blame"), diff = store("hist-view") === "diff", on = store("blame") === "on";
+  const b = $("hist-blame"), diff = store("hist-view") === "diff", on = store("hist-blame") === "on";
   b.classList.toggle("off", diff);
   b.classList.toggle("on", on && !diff);
   b.title = diff ? "Blame: only in the File view" : on ? "Hide each line's commit" : "Show each line's commit next to it";
@@ -913,13 +913,13 @@ export function histView(v: string) {
   if (!hist) return;
   const i = hist.at;
   hist.at = -1;
-  $("h-main").classList.add("blank");
+  $("hist-main").classList.add("blank");
   showRev(i);
 }
 
 export async function closeHistory() {
   await closeDiff(true);
-  $("h-file").hidden = true;
+  $("hist-file").hidden = true;
   dimDiffOpts(false);
   hist = null;
   $("hist").hidden = true;

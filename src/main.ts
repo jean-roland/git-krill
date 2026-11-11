@@ -15,12 +15,12 @@ function arrow(key: string) {
   const down = key === "ArrowDown";
   const inFiles = !!openFile();
   // every file of the visible lists, folded folders included: moving onto one unfolds it
-  const files = ["unstaged", "staged", "c-files"]
+  const files = ["unstaged", "staged", "commit-files"]
     .filter((id) => $(id).offsetParent)
     .flatMap((id) => (fileLists.get($(id))?.order ?? []).map((f) => ({ id, f })));
   if (key === "ArrowRight") return inFiles || (files[0] && openListed(files[0].id, files[0].f));
   if (inFiles) {
-    const open = openFile()!, id = open.kind === "commit" ? "c-files" : open.kind;
+    const open = openFile()!, id = open.kind === "commit" ? "commit-files" : open.kind;
     const next = files[files.findIndex((x) => x.id === id && x.f.path === open.f.path) + (down ? 1 : -1)];
     return next && openListed(next.id, next.f);
   }
@@ -155,20 +155,20 @@ paintFileOpts();
 resizer($("term-grip"), $("term"), "term-height", (m) =>
   Math.min($("center").clientHeight - 120, Math.max(80, $("term").getBoundingClientRect().bottom - m.clientY)),
 );
-resizer($("c-grip"), $("c-msg"), "msg-height", (m) => Math.min(innerHeight * 0.6, Math.max(60, m.clientY - $("c-msg").getBoundingClientRect().top)));
+resizer($("commit-grip"), $("commit-msg"), "msg-height", (m) => Math.min(innerHeight * 0.6, Math.max(60, m.clientY - $("commit-msg").getBoundingClientRect().top)));
 export const main = document.querySelector("main")!;
-resizer($("side-grip"), main, "side-width", (m) => Math.min(480, Math.max(160, m.clientX)), "--side-w");
-resizer($("panel-grip"), main, "panel-width", (m) => Math.min(innerWidth * 0.5, Math.max(300, innerWidth - m.clientX)), "--panel-w");
+resizer($("sidebar-grip"), main, "sidebar-width", (m) => Math.min(480, Math.max(160, m.clientX)), "--sidebar-w");
+resizer($("details-grip"), main, "details-width", (m) => Math.min(innerWidth * 0.5, Math.max(300, innerWidth - m.clientX)), "--details-w");
 new ResizeObserver(() => terms.get(tabs[active])?.fit.fit()).observe($("term"));
-$("close").onclick = () => closeDiff();
-$("d-history").onclick = () => diffFile && openHistory(diffFile.f.path, diffFile.c);
-$("h-close").onclick = () => closeHistory();
+$("diff-close").onclick = () => closeDiff();
+$("diff-history").onclick = () => diffFile && openHistory(diffFile.f.path, diffFile.c);
+$("hist-close").onclick = () => closeHistory();
 document.querySelectorAll<HTMLElement>("[data-hview]").forEach((b) => (b.onclick = () => histView(b.dataset.hview!)));
 histView(store("hist-view") ?? "file");
-resizer($("h-grip"), $("hist"), "hist-width", (m) => Math.min(innerWidth * 0.6, Math.max(220, m.clientX - $("hist").getBoundingClientRect().left)), "--hl-w");
-$("h-blame").onclick = () => {
+resizer($("hist-grip"), $("hist"), "hist-width", (m) => Math.min(innerWidth * 0.6, Math.max(220, m.clientX - $("hist").getBoundingClientRect().left)), "--hist-list-w");
+$("hist-blame").onclick = () => {
   if (store("hist-view") === "diff") return;
-  store("blame", store("blame") === "on" ? "off" : "on");
+  store("hist-blame", store("hist-blame") === "on" ? "off" : "on");
   paintBlameBtn();
   if (hist && histEd?.getModel()) paintBlame();
 };
@@ -179,7 +179,7 @@ $("open-editor").onclick = () => {
   const line = editor().getModifiedEditor().getPosition()?.lineNumber ?? 1;
   run("open_in_editor", { path: diffFile.f.path, line }).catch((e) => say(String(e), true));
 };
-$("save").onclick = () => save().then(refresh);
+$("diff-save").onclick = () => save().then(refresh);
 $("open-repo").onclick = openPicked;
 $("m-sync").classList.toggle("on", store("merge-sync") !== "off");
 $("m-sync").onclick = () => store("merge-sync", $("m-sync").classList.toggle("on") ? "on" : "off");
@@ -200,7 +200,7 @@ addEventListener("click", (e) => {
   if (!(e.target as HTMLElement).closest("#tab-search, #tab-find")) $("tab-search").hidden = true;
 });
 // WebKit's Reload/Back menu means nothing here; inputs and Monaco keep theirs
-addEventListener("contextmenu", (e) => !(e.target as HTMLElement).closest("input, textarea, #editor") && e.preventDefault());
+addEventListener("contextmenu", (e) => !(e.target as HTMLElement).closest("input, textarea, #diff-editor") && e.preventDefault());
 addEventListener("keydown", (e) => {
   const key = e.key.toLowerCase();
   if (e.ctrlKey && e.code === "Backquote") (e.preventDefault(), toggleTerm());
@@ -222,7 +222,7 @@ addEventListener("keydown", (e) => {
     else if (hist) closeHistory();
     else if (!$("diff").hidden) closeDiff();
     else if (merging) closeMerge();
-  } else if ((e.target as HTMLElement).closest?.("input:not([type=checkbox]), textarea, #editor, #merge, #h-file") || !repo) return;
+  } else if ((e.target as HTMLElement).closest?.("input:not([type=checkbox]), textarea, #diff-editor, #merge, #hist-file") || !repo) return;
   else if (e.ctrlKey && key === "f") (e.preventDefault(), openFind());
   else if (e.ctrlKey && key === "z") (e.preventDefault(), undoRedo(!e.shiftKey));
   else if (e.ctrlKey && key === "y") (e.preventDefault(), undoRedo(false));
