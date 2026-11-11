@@ -322,9 +322,12 @@ export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistor
   } catch (e) {
     return say(String(e), true);
   }
-  // the merge tool goes only now, with the diff coming in the same frame: no graph in between
+  // what is on screen stays until the new diff is drawn: the graph under a see-through pane, a merge or diff under a still copy
+  const gen = ++opening, fresh = $("diff").hidden && !merging;
+  const copy = document.querySelector(".still") ?? still(merging ? $("merge") : [$("diff-editor"), $("diff-binary")].find((e) => !$("diff").hidden && !e.hidden));
   await closeMerge(true);
   diffFile = { kind, f, c, orig, mod, dirty: false, full: false };
+  if (fresh) $("diff").classList.add("blank");
   $("diff").hidden = false;
   document.body.classList.add("diffing");
   const range = c ? `  ·  ${c.parents[0] ? short(c.parents[0]) : "root"}..${short(c.hash)}` : "";
@@ -335,14 +338,31 @@ export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistor
   const eol = (t: string) => (t.includes("\r\n") ? "CRLF" : t.includes("\n") ? "LF" : "");
   if (eol(orig.text) && eol(mod.text) && eol(orig.text) !== eol(mod.text))
     say(`${f.path}: line endings changed ${eol(orig.text)} → ${eol(mod.text)}, not shown in the diff`, true);
-  paintSides(inHistory);
+  // a later file keeps the cover up until its own diff is drawn
+  paintSides().then(() => requestAnimationFrame(() => gen === opening && (copy?.remove(), $("diff").classList.remove("blank"))));
+}
+
+let opening = 0;
+
+/** A still copy of `el` laid over it, for the new view to draw unseen underneath. */
+function still(el?: HTMLElement) {
+  if (!el) return null;
+  const copy = el.cloneNode(true) as HTMLElement;
+  // canvases (minimap, overview ruler) do not clone their pixels
+  const from = el.querySelectorAll("canvas");
+  copy.querySelectorAll("canvas").forEach((c, i) => from[i].width && from[i].height && c.getContext("2d")?.drawImage(from[i], 0, 0));
+  copy.classList.add("still");
+  Object.assign(copy.style, { position: "absolute", zIndex: "20", pointerEvents: "none", left: `${el.offsetLeft}px`, top: `${el.offsetTop}px`, width: `${el.offsetWidth}px`, height: `${el.offsetHeight}px` });
+  // after it: its ids still find the live element
+  el.after(copy);
+  return copy;
 }
 
 // lib.rs MAX_ASKED: past it a file does not load even when asked
 const MAX_ASKED = 200 << 20;
 
 /** The open diff's sides in the editor, or why not: binary, or too big to load unasked. */
-function paintSides(inHistory: boolean) {
+function paintSides() {
   const { f, orig, mod } = diffFile!;
   const binary = orig.binary || mod.binary, large = Math.max(orig.large ?? 0, mod.large ?? 0);
   $("diff-editor").hidden = binary || !!large;
@@ -353,12 +373,11 @@ function paintSides(inHistory: boolean) {
   $("diff-save").hidden = true;
   applyMode();
   if (binary || large) return Promise.resolve();
-  // the folds land a moment after the text: the bare file would flash in between
-  if (!inHistory) $("diff").classList.add("blank");
   // Monaco gives up on a diff after 5 s and marks the whole file changed: a file loaded on request gets the time it takes
   setOptions({ maxComputationTime: diffFile!.full ? 0 : 5000 });
   setModels(false);
-  return diffDrawn(diffFile!.full ? 300_000 : 500).then(() => requestAnimationFrame(() => $("diff").classList.remove("blank")));
+  // the folds land a moment after the text
+  return diffDrawn(diffFile!.full ? 300_000 : 500);
 }
 
 function forceLoadButton(bytes: number) {
@@ -375,7 +394,7 @@ async function loadFull() {
     const [orig, mod] = await fetchSides(d.kind, d.f, d.c, true);
     if (diffFile !== d || gaveUp()) return;
     Object.assign(d, { orig, mod, full: true });
-    await paintSides(!!hist);
+    await paintSides();
   });
 }
 
@@ -903,8 +922,8 @@ export const reveal = (drawn?: Promise<unknown>) => (drawn ?? Promise.resolve())
 // a diff's hunks and folds land a moment after its text
 const diffDrawn = (ms = 500) =>
   new Promise((done) => {
-    // the first update only drops the old diff: wait for one with changes computed
-    const d = editor().onDidUpdateDiff(() => editor().getLineChanges() && (d.dispose(), done(0)));
+    // the first update only drops the old diff: wait for one with changes computed, and the frame that draws its deleted lines
+    const d = editor().onDidUpdateDiff(() => editor().getLineChanges() && (d.dispose(), requestAnimationFrame(done)));
     setTimeout(() => (d.dispose(), done(0)), ms);
   });
 

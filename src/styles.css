@@ -608,7 +608,8 @@ textarea.msg-in { height: 104px; resize: vertical; }
 #hist-main { position: relative; min-width: 0; }
 #hist-file { flex: 1; min-height: 0; }
 /* a switch shows nothing until the new view is drawn; WebKit ignores visibility on Monaco's layers */
-#hist-main.blank #diff-editor, #hist-main.blank #hist-file, #diff.blank #diff-editor { opacity: 0; }
+#hist-main.blank #diff-editor, #hist-main.blank #hist-file { opacity: 0; }
+#diff.blank { opacity: 0; pointer-events: none; }
 .hist-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); cursor: pointer; }
 .hist-row:hover { background: var(--hover); }
 .hist-row.on { background: var(--sel); }
