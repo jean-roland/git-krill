@@ -256,8 +256,10 @@ async function op(name: string, arg: string | [string, string] = "", record = tr
     const conflicts = msg.split("\n").filter((l) => l.startsWith("CONFLICT"));
     if (conflicts.length) {
       toast(`${what} stopped on conflicts`, conflicts.join("\n"), "info");
-      stashView = null;
-      selected = [(anchor = "WIP")];
+      if (tab === tabs[active]) {
+        stashView = null;
+        selected = [(anchor = "WIP")];
+      }
     } else toast(`${what} failed${onBranch}`, msg + hint(msg), "err");
     say(`${what} ${conflicts.length ? "stopped on conflicts" : "failed"}`);
     ok = false;
@@ -384,16 +386,24 @@ async function walk(back: boolean) {
   renderToolbar();
 }
 
-async function refresh() {
+let refreshing: Promise<void> | null = null;
+let refreshAgain: Promise<void> | null = null;
+/** Reload and repaint the tab; one run at a time so an older snapshot never lands last, callers meanwhile share the next run. */
+function refresh(): Promise<void> {
+  if (!refreshing) return (refreshing = reload().catch((e) => say(String(e), true)).finally(() => (refreshing = null)));
+  return (refreshAgain ??= refreshing.then(() => ((refreshAgain = null), refresh())));
+}
+
+async function reload() {
   const r = repo;
   if (!r) return;
   try {
     const [s, log, rf] = await Promise.all([run<Status>("status"), run<Commit[]>("log", { limit: LOG_LIMIT, hide: [...hiddenRemotes().map((r) => `refs/remotes/${r}/*`), ...hiddenBranches().filter((k) => k.startsWith("refs/"))] }), run<Refs>("refs")]);
+    const info = s.state ? await run<OpInfo>("op_info").catch(() => null) : null;
     if (r !== repo) return;
     st = s;
     refs = rf;
-    opInfo = s.state ? await run<OpInfo>("op_info").catch(() => null) : null;
-    if (r !== repo) return;
+    opInfo = info;
     // resolved or aborted elsewhere: nothing left to merge
     if (merging && !s.unstaged.some((f) => f.path === merging!.f.path && isConflict(f))) closeMerge(true);
     const step = opInfo ? JSON.stringify([opInfo.state, opInfo.step, opInfo.message]) : "";
@@ -428,7 +438,9 @@ async function refresh() {
       if (r !== repo) return;
       toast(`Closed ${tabName(tabs[active])}`, `${r} no longer exists. Removed from the recent list.`, "info");
       forgetRecent(r);
-      return closeTab(active);
+      // not awaited: closing switches tabs, whose refresh waits for this one to end
+      void closeTab(active);
+      return;
     }
     say(String(e), true);
   }
@@ -527,9 +539,13 @@ function dragTab(e: PointerEvent, i: number) {
   addEventListener("pointerup", up, { once: true });
 }
 
+/** Whether the open diff's and merge's unsaved edits may go, asking first; the merge closes. */
+const dropEdits = async () => (!cur?.dirty || (await ask(`Drop unsaved edits to ${cur.f.path}?`, "Drop edits"))) && (await closeMerge());
+
 async function switchTab(i: number, save = true) {
-  if (save && cur?.dirty && !(await ask(`Drop unsaved edits to ${cur.f.path}?`, "Drop edits"))) return;
-  if (save) Object.assign(tabs[active], { selected, msg: getMsg(), scroll: $("graph").scrollTop });
+  if (save && !(await dropEdits())) return;
+  // a tab left before its graph came keeps its old scroll
+  if (save) Object.assign(tabs[active], { selected, msg: getMsg(), scroll: commits.length ? $("graph").scrollTop : tabs[active].scroll });
   closeHistory();
   active = i;
   const t = tabs[active];
@@ -541,6 +557,7 @@ async function switchTab(i: number, save = true) {
   setMsg(t.msg);
   commits = [];
   st = null;
+  opInfo = null;
   logKey = refsKey = opStep = "";
   shown = [];
   chunks = [];
@@ -555,12 +572,13 @@ async function switchTab(i: number, save = true) {
   if (!repo) return renderRecent();
   $("repo-name").textContent = tabName(t);
   await refresh();
+  if (tabs[active] !== t) return;
   $("graph").scrollTop = t.scroll;
   autoFetch();
 }
 
 async function closeTab(i: number) {
-  if (i === active && cur?.dirty && !(await ask(`Drop unsaved edits to ${cur.f.path}?`, "Drop edits"))) return;
+  if (i === active && !(await dropEdits())) return;
   dropTerm(tabs[i]);
   if (tabs[i].repo) closedTabs.push(tabs[i].repo);
   tabs.splice(i, 1);
@@ -835,7 +853,7 @@ async function openWorktree(path: string) {
   const i = tabs.findIndex((t) => t.repo === path);
   if (i >= 0) return switchTab(i);
   if (!(await exists(path))) return say(`${path} no longer exists`, true);
-  if (cur?.dirty && !(await ask(`Drop unsaved edits to ${cur.f.path}?`, "Drop edits"))) return;
+  if (!(await dropEdits())) return;
   // the shell ran in the old folder
   dropTerm(tabs[active]);
   tabs[active] = newTab(path);
@@ -894,15 +912,30 @@ async function editRemote(name: string) {
   });
 }
 
-/** A small form over the app; `save` gets the trimmed field values in order. */
 // what closing the open dialog without its action means, if anything
 let dialogCancel: (() => unknown) | null = null;
+// dialogs a newer one covers, like a clone under its passphrase prompt: back on top when it goes
+const dialogsUnder: { nodes: Element[]; cancel: (() => unknown) | null }[] = [];
 
-/** Hide the dialog: Cancel, its ×, Esc and a click beside it all end here. */
+function showDialog(dlg: HTMLElement, cancel: (() => unknown) | null) {
+  if (!$("dialog").hidden) dialogsUnder.push({ nodes: [...$("dialog").children], cancel: dialogCancel });
+  dialogCancel = cancel;
+  $("dialog").replaceChildren(dlg);
+  $("dialog").hidden = false;
+}
+
+/** Take the top dialog away, without its cancel. */
+function hideDialog() {
+  const under = dialogsUnder.pop();
+  dialogCancel = under?.cancel ?? null;
+  if (under) $("dialog").replaceChildren(...under.nodes);
+  else $("dialog").hidden = true;
+}
+
+/** Cancel the top dialog: its Cancel, its ×, Esc and a click beside it all end here. */
 function closeDialog() {
-  $("dialog").hidden = true;
   const cancel = dialogCancel;
-  dialogCancel = null;
+  hideDialog();
   cancel?.();
 }
 
@@ -916,21 +949,16 @@ function dialog(
   cancel?: () => unknown,
 ) {
   const inputs = fields.map(([, value, type = "text"]) => h("input", { value, type, spellcheck: false }));
-  const close = () => {
-    dialogCancel = null;
-    $("dialog").hidden = true;
-  };
   const submit = () => {
-    close();
+    hideDialog();
     save(inputs.map((i) => (i.type === "password" ? i.value : i.value.trim())));
   };
-  dialogCancel = cancel ?? null;
   for (const i of inputs) {
     i.onkeydown = (e) => {
       if (e.key === "Enter") submit();
     };
   }
-  $("dialog").replaceChildren(
+  showDialog(
     h(
       "div",
       { className: "dlg" },
@@ -940,12 +968,12 @@ function dialog(
         "div",
         { className: "dlg-actions" },
         h("button", { textContent: "Cancel", onclick: closeDialog }),
-        ...more.map(([label, fn]) => h("button", { textContent: label, onclick: () => (close(), fn()) })),
+        ...more.map(([label, fn]) => h("button", { textContent: label, onclick: () => (hideDialog(), fn()) })),
         h("button", { className: "primary", textContent: action, onclick: submit }),
       ),
     ),
+    cancel ?? null,
   );
-  $("dialog").hidden = false;
   (inputs[0] ?? $("dialog").querySelector("button.primary")).focus();
 }
 
@@ -969,7 +997,6 @@ function cloneDialog() {
   };
   parent.oninput = url.oninput = paint;
   name.oninput = () => ((named = !!name.value), paint());
-  const close = () => ($("dialog").hidden = true);
   const submit = async () => {
     if (go.disabled) return;
     go.disabled = true;
@@ -977,7 +1004,7 @@ function cloneDialog() {
     try {
       const path = await invoke<string>("clone", { parent: parent.value.trim(), url: url.value.trim(), name: name.value.trim() });
       store("clone-dir", parent.value.trim());
-      close();
+      hideDialog();
       await openRepo(path);
     } catch (e) {
       say(String(e), true);
@@ -991,22 +1018,22 @@ function cloneDialog() {
     const p = await pickDir("Clone into");
     if (p) (parent.value = p), paint();
   };
-  $("dialog").replaceChildren(
+  showDialog(
     h(
       "div",
       { className: "dlg clone-dlg" },
-      h("div", { className: "dlg-head" }, h("b", { textContent: "Clone a repository" }), h("button", { className: "x", textContent: "×", title: "Close (Esc)", onclick: close })),
+      h("div", { className: "dlg-head" }, h("b", { textContent: "Clone a repository" }), h("button", { className: "x", textContent: "×", title: "Close (Esc)", onclick: closeDialog })),
       h("label", { textContent: "Where to clone to" }),
       h("div", { className: "dlg-row" }, parent, h("button", { textContent: "Browse…", onclick: browse })),
       h("label", { textContent: "URL" }),
       url,
       fullLabel,
       full,
-      h("div", { className: "dlg-actions" }, h("button", { textContent: "Cancel", onclick: close }), go),
+      h("div", { className: "dlg-actions" }, h("button", { textContent: "Cancel", onclick: closeDialog }), go),
     ),
+    null,
   );
   paint();
-  $("dialog").hidden = false;
   url.focus();
 }
 
@@ -2153,10 +2180,9 @@ async function openDiff(kind: Kind, f: Change, c?: Commit, inHistory = false) {
   // a file picked outside the history leaves it
   if (hist && !inHistory) await closeHistory();
   if (kind === "unstaged" && isConflict(f)) return openConflict(f);
-  if (!(await closeMerge())) return;
   // clicking the open file again closes it
   if (cur && cur.kind === kind && cur.f.path === f.path && cur.c?.hash === c?.hash && cur.c?.parents[0] === c?.parents[0]) return closeDiff();
-  if (cur?.dirty && !(await ask(`Drop unsaved edits to ${cur.f.path}?`, "Drop edits"))) return;
+  if (!(await dropEdits())) return;
   let orig: Blob, mod: Blob;
   try {
     [orig, mod] = await fetchSides(kind, f, c);
@@ -2836,7 +2862,7 @@ function termFor(tab: Tab) {
     if (t.armed) settle();
   };
   invoke<number>("pty_spawn", { repo: tab.repo, cols: term.cols, rows: term.rows, onData: out })
-    .then((id) => (t.id = id))
+    .then((id) => (terms.get(tab) === t ? (t.id = id) : invoke("pty_kill", { id })))
     .catch((e) => say(String(e), true));
   term.onData((data) => {
     if (!t.id) return;
@@ -2979,10 +3005,16 @@ const toldAuth = new Set<string>();
 function autoFetch() {
   const r = repo;
   if (!r || Date.now() - (fetchedAt.get(r) ?? 0) < 60_000 || document.body.classList.contains("busy")) return;
-  fetchedAt.set(r, Date.now());
-  run("git_op", { op: "auto-fetch", arg: "" }).then(
-    () => void (r === repo && refresh()),
+  // never twice at once: on a dead network one can hang for minutes
+  fetchedAt.set(r, Infinity);
+  run<string>("git_op", { op: "auto-fetch", arg: "" }).then(
+    (out) => {
+      fetchedAt.set(r, Date.now());
+      // with several remotes git names each one even when nothing came
+      if (r === repo && out.split("\n").some((l) => l.trim() && !l.startsWith("Fetching "))) refresh();
+    },
     (e) => {
+      fetchedAt.set(r, Date.now());
       if (!String(e).includes("krill: needs a passphrase or password") || toldAuth.has(r)) return;
       toldAuth.add(r);
       toast(`Auto-fetch skipped: ${aliases()[r] ?? basename(r)}`, "Its remote needs a passphrase or password, which a background fetch cannot ask for. Use Fetch to enter it.", "info");

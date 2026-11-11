@@ -1642,6 +1642,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-window-state",
+ "tokio",
 ]
 
 [[package]]

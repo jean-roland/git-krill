@@ -121,6 +121,8 @@ fn git_cmd(repo: &str, args: &[&str], input: Option<&[u8]>, ask: bool) -> Result
         // never block on an editor or a credential prompt: there is no tty
         .env("GIT_EDITOR", "true")
         .env("GIT_TERMINAL_PROMPT", "0")
+        // paths from the UI are names, not globs: `f[12].c` must not also match f1.c
+        .env("GIT_LITERAL_PATHSPECS", "1")
         .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -134,7 +136,8 @@ fn git_cmd(repo: &str, args: &[&str], input: Option<&[u8]>, ask: bool) -> Result
     if let Some(data) = input {
         child.stdin.take().unwrap().write_all(data).map_err(|e| e.to_string())?;
     }
-    child.wait_with_output().map_err(|e| e.to_string())
+    // off the async pool while it waits: a fetch can hang for minutes on a dead network
+    tokio::task::block_in_place(|| child.wait_with_output()).map_err(|e| e.to_string())
 }
 
 fn both(out: &std::process::Output) -> String {
@@ -310,7 +313,7 @@ fn log(repo: String, limit: u32, hide: Vec<String>) -> Result<Vec<Commit>, Strin
 fn status(repo: String) -> Result<Status, String> {
     let out = git(&repo, &["status", "--porcelain=v1", "-z", "--untracked-files=all"])?;
     let (mut staged, mut unstaged) = (Vec::new(), Vec::new());
-    let mut entries = out.split('\0').filter(|e| e.len() > 3);
+    let mut entries = out.split('\0').filter(|e| !e.is_empty());
     while let Some(e) = entries.next() {
         let (x, y, path) = (&e[0..1], &e[1..2], e[3..].to_string());
         let old = if x == "R" || x == "C" { entries.next().map(String::from) } else { None };
@@ -784,7 +787,7 @@ fn open_url(url: String) -> Result<(), String> {
 
 struct Pty {
     master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
+    input: mpsc::Sender<String>,
     child: Box<dyn Child + Send + Sync>,
 }
 
@@ -857,7 +860,16 @@ fn pty_spawn(ptys: State<'_, Ptys>, repo: String, cols: u16, rows: u16, on_data:
     cmd.env("TERM", "xterm-256color");
     let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
     let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
-    let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
+    let mut writer = pair.master.take_writer().map_err(|e| e.to_string())?;
+    // a write blocks while the program in front does not read: keep that off the main thread
+    let (input, keys) = mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        for data in keys {
+            if writer.write_all(data.as_bytes()).is_err() {
+                return;
+            }
+        }
+    });
     std::thread::spawn(move || {
         let mut buf = [0u8; 8192];
         while let Ok(n @ 1..) = reader.read(&mut buf) {
@@ -870,16 +882,16 @@ fn pty_spawn(ptys: State<'_, Ptys>, repo: String, cols: u16, rows: u16, on_data:
     let mut guard = ptys.0.lock().unwrap();
     guard.0 += 1;
     let id = guard.0;
-    guard.1.insert(id, Pty { master: pair.master, writer, child });
+    guard.1.insert(id, Pty { master: pair.master, input, child });
     Ok(id)
 }
 
 // sync on purpose: async commands run on a pool and could reorder keystrokes
 #[tauri::command]
 fn pty_write(ptys: State<'_, Ptys>, id: u32, data: String) -> Result<(), String> {
-    let mut guard = ptys.0.lock().unwrap();
-    let pty = guard.1.get_mut(&id).ok_or("no such terminal")?;
-    pty.writer.write_all(data.as_bytes()).map_err(|e| e.to_string())
+    let guard = ptys.0.lock().unwrap();
+    let pty = guard.1.get(&id).ok_or("no such terminal")?;
+    pty.input.send(data).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

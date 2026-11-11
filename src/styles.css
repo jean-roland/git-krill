@@ -69,7 +69,8 @@ header {
 }
 .h-side { display: flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; }
 .h-side.right { justify-content: flex-end; }
-.h-mid { display: flex; align-items: center; gap: 2px; }
+/* the toolbar and the history bar's middle */
+.h-mid { display: flex; align-items: center; gap: 8px; }
 .sep { width: 1px; height: 28px; margin: 0 8px; background: var(--border); }
 #repo-name { font-weight: 600; font-size: 14px; }
 .h-side .ico svg { width: 15px; height: 15px; }
@@ -652,7 +653,6 @@ footer {
 /* file history: the file's commits on the left, the file or the diff of the one picked */
 #hist { position: absolute; inset: 0; z-index: 10; display: grid; grid-template: auto 1fr / var(--hl-w, 360px) 1fr; background: var(--bg); }
 #hist > .bar { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr auto 1fr; }
-.h-mid { display: flex; align-items: center; gap: 8px; }
 #h-close { justify-self: end; }
 /* one height whatever the bar holds: the file and diff views share it */
 #hist .bar { box-sizing: border-box; height: 37px; }
