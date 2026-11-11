@@ -19,7 +19,7 @@ A lean desktop git client for Linux: a commit graph, diffs you can stage from, a
 Download the `.deb` from the [releases](https://github.com/jean-roland/Git_Krill/releases), then:
 
 ```sh
-sudo apt install ./krill_0.1.0_amd64.deb
+sudo apt install ./git-krill_0.1.0_amd64.deb
 ```
 
 Run `krill`, or `krill path/to/repo`. Needs `git` (tested with 2.43). "Open in editor" uses VS Code's `code` command.
