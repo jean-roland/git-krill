@@ -333,7 +333,7 @@ function paintOpenEditor() {
   const { f } = diffFile;
   // a file from another branch may not be on disk: say so on the button, not as an error
   const ed = $("open-editor");
-  run<boolean>("in_worktree", { path: f.path }).then((ok) => {
+  run<boolean>("on_disk", { path: f.path }).then((ok) => {
     if (diffFile?.f.path !== f.path) return;
     // a class, not `disabled`: WebKit shows no tooltip on a disabled button
     ed.classList.toggle("off", !ok);

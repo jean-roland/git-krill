@@ -307,7 +307,7 @@ export async function renderPanel() {
   try {
     const info = await runFixed<{ message: string; files: Change[] }>("commit_info", { hash: view.c.hash, parent: view.c.parents[0] ?? "" });
     if (n !== panelSeq) return;
-    const all = $("all-files").classList.contains("on") ? await runFixed<string[]>("files", { at: view.c.hash }) : [];
+    const all = $("all-files").classList.contains("on") ? await runFixed<string[]>("tree_files", { at: view.c.hash }) : [];
     if (n !== panelSeq) return;
     const msg = view.message ?? info.message;
     $("c-head").replaceChildren(...view.head);

@@ -203,7 +203,7 @@ async function editRemote(name: string) {
 
 /** Browser URL of a remote: git@host:org/repo.git, ssh://git@host:22/org/repo, https://user@host/org/repo.git. */
 async function webUrl(remote: string) {
-  const url = await run<string>("remote_url", { name: remote });
+  const url = (await run<{ fetch: string }>("remote_urls", { name: remote })).fetch;
   const m = url.match(/^(?:\w+:\/\/)?(?:[^@/]+@)?([^:/]+)(?::\d+)?[:/](.+?)(?:\.git)?\/?$/);
   return m ? `https://${m[1]}/${m[2]}` : url;
 }
@@ -562,10 +562,10 @@ function branchMenu(name: string, remote: boolean): MenuItem[] {
 /** `git branch -d`, or `-D` after saying what is lost when the branch is merged nowhere. */
 async function deleteBranch(name: string, upstream: string) {
   const merged = await run<boolean>("is_merged", { branch: name }).catch(() => false);
-  if (merged) return (await ask(`Delete branch ${name}?`, "Delete")) && gitOp("delete-branch", name);
+  if (merged) return (await ask(`Delete branch ${name}?`, "Delete")) && gitOp("branch-delete", name);
   // a squash-merged pull request leaves its branch unmerged here
   const into = upstream || status?.branch || "HEAD";
-  if (await ask(`${name} is not merged into ${into}. Delete it with its unmerged commits?`, "Force delete")) gitOp("force-delete-branch", name);
+  if (await ask(`${name} is not merged into ${into}. Delete it with its unmerged commits?`, "Force delete")) gitOp("branch-force-delete", name);
 }
 
 function tagMenu(name: string): MenuItem[] {

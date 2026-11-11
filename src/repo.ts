@@ -35,8 +35,8 @@ const DONE: Record<string, (arg: string, arg2: string, branch: string, upstream:
   "push-delete": (remote, name) => `Deleted ${name.replace(/^refs\/tags\//, "tag ")} on ${remote}`,
   "tag-push": (remote, name) => `Pushed tag ${name} to ${remote}`,
   "tag-delete": (name) => `Deleted tag ${name}`,
-  "delete-branch": (name) => `Deleted branch ${name}`,
-  "force-delete-branch": (name) => `Deleted branch ${name}`,
+  "branch-delete": (name) => `Deleted branch ${name}`,
+  "branch-force-delete": (name) => `Deleted branch ${name}`,
   "worktree-remove": (path) => `Removed worktree ${basename(path)}`,
   "worktree-force-remove": (path) => `Removed worktree ${basename(path)}`,
   "worktree-prune": () => "Pruned the worktrees whose folder is gone",
@@ -326,7 +326,7 @@ function saveTabs() {
 export function newTab(repo: string): Tab {
   const t: Tab = { repo, selected: ["WIP"], msg: "", scroll: 0, undo: [], redo: [], worktree: false };
   // a linked worktree's .git is a file
-  if (repo) invoke<boolean>("is_file", { path: `${repo}/.git` }).then((w) => w && ((t.worktree = true), renderTabs()));
+  if (repo) invoke<boolean>("is_linked_worktree", { repo }).then((w) => w && ((t.worktree = true), renderTabs()));
   return t;
 }
 const recentRepos = (): string[] => JSON.parse(store("recent") ?? "[]");
