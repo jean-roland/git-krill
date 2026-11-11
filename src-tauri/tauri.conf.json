@@ -28,6 +28,13 @@
     "active": true,
     "category": "DeveloperTool",
     "shortDescription": "Lean git client",
+    "longDescription": "A lean desktop git client for Linux: a commit graph, diffs you can stage from, a merge tool, and little else.",
+    "homepage": "https://github.com/jean-roland/Git_Krill",
+    "linux": {
+      "deb": {
+        "depends": ["git"]
+      }
+    },
     "targets": [
       "deb"
     ],
