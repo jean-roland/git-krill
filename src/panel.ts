@@ -386,12 +386,13 @@ export function renderCommitBtn() {
   b.hidden = $("amend").hidden = !!opInfo;
   $("op-btns").hidden = !opInfo;
   if (opInfo) {
-    const left = conflictCount(), c = $("op-continue");
-    c.textContent = opInfo.state === "merge" ? "Commit and merge" : `Continue ${opInfo.state}`;
+    // a non-breaking hyphen: a narrow button wraps before "cherry-pick", not inside it
+    const left = conflictCount(), c = $("op-continue"), op = opInfo.state.replace("-", "\u2011");
+    c.textContent = opInfo.state === "merge" ? "Commit and merge" : `Continue ${op}`;
     c.classList.toggle("off", left > 0);
     c.title = left ? `Resolve the ${plural(left, "conflicted file")} first` : emptyStep() ? "Nothing left to commit in this step: Continue skips it" : "";
     $("op-skip").hidden = opInfo.state === "merge";
-    $("op-abort").textContent = `Abort ${opInfo.state}`;
+    $("op-abort").textContent = `Abort ${op}`;
   }
   b.disabled = !input("summary").value.trim() || (!staged && !amend);
   b.textContent = amend

@@ -629,6 +629,8 @@ async function openConflict(f: Change) {
   $("m-b-name").textContent = opInfo?.incoming ?? "";
   $("m-a-commit").textContent = opInfo?.currentCommit ?? "";
   $("m-b-commit").textContent = opInfo?.incomingCommit ?? "";
+  // a commit off any branch tip: its name is the hash again
+  $("m-b-on").hidden = opInfo?.incoming === opInfo?.incomingCommit;
   loadMerge();
   markOpenFile();
 }
