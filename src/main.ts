@@ -19,13 +19,13 @@ type Worktree = { path: string; head: string; branch: string; locked: boolean; p
 type Refs = { refs: Ref[]; stashes: Stash[]; remotes: string[]; worktrees: Worktree[] };
 type Blob = { text: string; exists: boolean; binary: boolean };
 // file: a discard, the work tree text before and after (null: no file)
-type Step = { op: string; branch: [string, string]; head: [string, string]; file?: [string, string | null, string | null] };
-type Tab = { repo: string; selected: string[]; msg: string; scroll: number; undo: Step[]; redo: Step[]; worktree: boolean };
+type UndoStep = { op: string; branch: [string, string]; head: [string, string]; file?: [string, string | null, string | null] };
+type Tab = { repo: string; selected: string[]; msg: string; scroll: number; undo: UndoStep[]; redo: UndoStep[]; worktree: boolean };
 type Dir = { dirs: Map<string, Dir>; files: Change[] };
 type Label = { name: string; tag: boolean; head: boolean; local: boolean; remotes: string[] };
-type Kind = "unstaged" | "staged" | "commit";
+type DiffSource = "unstaged" | "staged" | "commit";
 type Mode = "hunk" | "inline" | "split";
-type C4 = { os: number; oe: number; ms: number; me: number };
+type LineChange = { os: number; oe: number; ms: number; me: number };
 type Lines = { removed: Set<number>; added: Set<number> };
 // null draws a separator
 // an entry with items opens them beside it on hover
@@ -54,7 +54,8 @@ const loadMonaco = () =>
     for (const id of ["c", "cpp"]) monaco.languages.setMonarchTokensProvider(id, { ...cpp.language, tokenizer: { ...cpp.language.tokenizer, root } });
   }));
 
-const ROW = 26, LANE = 22, LOG_LIMIT = 3000;
+const ROW = 26, LANE = 22;
+const LOG_LIMIT = 3000;
 const COLORS = ["#46b1ab", "#5d88d9", "#9c5dd9", "#5bc78e", "#d9ba5d", "#d95d96", "#d97d5d", "#d95d72"];
 // ops that move HEAD, walked back with a reset or a checkout
 const UNDOABLE = new Set([
@@ -103,7 +104,7 @@ const ICONS: Record<string, string> = {
 const SORTS: Record<string, string> = { "": "A–Z", desc: "Z–A", status: "Status" };
 // how Pull reconciles a diverged branch, by git_op's pull argument
 const PULLS: Record<string, string> = { "": "fast-forward if possible", "ff-only": "fast-forward only", rebase: "rebase" };
-const hue = (s: string) => [...s].reduce((a, ch) => a + ch.charCodeAt(0), 0) % COLORS.length;
+const colorIndex = (s: string) => [...s].reduce((a, ch) => a + ch.charCodeAt(0), 0) % COLORS.length;
 // each author's sprite is one <symbol> in #sprites, which every avatar of theirs uses
 const spriteIds = new Map<string, string>();
 function spriteId(name: string) {
@@ -127,38 +128,36 @@ let tabs: Tab[] = [];
 let active = 0;
 let repo = "";
 let commits: Commit[] = [];
-let st: Status | null = null;
+let status: Status | null = null;
 let refs: Refs = { refs: [], stashes: [], remotes: [], worktrees: [] };
-let selected = ["WIP"];
-let anchor = "";
-let rangeSel = false;
-let stashView: Stash | null = null;
+// the picked graph rows ("WIP" or hashes), where a Shift range starts, whether it is one, or the stash shown instead
+const selection = { hashes: ["WIP"], anchor: "", isRange: false, stash: null as Stash | null };
 // the merge, rebase... in progress, and the step whose message the commit box holds
 let opInfo: OpInfo | null = null;
 let opStep = "";
-let logKey = "", refsKey = "", panelKey = "";
+let graphKey = "", sideKey = "", panelKey = "";
 let panelSeq = 0;
-let cur: { kind: Kind; f: Change; c?: Commit; orig: Blob; mod: Blob; dirty: boolean } | null = null;
+let diffFile: { kind: DiffSource; f: Change; c?: Commit; orig: Blob; mod: Blob; dirty: boolean } | null = null;
 let diffEditor: Monaco.editor.IStandaloneDiffEditor | null = null;
 // hunk header bars, as view zone ids per side
-let bars: { mod: string[]; orig: string[]; nodes: HTMLElement[] } = { mod: [], orig: [], nodes: [] };
-let hunks: C4[] = [];
+let hunkZones: { mod: string[]; orig: string[]; nodes: HTMLElement[] } = { mod: [], orig: [], nodes: [] };
+let hunks: LineChange[] = [];
 let lastSide: "orig" | "mod" = "mod";
-let seq = 0;
-let editing = "";
+let modelSeq = 0;
+let rewording = "";
 let hiddenSet = new Set<string>();
-let hits: string[] = [];
-let hit = -1;
+let findHits: string[] = [];
+let findAt = -1;
 // the graph rows and their lane colors, drawn by chunks: only those near the view are in the DOM
 let shown: Commit[] = [];
 let rowColors: string[] = [];
 let chunks: HTMLElement[] = [];
 let laneW = 0;
-let laid: { width: number; nodes: number[]; edges: { row: number; lane: number; toRow: number; toLane: number; via: number }[] } = { width: 0, nodes: [], edges: [] };
+let graphLayout: { width: number; nodes: number[]; edges: { row: number; lane: number; toRow: number; toLane: number; via: number }[] } = { width: 0, nodes: [], edges: [] };
 let fileQuery = "";
 // tree folders start shut; Expand all flips the default, a click flips one folder
-let treeOpen = false;
-const flipped = new Set<string>();
+let foldersOpen = false;
+const foldersFlipped = new Set<string>();
 // each file list's files in display order, folded ones included, and how to unfold one
 const fileLists = new Map<HTMLElement, { order: Change[]; reveal: (path: string) => void }>();
 const terms = new Map<Tab, Term>();
@@ -231,9 +230,9 @@ function runFixed<T>(cmd: string, args: Record<string, unknown>) {
 }
 
 /** Run git op `name`; a pair passes a second argument (new name, start point, remote branch). */
-async function op(name: string, arg: string | [string, string] = "", record = true) {
+async function gitOp(name: string, arg: string | [string, string] = "", record = true) {
   const [arg1, arg2] = Array.isArray(arg) ? arg : [arg, ""];
-  const tab = tabs[active], branch = st?.branch ?? "", head = headHash();
+  const tab = tabs[active], branch = status?.branch ?? "", head = headHash();
   say(`${name}…`);
   document.body.classList.add("busy");
   let ok = true;
@@ -269,8 +268,8 @@ async function op(name: string, arg: string | [string, string] = "", record = tr
     if (conflicts.length) {
       toast(`${what} stopped on conflicts`, conflicts.join("\n"), "info");
       if (tab === tabs[active]) {
-        stashView = null;
-        selected = [(anchor = "WIP")];
+        selection.stash = null;
+        selection.hashes = [(selection.anchor = "WIP")];
       }
     } else toast(`${what} failed${onBranch}`, msg + hint(msg), "err");
     say(`${what} ${conflicts.length ? "stopped on conflicts" : "failed"}`);
@@ -279,14 +278,14 @@ async function op(name: string, arg: string | [string, string] = "", record = tr
   document.body.classList.remove("busy");
   await refresh();
   if (ok && record && UNDOABLE.has(name) && tab === tabs[active]) {
-    const step: Step = { op: name, branch: [branch, st?.branch ?? ""], head: [head, headHash()] };
+    const step: UndoStep = { op: name, branch: [branch, status?.branch ?? ""], head: [head, headHash()] };
     if (step.head.every(Boolean) && (step.head[0] !== step.head[1] || step.branch[0] !== step.branch[1])) recordUndo(tab, step);
   }
   return ok;
 }
 
 /** A step for Undo; the oldest go past 50, a discard's holding its file twice. */
-function recordUndo(t: Tab, step: Step) {
+function recordUndo(t: Tab, step: UndoStep) {
   t.undo.push(step);
   if (t.undo.length > 50) t.undo.shift();
   t.redo = [];
@@ -326,7 +325,7 @@ function linkify(text: string) {
     .map((part, i) => (i % 2 ? h("a", { textContent: part, onclick: () => invoke("open_url", { url: part }).catch((e) => say(String(e), true)) }) : part));
 }
 
-const pull = () => op("pull", store("pull") ?? "");
+const pull = () => gitOp("pull", store("pull") ?? "");
 
 /** The Pull modes under the toolbar's caret: picking one makes it the default and pulls. */
 function pullMenu(e: MouseEvent) {
@@ -343,8 +342,8 @@ const paintPull = () => ($("pull").title = `Pull, ${PULLS[store("pull") ?? ""]}`
 
 /** Push; a branch without upstream first asks where to, in a banner. */
 function push() {
-  const branch = st?.branch ?? "";
-  if (!branch || refs.refs.find((r) => r.name === `refs/heads/${branch}`)?.upstream) return op("push");
+  const branch = status?.branch ?? "";
+  if (!branch || refs.refs.find((r) => r.name === `refs/heads/${branch}`)?.upstream) return gitOp("push");
   if (!refs.remotes.length) return toast(`Push failed: ${branch}`, "This repository has no remote.", "err");
   const remote = h("select", {}, ...refs.remotes.map((r) => h("option", { value: r, textContent: r })));
   remote.value = refs.remotes.includes("origin") ? "origin" : refs.remotes[0];
@@ -353,7 +352,7 @@ function push() {
   const submit = () => {
     if (!name.value.trim()) return;
     close();
-    op("push-upstream", [remote.value, name.value.trim()]);
+    gitOp("push-upstream", [remote.value, name.value.trim()]);
   };
   name.onkeydown = (e) => {
     if (e.key === "Enter") submit();
@@ -371,12 +370,12 @@ function push() {
 }
 
 /** Undo (or redo) the last HEAD move krill made, if nothing moved HEAD since. */
-async function walk(back: boolean) {
+async function undoRedo(back: boolean) {
   const t = tabs[active];
   const step = (back ? t.undo : t.redo).pop();
   if (!step) return;
   const [from, to] = back ? [1, 0] : [0, 1];
-  if (headHash() !== step.head[from] || (st?.branch ?? "") !== step.branch[from]) {
+  if (headHash() !== step.head[from] || (status?.branch ?? "") !== step.branch[from]) {
     t.undo = [];
     t.redo = [];
     renderToolbar();
@@ -396,8 +395,8 @@ async function walk(back: boolean) {
   } else
     ok =
       step.branch[0] !== step.branch[1]
-        ? await op("checkout", step.branch[to] || step.head[to], false)
-        : await op(KEEP_INDEX.has(step.op) ? "reset-soft" : "reset-keep", step.head[to], false);
+        ? await gitOp("checkout", step.branch[to] || step.head[to], false)
+        : await gitOp(KEEP_INDEX.has(step.op) ? "reset-soft" : "reset-keep", step.head[to], false);
   (ok === back ? t.redo : t.undo).push(step);
   renderToolbar();
 }
@@ -410,6 +409,12 @@ function refresh(): Promise<void> {
   return (refreshAgain ??= refreshing.then(() => ((refreshAgain = null), refresh())));
 }
 
+/** Refresh, redrawing the graph and the sidebar even when their data is the same: what they hide changed. */
+function redraw() {
+  graphKey = sideKey = "";
+  return refresh();
+}
+
 async function reload() {
   const r = repo;
   if (!r) return;
@@ -417,7 +422,7 @@ async function reload() {
     const [s, log, rf] = await Promise.all([run<Status>("status"), run<Commit[]>("log", { limit: LOG_LIMIT, hide: [...hiddenRemotes().map((r) => `refs/remotes/${r}/*`), ...hiddenBranches().filter((k) => k.startsWith("refs/"))] }), run<Refs>("refs")]);
     const info = s.state ? await run<OpInfo>("op_info").catch(() => null) : null;
     if (r !== repo) return;
-    st = s;
+    status = s;
     refs = rf;
     opInfo = info;
     // resolved or aborted elsewhere: nothing left to merge
@@ -429,34 +434,34 @@ async function reload() {
     }
     // the WIP row comes and goes with changes or an operation; its counts alone repaint just that row
     const key = JSON.stringify([log.map((c) => [c.hash, c.refs]), !!(s.staged.length || s.unstaged.length || opInfo), rf.stashes.map((x) => x.hash)]);
-    if (key === logKey) paintWipRow();
+    if (key === graphKey) paintWipRow();
     else {
-      logKey = key;
+      graphKey = key;
       commits = log;
-      selected = selected.filter((x) => x === "WIP" || commits.some((c) => c.hash === x));
-      if (!selected.length && !stashView) selected = ["WIP"];
+      selection.hashes = selection.hashes.filter((x) => x === "WIP" || commits.some((c) => c.hash === x));
+      if (!selection.hashes.length && !selection.stash) selection.hashes = ["WIP"];
       // nothing to commit: open on HEAD, not on an empty WIP panel
-      if (selected[0] === "WIP" && !s.staged.length && !s.unstaged.length && !opInfo && headHash()) selected = [(anchor = headHash())];
+      if (selection.hashes[0] === "WIP" && !s.staged.length && !s.unstaged.length && !opInfo && headHash()) selection.hashes = [(selection.anchor = headHash())];
       renderGraph();
     }
-    if (stashView && !rf.stashes.some((x) => x.hash === stashView!.hash)) stashView = null;
+    if (selection.stash && !rf.stashes.some((x) => x.hash === selection.stash!.hash)) selection.stash = null;
     const rk = JSON.stringify([rf, s.branch]);
-    if (rk !== refsKey) {
-      refsKey = rk;
+    if (rk !== sideKey) {
+      sideKey = rk;
       renderSide();
     }
     renderToolbar();
     // a picked commit's panel changes only with the pick, or with HEAD for its Edit button
-    const panel = JSON.stringify([selected, stashView?.hash, headHash()]);
-    if ((selected[0] === "WIP" && !stashView) || panel !== panelKey) {
+    const panel = JSON.stringify([selection.hashes, selection.stash?.hash, headHash()]);
+    if ((selection.hashes[0] === "WIP" && !selection.stash) || panel !== panelKey) {
       panelKey = panel;
       await renderPanel();
     }
-    if (cur) await reloadDiff();
+    if (diffFile) await reloadDiff();
   } catch (e) {
     if (r !== repo) return;
     // the folder went away under the tab, like a removed worktree: close it rather than fail on every refresh
-    if (!(await exists(r))) {
+    if (!(await isRepo(r))) {
       if (r !== repo) return;
       toast(`Closed ${tabName(tabs[active])}`, `${r} no longer exists. Removed from the recent list.`, "info");
       forgetRecent(r);
@@ -468,17 +473,17 @@ async function reload() {
   }
 }
 
-const exists = (path: string) => invoke("repo_root", { path }).then(() => true, () => false);
+const isRepo = (path: string) => invoke("repo_root", { path }).then(() => true, () => false);
 
 function renderToolbar() {
-  if (!st) return;
-  $("branch").textContent = st.branch || "detached HEAD";
+  if (!status) return;
+  $("branch").textContent = status.branch || "detached HEAD";
   $("repo-ico").innerHTML = svg(tabs[active].worktree ? ICONS.worktree : ICONS.repo);
   $("branch-ico").innerHTML = svg(ICONS.branch);
-  $("behind").textContent = st.behind ? String(st.behind) : "";
-  $("ahead").textContent = st.ahead ? String(st.ahead) : "";
-  $("opstate").hidden = !st.state;
-  $("opname").textContent = st.state;
+  $("behind").textContent = status.behind ? String(status.behind) : "";
+  $("ahead").textContent = status.ahead ? String(status.ahead) : "";
+  $("opstate").hidden = !status.state;
+  $("opname").textContent = status.state;
   const { undo, redo } = tabs[active];
   const u = $("undo") as HTMLButtonElement, r = $("redo") as HTMLButtonElement;
   u.disabled = !undo.length;
@@ -493,6 +498,15 @@ const aliases = (): Record<string, string> => JSON.parse(store("aliases") ?? "{}
 const tabName = (t: Tab) => (t.repo ? (aliases()[t.repo] ?? basename(t.repo)) : "Home");
 // closed this session, for Ctrl+Shift+T
 const closedTabs: string[] = [];
+
+/** Reopen the last run's tabs, then the repository krill was started on. */
+async function restoreTabs() {
+  tabs = (JSON.parse(store("tabs") ?? "[]") as string[]).map(newTab);
+  if (!tabs.length) tabs.push(newTab(""));
+  active = Math.min(Number(store("active")) || 0, tabs.length - 1);
+  const arg = await invoke<string>("initial_repo");
+  if (!arg || !(await openRepo(arg))) await switchTab(active, false);
+}
 
 function saveTabs() {
   store("tabs", JSON.stringify(tabs.map((t) => t.repo)));
@@ -523,7 +537,7 @@ function renderTabs() {
         },
         // a repo's initial on a colour of its own, so tabs tell apart at a glance
         t.repo && !t.worktree
-          ? h("span", { className: "tab-badge", textContent: tabName(t)[0]?.toUpperCase() ?? "", style: `--c: ${COLORS[hue(t.repo)]}` })
+          ? h("span", { className: "tab-badge", textContent: tabName(t)[0]?.toUpperCase() ?? "", style: `--c: ${COLORS[colorIndex(t.repo)]}` })
           : ico(t.repo ? ICONS.worktree : ICONS.home),
         h("span", { className: "tab-name", textContent: tabName(t) }),
         h("button", { className: "x", textContent: "×", title: "Close (Ctrl+W)", onclick: (e: Event) => (e.stopPropagation(), closeTab(i)) }),
@@ -562,28 +576,26 @@ function dragTab(e: PointerEvent, i: number) {
 }
 
 /** Whether the open diff's and merge's unsaved edits may go, asking first; the merge closes. */
-const dropEdits = async () => (!cur?.dirty || (await ask(`Drop unsaved edits to ${cur.f.path}?`, "Drop edits"))) && (await closeMerge());
+const dropEdits = async () => (!diffFile?.dirty || (await ask(`Drop unsaved edits to ${diffFile.f.path}?`, "Drop edits"))) && (await closeMerge());
 
 async function switchTab(i: number, save = true) {
   if (save && !(await dropEdits())) return;
   // a tab left before its graph came keeps its old scroll
-  if (save) Object.assign(tabs[active], { selected, msg: getMsg(), scroll: commits.length ? $("graph").scrollTop : tabs[active].scroll });
+  if (save) Object.assign(tabs[active], { selected: selection.hashes, msg: getMsg(), scroll: commits.length ? $("graph").scrollTop : tabs[active].scroll });
   closeHistory();
   active = i;
   const t = tabs[active];
   repo = t.repo;
-  selected = t.selected;
-  anchor = selected[0];
-  rangeSel = false;
-  stashView = null;
+  selection.hashes = t.selected;
+  selection.anchor = selection.hashes[0];
+  selection.isRange = false;
+  selection.stash = null;
   setMsg(t.msg);
   commits = [];
-  st = null;
+  status = null;
   opInfo = null;
-  logKey = refsKey = panelKey = opStep = "";
-  shown = [];
-  chunks = [];
-  $("rows").replaceChildren();
+  graphKey = sideKey = panelKey = opStep = "";
+  resetGraph();
   $("side").replaceChildren();
   saveTabs();
   renderTabs();
@@ -800,7 +812,7 @@ function renderSide() {
   const local: HTMLElement[] = [], tags: HTMLElement[] = [], remotes = new Map<string, HTMLElement[]>();
   for (const r of refs.refs) {
     if (r.name.startsWith("refs/heads/")) {
-      const name = r.name.slice(11), current = name === st?.branch;
+      const name = r.name.slice(11), current = name === status?.branch;
       local.push(sideItem(name, "branch", r.hash, trackLabel(r.track), current ? "current" : "", branchMenu(name, false), () => current || checkoutBranch(name, false), current ? undefined : r.name));
     } else if (r.name.startsWith("refs/remotes/")) {
       const full = r.name.slice(13), slash = full.indexOf("/");
@@ -854,7 +866,7 @@ const thisWorktree = () => refs.worktrees.find((w) => w.path === repo) ?? refs.w
 const worktreeOf = (branch: string) => refs.worktrees.find((w) => w.branch === branch && w !== thisWorktree() && !w.prunable);
 
 const prune = (w: Worktree) =>
-  ask(`The folder of ${basename(w.path)} is gone. Prune it from the worktree list?`, "Prune").then((ok) => ok && op("worktree-prune"));
+  ask(`The folder of ${basename(w.path)} is gone. Prune it from the worktree list?`, "Prune").then((ok) => ok && gitOp("worktree-prune"));
 
 function worktreeMenu(w: Worktree, main: boolean): MenuItem[] {
   const here = w.path === repo;
@@ -874,7 +886,7 @@ function worktreeMenu(w: Worktree, main: boolean): MenuItem[] {
 async function openWorktree(path: string) {
   const i = tabs.findIndex((t) => t.repo === path);
   if (i >= 0) return switchTab(i);
-  if (!(await exists(path))) return say(`${path} no longer exists`, true);
+  if (!(await isRepo(path))) return say(`${path} no longer exists`, true);
   if (!(await dropEdits())) return;
   // the shell ran in the old folder
   dropTerm(tabs[active]);
@@ -887,7 +899,7 @@ async function removeWorktree(w: Worktree) {
   const s = await invoke<Status>("status", { repo: w.path }).catch(() => null);
   const dirty = !!s && s.staged.length + s.unstaged.length > 0;
   const remove = (andBranch: boolean) => async () => {
-    if ((await op(dirty ? "worktree-force-remove" : "worktree-remove", w.path)) && andBranch) deleteBranch(w.branch, "");
+    if ((await gitOp(dirty ? "worktree-force-remove" : "worktree-remove", w.path)) && andBranch) deleteBranch(w.branch, "");
   };
   dialog(
     dirty ? `${basename(w.path)} has uncommitted changes. Remove it and lose them?` : `Remove worktree ${basename(w.path)}? Its folder is deleted, its branch stays.`,
@@ -906,7 +918,7 @@ function remoteSection(d: HTMLElement, name: string) {
   sum.oncontextmenu = (e) =>
     popup(e, [
       { title: name, icon: ICONS.globe },
-      ["Fetch", () => op("fetch-remote", name)],
+      ["Fetch", () => gitOp("fetch-remote", name)],
       [hidden ? "Show in the graph" : "Hide from the graph", () => toggleRemote(name)],
       ["Edit…", () => editRemote(name)],
       null,
@@ -929,8 +941,7 @@ async function editRemote(name: string) {
     } catch (e) {
       say(String(e), true);
     }
-    logKey = refsKey = "";
-    await refresh();
+    await redraw();
   });
 }
 
@@ -1077,19 +1088,14 @@ const sideFolds = (): Record<string, boolean> => JSON.parse(store(`side:${repo}`
 /** Show or hide `key` in the menus that offer it. */
 const hideItem = (key: string): MenuItem => [hiddenBranches().includes(key) ? "Show in the graph" : "Hide from the graph", () => toggleHidden(key)];
 
-function toggleHidden(ref: string) {
-  const hidden = hiddenBranches();
-  store(`hide-refs:${repo}`, JSON.stringify(hidden.includes(ref) ? hidden.filter((r) => r !== ref) : [...hidden, ref]));
-  logKey = refsKey = "";
-  refresh();
+/** Add `item` to the list stored at `key`, or take it out, then redraw what it hides. */
+function toggleListed(key: string, item: string) {
+  const list: string[] = JSON.parse(store(key) ?? "[]");
+  store(key, JSON.stringify(list.includes(item) ? list.filter((x) => x !== item) : [...list, item]));
+  redraw();
 }
-
-function toggleRemote(name: string) {
-  const hidden = hiddenRemotes();
-  store(`hide:${repo}`, JSON.stringify(hidden.includes(name) ? hidden.filter((r) => r !== name) : [...hidden, name]));
-  logKey = refsKey = "";
-  refresh();
-}
+const toggleHidden = (ref: string) => toggleListed(`hide-refs:${repo}`, ref);
+const toggleRemote = (name: string) => toggleListed(`hide:${repo}`, name);
 
 /** Browser URL of a remote: git@host:org/repo.git, ssh://git@host:22/org/repo, https://user@host/org/repo.git. */
 async function webUrl(remote: string) {
@@ -1100,26 +1106,26 @@ async function webUrl(remote: string) {
 
 /** The remote links point at: the current branch's upstream, else the first remote. */
 function linkRemote() {
-  const up = refs.refs.find((r) => r.name === `refs/heads/${st?.branch}`)?.upstream;
+  const up = refs.refs.find((r) => r.name === `refs/heads/${status?.branch}`)?.upstream;
   const names = refs.refs.filter((r) => r.name.startsWith("refs/remotes/")).map((r) => r.name.slice(13).split("/")[0]);
   return up ? up.split("/")[0] : (names[0] ?? "");
 }
 
 function jumpTo(hash: string) {
   if (!commits.some((c) => c.hash === hash)) return say(`${short(hash)} is older than the last ${LOG_LIMIT} commits`, true);
-  stashView = null;
-  selected = [hash];
-  anchor = hash;
-  rangeSel = false;
+  selection.stash = null;
+  selection.hashes = [hash];
+  selection.anchor = hash;
+  selection.isRange = false;
   paintSelection();
   showRow(hash, "center");
   renderPanel();
 }
 
 function showStash(s: Stash, scroll = false) {
-  stashView = s;
-  selected = [];
-  anchor = s.hash;
+  selection.stash = s;
+  selection.hashes = [];
+  selection.anchor = s.hash;
   paintSelection();
   if (scroll) showRow(s.hash, "center");
   renderPanel();
@@ -1130,11 +1136,11 @@ const stashOf = (hash: string) => refs.stashes.find((s) => s.hash === hash);
 function stashMenu(s: Stash): MenuItem[] {
   return [
     { title: s.subject, icon: ICONS.stash },
-    ["Apply stash", () => op("stash-apply", s.name)],
-    ["Pop stash", () => op("stash-pop", s.name)],
-    ["Drop stash", () => ask(`Drop stash "${s.subject}"? It cannot be undone.`, "Drop").then((ok) => ok && op("stash-drop", s.name))],
+    ["Apply stash", () => gitOp("stash-apply", s.name)],
+    ["Pop stash", () => gitOp("stash-pop", s.name)],
+    ["Drop stash", () => ask(`Drop stash "${s.subject}"? It cannot be undone.`, "Drop").then((ok) => ok && gitOp("stash-drop", s.name))],
     null,
-    ["Edit stash message…", () => dialog("Edit stash message", [["Message", s.subject]], "Save", ([m]) => m && op("stash-message", [s.name, m]))],
+    ["Edit stash message…", () => dialog("Edit stash message", [["Message", s.subject]], "Save", ([m]) => m && gitOp("stash-message", [s.name, m]))],
     hideItem(s.hash),
   ];
 }
@@ -1143,9 +1149,16 @@ function stashMenu(s: Stash): MenuItem[] {
 
 const isHead = (c: Commit) => c.refs.some((r) => r === "HEAD" || r.startsWith("HEAD -> "));
 
+/** Empty the graph, for another tab. */
+function resetGraph() {
+  shown = [];
+  chunks = [];
+  $("rows").replaceChildren();
+}
+
 function renderGraph() {
   hiddenSet = new Set([...hiddenRemotes(), ...hiddenBranches()]);
-  const n = st ? st.staged.length + st.unstaged.length : 0;
+  const n = status ? status.staged.length + status.unstaged.length : 0;
   const head = commits.find(isHead);
   const wip: Commit = { hash: "WIP", parents: head ? [head.hash] : [], author: "", time: 0, refs: [], subject: "// WIP", body: "" };
   // an operation in progress keeps the row: its controls live in the WIP panel
@@ -1156,12 +1169,12 @@ function renderGraph() {
     const at = list.findIndex((c) => c.hash === s.parents[0]);
     if (at >= 0) list.splice(at, 0, { hash: s.hash, parents: [s.parents[0]], author: "", time: 0, refs: [], subject: s.subject, body: "" });
   }
-  laid = layoutGraph(list);
+  graphLayout = layoutGraph(list);
   // wide enough for its column title
-  laneW = Math.max(laid.width * LANE + 10, 64);
+  laneW = Math.max(graphLayout.width * LANE + 10, 64);
   $("graph").style.setProperty("--graph-w", `${laneW}px`);
   shown = list;
-  rowColors = list.map((_, i) => laneColor(laid.nodes[i]));
+  rowColors = list.map((_, i) => laneColor(graphLayout.nodes[i]));
   chunks = Array.from({ length: Math.ceil(list.length / CHUNK) }, (_, k) =>
     h("div", { className: "chunk", style: `height: ${Math.min(CHUNK, list.length - k * CHUNK) * ROW}px` }),
   );
@@ -1178,7 +1191,7 @@ const laneColor = (l: number) => COLORS[l % COLORS.length];
 function lanesSvg(from: number, to: number) {
   const X = laneX, Y = rowY, color = laneColor, list = shown;
   let svg = "";
-  for (const e of laid.edges) {
+  for (const e of graphLayout.edges) {
     if (e.toRow < from || e.row >= to) continue;
     const pts = [[e.lane, e.row]];
     if (e.toRow - e.row > 1) {
@@ -1199,7 +1212,7 @@ function lanesSvg(from: number, to: number) {
   }
   // commits show their author, merges stay a small dot
   for (let i = from; i < to; i++) {
-    const c = list[i], l = laid.nodes[i], at = `cx="${X(l)}" cy="${Y(i)}"`;
+    const c = list[i], l = graphLayout.nodes[i], at = `cx="${X(l)}" cy="${Y(i)}"`;
     // the size of an author's ring, dashed in its lane's colour like the line it starts
     if (c.hash === "WIP") svg += `<circle ${at} r="9" style="stroke:${color(l)}" class="wip"/>`;
     else if (stashOf(c.hash))
@@ -1224,12 +1237,12 @@ const CHUNK = 40;
 /** Redraw the WIP row alone, if drawn: its counts change far more often than the graph. */
 function paintWipRow() {
   const row = $("rows").querySelector(".row.wip");
-  if (row && shown[0]?.hash === "WIP") row.replaceWith(graphRow(shown[0], rowColors[0], laneX(laid.nodes[0])));
+  if (row && shown[0]?.hash === "WIP") row.replaceWith(graphRow(shown[0], rowColors[0], laneX(graphLayout.nodes[0])));
 }
 function fillChunk(k: number) {
   const from = k * CHUNK, to = Math.min(shown.length, from + CHUNK);
   chunks[k].innerHTML = lanesSvg(from, to);
-  chunks[k].append(...shown.slice(from, to).map((c, i) => graphRow(c, rowColors[from + i], laneX(laid.nodes[from + i]))));
+  chunks[k].append(...shown.slice(from, to).map((c, i) => graphRow(c, rowColors[from + i], laneX(graphLayout.nodes[from + i]))));
 }
 
 /** Draw the chunks around the view, empty the others. */
@@ -1305,7 +1318,7 @@ function graphRow(c: Commit, lane: string, nodeX: number) {
   const row = h(
     "div",
     {
-      className: `row${c.hash === "WIP" ? (conflictCount() ? " wip conflict" : " wip") : ""}${isHead(c) ? " row-head" : ""}${selected.includes(c.hash) || stashView?.hash === c.hash ? " sel" : ""}${hits.includes(c.hash) ? " match" : ""}`,
+      className: `row${c.hash === "WIP" ? (conflictCount() ? " wip conflict" : " wip") : ""}${isHead(c) ? " row-head" : ""}${selection.hashes.includes(c.hash) || selection.stash?.hash === c.hash ? " sel" : ""}${findHits.includes(c.hash) ? " match" : ""}`,
       onclick: (e: MouseEvent) => (stash ? showStash(stash) : clickRow(e, c.hash)),
       oncontextmenu: (e: MouseEvent) => (stash ? popup(e, stashMenu(stash)) : c.hash !== "WIP" && commitMenu(e, c)),
     },
@@ -1337,29 +1350,29 @@ function graphRow(c: Commit, lane: string, nodeX: number) {
 
 /** Click selects one commit, Ctrl+click picks commits to compare, Shift+click a range. */
 function clickRow(e: MouseEvent, hash: string) {
-  stashView = null;
+  selection.stash = null;
   const idx = (x: string) => commits.findIndex((c) => c.hash === x);
-  if (hash !== "WIP" && e.shiftKey && idx(anchor) >= 0) {
-    const [a, b] = [idx(anchor), idx(hash)].sort((x, y) => x - y);
-    selected = commits.slice(a, b + 1).map((c) => c.hash);
-    rangeSel = true;
+  if (hash !== "WIP" && e.shiftKey && idx(selection.anchor) >= 0) {
+    const [a, b] = [idx(selection.anchor), idx(hash)].sort((x, y) => x - y);
+    selection.hashes = commits.slice(a, b + 1).map((c) => c.hash);
+    selection.isRange = true;
   } else if (hash !== "WIP" && e.ctrlKey) {
-    const s = selected.filter((x) => x !== "WIP");
-    selected = s.includes(hash) ? s.filter((x) => x !== hash) : [...s, hash];
-    if (!selected.length) selected = ["WIP"];
-    anchor = hash;
-    rangeSel = false;
+    const s = selection.hashes.filter((x) => x !== "WIP");
+    selection.hashes = s.includes(hash) ? s.filter((x) => x !== hash) : [...s, hash];
+    if (!selection.hashes.length) selection.hashes = ["WIP"];
+    selection.anchor = hash;
+    selection.isRange = false;
   } else {
-    selected = [hash];
-    anchor = hash;
-    rangeSel = false;
+    selection.hashes = [hash];
+    selection.anchor = hash;
+    selection.isRange = false;
   }
   paintSelection();
   renderPanel();
 }
 
 function paintSelection() {
-  document.querySelectorAll<HTMLElement>(".row").forEach((r) => r.classList.toggle("sel", selected.includes(r.dataset.hash!) || stashView?.hash === r.dataset.hash));
+  document.querySelectorAll<HTMLElement>(".row").forEach((r) => r.classList.toggle("sel", selection.hashes.includes(r.dataset.hash!) || selection.stash?.hash === r.dataset.hash));
 }
 
 /** The ref a label stands for: its local branch, else its first remote's. */
@@ -1375,10 +1388,10 @@ function checkoutBranch(name: string, remote: boolean) {
   const stale = !remote && refs.worktrees.find((w) => w.branch === local && w.prunable);
   if (stale)
     return ask(`${local} is held by the worktree ${basename(stale.path)}, whose folder is gone. Prune it and checkout ${local}?`, "Prune and checkout").then(
-      async (ok) => ok && (await op("worktree-prune")) && op("checkout", local),
+      async (ok) => ok && (await gitOp("worktree-prune")) && gitOp("checkout", local),
     );
   const mine = refs.refs.find((r) => r.name === `refs/heads/${local}`), theirs = refs.refs.find((r) => r.name === `refs/remotes/${name}`);
-  if (!remote || !mine || !theirs || mine.hash === theirs.hash) return op("checkout", local);
+  if (!remote || !mine || !theirs || mine.hash === theirs.hash) return gitOp("checkout", local);
   // "[ahead 1, behind 2]" against its upstream
   const track = mine.upstream === name && mine.track ? ` (${mine.track.slice(1, -1)})` : "";
   const drops = /ahead/.test(track) ? `, its commits that are not on ${name} leave the branch` : "";
@@ -1386,36 +1399,36 @@ function checkoutBranch(name: string, remote: boolean) {
     `Local ${local} is not at ${name}${track}. Reset it to ${name}${drops}?`,
     [],
     `Reset ${local} to ${name}`,
-    () => op("checkout-reset", [local, name]),
-    [[`Checkout ${local}`, () => op("checkout", local)]],
+    () => gitOp("checkout-reset", [local, name]),
+    [[`Checkout ${local}`, () => gitOp("checkout", local)]],
   );
 }
 
 /** Checkout, merge and rebase for branch `name` (a remote one as "remote/branch"). */
 /** Checkout, merge and rebase for branch `name`; `named` when other branches share the menu, else its title names it. */
 function refMenu(name: string, remote: boolean, named = true): MenuItem[] {
-  const branch = st?.branch || "HEAD";
+  const branch = status?.branch || "HEAD";
   // checking out a remote branch by its short name creates the tracking branch
   const local = remote ? name.slice(name.indexOf("/") + 1) : name;
   const items: MenuItem[] = [];
-  if (remote || name !== st?.branch) items.push([named ? `Checkout ${local}` : "Checkout", () => checkoutBranch(name, remote)]);
-  if (name !== st?.branch)
+  if (remote || name !== status?.branch) items.push([named ? `Checkout ${local}` : "Checkout", () => checkoutBranch(name, remote)]);
+  if (name !== status?.branch)
     items.push(
-      [named ? `Merge ${name} into ${branch}` : `Merge into ${branch}`, () => op("merge", name)],
-      [named ? `Rebase ${branch} onto ${name}` : `Rebase ${branch} onto this branch`, () => op("rebase", name)],
+      [named ? `Merge ${name} into ${branch}` : `Merge into ${branch}`, () => gitOp("merge", name)],
+      [named ? `Rebase ${branch} onto ${name}` : `Rebase ${branch} onto this branch`, () => gitOp("rebase", name)],
     );
   return items;
 }
 
 function commitMenu(e: MouseEvent, c: Commit) {
-  const branch = st?.branch || "HEAD", ls = labels(c).filter((l) => !l.tag);
+  const branch = status?.branch || "HEAD", ls = labels(c).filter((l) => !l.tag);
   popup(e, [
     { title: `${short(c.hash)} ${c.subject}`, icon: ICONS.commit },
     ...ls.flatMap((l) => refMenu(labelRef(l), !l.local)),
     null,
-    ["Checkout (detached)", () => op("checkout", c.hash)],
-    [`Rebase ${branch} onto this commit`, () => op("rebase", c.hash)],
-    ["Cherry-pick", () => op("cherry-pick", c.hash)],
+    ["Checkout (detached)", () => gitOp("checkout", c.hash)],
+    [`Rebase ${branch} onto this commit`, () => gitOp("rebase", c.hash)],
+    ["Cherry-pick", () => gitOp("cherry-pick", c.hash)],
     null,
     ...commitItems(c.hash),
     null,
@@ -1426,7 +1439,7 @@ function commitMenu(e: MouseEvent, c: Commit) {
 /** Branch `name` (a remote one as "remote/branch"): the same menu in the sidebar and on graph labels. */
 function branchMenu(name: string, remote: boolean): MenuItem[] {
   const ref = refs.refs.find((r) => r.name === (remote ? `refs/remotes/${name}` : `refs/heads/${name}`));
-  const sha = ref?.hash ?? "", current = !remote && name === st?.branch;
+  const sha = ref?.hash ?? "", current = !remote && name === status?.branch;
   // where the branch lives on a remote: itself, or the local branch's upstream while that still exists
   const up = ref?.upstream ?? "";
   const onRemote = remote ? name : refs.refs.some((r) => r.name === `refs/remotes/${up}`) ? up : "";
@@ -1439,12 +1452,12 @@ function branchMenu(name: string, remote: boolean): MenuItem[] {
     ...commitItems(sha),
     ...(current ? ([["Edit commit message", rewordHead]] as MenuItem[]) : []),
     null,
-    ...(remote ? [] : ([["Rename…", () => askName("New branch name", name, (n) => op("branch-rename", [name, n]))]] as MenuItem[])),
+    ...(remote ? [] : ([["Rename…", () => askName("New branch name", name, (n) => gitOp("branch-rename", [name, n]))]] as MenuItem[])),
     ...(current || !ref ? [] : [hideItem(ref.name)]),
     ...(remote || current ? [] : ([["Delete", () => deleteBranch(name, onRemote)]] as MenuItem[])),
     // a local branch's upstream too: one menu for both
     ...(onRemote
-      ? ([[remote ? `Delete on ${rem}` : `Delete ${remBranch} on ${rem}`, () => ask(`Delete branch ${remBranch} on ${rem}? This pushes the deletion.`, "Delete").then((ok) => ok && op("push-delete", [rem, remBranch]))]] as MenuItem[])
+      ? ([[remote ? `Delete on ${rem}` : `Delete ${remBranch} on ${rem}`, () => ask(`Delete branch ${remBranch} on ${rem}? This pushes the deletion.`, "Delete").then((ok) => ok && gitOp("push-delete", [rem, remBranch]))]] as MenuItem[])
       : []),
     null,
     ...copyItems(sha, remote ? remBranch : name, rem || linkRemote(), remBranch),
@@ -1454,23 +1467,23 @@ function branchMenu(name: string, remote: boolean): MenuItem[] {
 /** `git branch -d`, or `-D` after saying what is lost when the branch is merged nowhere. */
 async function deleteBranch(name: string, upstream: string) {
   const merged = await run<boolean>("is_merged", { branch: name }).catch(() => false);
-  if (merged) return (await ask(`Delete branch ${name}?`, "Delete")) && op("delete-branch", name);
+  if (merged) return (await ask(`Delete branch ${name}?`, "Delete")) && gitOp("delete-branch", name);
   // a squash-merged pull request leaves its branch unmerged here
-  const into = upstream || st?.branch || "HEAD";
-  if (await ask(`${name} is not merged into ${into}. Delete it with its unmerged commits?`, "Force delete")) op("force-delete-branch", name);
+  const into = upstream || status?.branch || "HEAD";
+  if (await ask(`${name} is not merged into ${into}. Delete it with its unmerged commits?`, "Force delete")) gitOp("force-delete-branch", name);
 }
 
 function tagMenu(name: string): MenuItem[] {
   return [
     { title: name, icon: ICONS.tag },
-    ["Checkout (detached)", () => op("checkout", name)],
+    ["Checkout (detached)", () => gitOp("checkout", name)],
     null,
-    ...refs.remotes.map((r): MenuItem => [`Push to ${r}`, () => op("tag-push", [r, name])]),
-    ["Delete", () => ask(`Delete tag ${name}?`, "Delete").then((ok) => ok && op("tag-delete", name))],
+    ...refs.remotes.map((r): MenuItem => [`Push to ${r}`, () => gitOp("tag-push", [r, name])]),
+    ["Delete", () => ask(`Delete tag ${name}?`, "Delete").then((ok) => ok && gitOp("tag-delete", name))],
     ...refs.remotes.map(
       (r): MenuItem => [
         `Delete on ${r}`,
-        () => ask(`Delete tag ${name} on ${r}? This pushes the deletion.`, "Delete").then((ok) => ok && op("push-delete", [r, `refs/tags/${name}`])),
+        () => ask(`Delete tag ${name} on ${r}? This pushes the deletion.`, "Delete").then((ok) => ok && gitOp("push-delete", [r, `refs/tags/${name}`])),
       ],
     ),
     null,
@@ -1481,17 +1494,17 @@ function tagMenu(name: string): MenuItem[] {
 
 /** What to do with commit `sha`, shared by the commit and branch menus. */
 function commitItems(sha: string): MenuItem[] {
-  const b = st?.branch || "HEAD";
+  const b = status?.branch || "HEAD";
   const reset: MenuItem[] = [
-    ["Soft: keep the changes staged", () => op("reset-soft", sha)],
-    ["Mixed: keep the changes unstaged", () => op("reset-mixed", sha)],
-    ["Hard: discard every change", () => ask(`Reset ${b} to ${short(sha)} and discard every uncommitted change?`, "Reset").then((ok) => ok && op("reset-hard", sha))],
+    ["Soft: keep the changes staged", () => gitOp("reset-soft", sha)],
+    ["Mixed: keep the changes unstaged", () => gitOp("reset-mixed", sha)],
+    ["Hard: discard every change", () => ask(`Reset ${b} to ${short(sha)} and discard every uncommitted change?`, "Reset").then((ok) => ok && gitOp("reset-hard", sha))],
   ];
   return [
-    ["Create branch here…", () => askName("New branch name", "", (n) => op("branch-create", [n, sha]))],
+    ["Create branch here…", () => askName("New branch name", "", (n) => gitOp("branch-create", [n, sha]))],
     [`Reset ${b} to this commit`, reset],
-    [`Revert ${short(sha)}`, () => op("revert", sha)],
-    ["Create tag here…", () => askName("Tag name", "", (n) => op("tag-create", [n, sha]))],
+    [`Revert ${short(sha)}`, () => gitOp("revert", sha)],
+    ["Create tag here…", () => askName("Tag name", "", (n) => gitOp("tag-create", [n, sha]))],
   ];
 }
 
@@ -1505,23 +1518,23 @@ function copyItems(sha: string, branch: string, remote: string, remoteBranch = b
 }
 
 /** Files in the panels: stage/discard for WIP, restore for a commit, and opening them. */
-function fileMenu(f: Change, kind: Kind, c?: Commit): MenuItem[] {
+function fileMenu(f: Change, kind: DiffSource, c?: Commit): MenuItem[] {
   const neutral = (e: unknown) => say(String(e));
   return [
     { title: basename(f.path), icon: ICONS.file },
     ...(kind === "unstaged" && isConflict(f)
       ? ([
-          [`Take current (${opInfo?.current ?? "HEAD"})`, () => op("take-current", f.path)],
-          [`Take incoming (${opInfo?.incoming ?? "theirs"})`, () => op("take-incoming", f.path)],
-          ["Mark resolved", () => op("stage", f.path)],
+          [`Take current (${opInfo?.current ?? "HEAD"})`, () => gitOp("take-current", f.path)],
+          [`Take incoming (${opInfo?.incoming ?? "theirs"})`, () => gitOp("take-incoming", f.path)],
+          ["Mark resolved", () => gitOp("stage", f.path)],
         ] as MenuItem[])
       : kind === "unstaged"
       ? ([
-          ["Stage", () => op("stage", f.path)],
+          ["Stage", () => gitOp("stage", f.path)],
           ["Discard changes", () => ask(`Discard all changes to ${f.path}?`, "Discard").then((ok) => (ok ? discard(f.path, f.code === "?") : undefined))],
         ] as MenuItem[])
       : []),
-    ...(kind === "staged" ? ([["Unstage", () => op("unstage", f.path)]] as MenuItem[]) : []),
+    ...(kind === "staged" ? ([["Unstage", () => gitOp("unstage", f.path)]] as MenuItem[]) : []),
     null,
     ["File history", () => openHistory(f.path, c)],
     ["Open in VS Code", () => run("open_in_editor", { path: f.path, line: 1 }).catch(neutral)],
@@ -1533,7 +1546,7 @@ function fileMenu(f: Change, kind: Kind, c?: Commit): MenuItem[] {
       ? ([
           [
             `Restore file from ${short(c.hash)}`,
-            () => ask(`Overwrite ${f.path} in the working tree with its version at ${short(c.hash)}?`, "Overwrite").then((ok) => ok && op("restore-file", [c.hash, f.path])),
+            () => ask(`Overwrite ${f.path} in the working tree with its version at ${short(c.hash)}?`, "Overwrite").then((ok) => ok && gitOp("restore-file", [c.hash, f.path])),
           ],
         ] as MenuItem[])
       : []),
@@ -1617,7 +1630,7 @@ function askName(label: string, initial: string, done: (name: string) => unknown
 
 /* side panel */
 
-const CLS: Record<string, string> = { M: "m", T: "m", A: "a", "?": "a", D: "d", R: "r", C: "r", U: "u" };
+const CODE_ICON: Record<string, string> = { M: "m", T: "m", A: "a", "?": "a", D: "d", R: "r", C: "r", U: "u" };
 const STATUS_ORDER = "U?AMTRCD";
 
 function fileList(
@@ -1634,7 +1647,7 @@ function fileList(
     files = [...files].sort((a, b) => STATUS_ORDER.indexOf(a.code) - STATUS_ORDER.indexOf(b.code) || a.path.localeCompare(b.path));
   const fileRow = (f: Change, dir: string, depth: number) => {
     const slash = f.path.lastIndexOf("/") + 1;
-    const code = CLS[f.code];
+    const code = CODE_ICON[f.code];
     const row = h(
       "div",
       {
@@ -1673,11 +1686,11 @@ function fileList(
           name += `/${n}`;
           sub = s;
         }
-        const path = prefix + name, shut = treeOpen === flipped.has(path);
+        const path = prefix + name, shut = foldersOpen === foldersFlipped.has(path);
         if (shown) {
-          const toggle = () => (flipped.has(path) ? flipped.delete(path) : flipped.add(path), draw());
+          const toggle = () => (foldersFlipped.has(path) ? foldersFlipped.delete(path) : foldersFlipped.add(path), draw());
           const folder = h("div", { className: "folder", onclick: toggle, title: path }, h("span", { className: "twisty", textContent: shut ? "▸" : "▾" }), ico(shut ? ICONS.folder : ICONS.folderOpen), name);
-          if (shut) folder.append(...fileCounts(within(sub)));
+          if (shut) folder.append(...fileCounts(filesUnder(sub)));
           folder.style.paddingLeft = `${8 + depth * 20}px`;
           folder.style.setProperty("--depth", String(depth));
           rows.push(folder);
@@ -1702,24 +1715,38 @@ function fileList(
     markOpenFile();
   };
   const reveal = (path: string) => {
-    const shut = (routes.get(path) ?? []).filter((p) => treeOpen === flipped.has(p));
+    const shut = (routes.get(path) ?? []).filter((p) => foldersOpen === foldersFlipped.has(p));
     if (!shut.length) return;
-    shut.forEach((p) => (treeOpen ? flipped.delete(p) : flipped.add(p)));
+    shut.forEach((p) => (foldersOpen ? foldersFlipped.delete(p) : foldersFlipped.add(p)));
     draw();
   };
   fileLists.set(el, { order, reveal });
   draw();
 }
 
-const within = (d: Dir): Change[] => [...d.files, ...[...d.dirs.values()].flatMap(within)];
+/** Filter the file lists by `text`; both filter boxes show it. */
+function filterFiles(text: string) {
+  fileQuery = text.trim().toLowerCase();
+  document.querySelectorAll<HTMLInputElement>(".file-filter").forEach((o) => (o.value = text));
+  renderPanel();
+}
+
+/** Open or shut every folder of the file trees. */
+function foldAll(open: boolean) {
+  foldersOpen = open;
+  foldersFlipped.clear();
+  renderPanel();
+}
+
+const filesUnder = (d: Dir): Change[] => [...d.files, ...[...d.dirs.values()].flatMap(filesUnder)];
 
 /** Every changed file once, staged or not. */
-const wipFiles = () => [...new Map([...(st?.staged ?? []), ...(st?.unstaged ?? [])].map((f) => [f.path, f])).values()];
+const wipFiles = () => [...new Map([...(status?.staged ?? []), ...(status?.unstaged ?? [])].map((f) => [f.path, f])).values()];
 
 /** Per-kind counts with their icons, like "✎ 3 + 1". */
 function fileCounts(files: Change[]) {
   return ["m", "a", "d", "r", "u"].flatMap((cls) => {
-    const n = files.filter((f) => CLS[f.code] === cls).length;
+    const n = files.filter((f) => CODE_ICON[f.code] === cls).length;
     return n ? [h("span", { className: `count c-${cls}`, innerHTML: `${svg(ICONS[cls])}${n}` })] : [];
   });
 }
@@ -1737,30 +1764,30 @@ function paintFileOpts() {
 
 /** What the commit panel shows: one commit, a stash, a compare or a range as one pseudo commit. */
 function panelCommit(): { c: Commit; message?: string; head: (Node | string)[]; author?: Commit } | null {
-  if (stashView) {
-    const s = stashView;
+  if (selection.stash) {
+    const s = selection.stash;
     const c = { hash: s.hash, parents: s.parents.slice(0, 1), author: "", time: 0, refs: [], subject: s.subject, body: "" };
-    return { c, message: s.subject, head: ["stash ", sha(s.hash), " · on ", sha(s.parents[0] ?? "")] };
+    return { c, message: s.subject, head: ["stash ", shaLink(s.hash), " · on ", shaLink(s.parents[0] ?? "")] };
   }
-  const sel = commits.filter((c) => selected.includes(c.hash));
+  const sel = commits.filter((c) => selection.hashes.includes(c.hash));
   if (!sel.length) return null;
   const newest = sel[0], oldest = sel[sel.length - 1];
   if (sel.length === 1) {
-    const parents = newest.parents.flatMap((p, i) => (i ? [" + ", sha(p)] : [" · parent ", sha(p)]));
-    return { c: newest, head: ["commit ", sha(newest.hash), ...parents], author: newest };
+    const parents = newest.parents.flatMap((p, i) => (i ? [" + ", shaLink(p)] : [" · parent ", shaLink(p)]));
+    return { c: newest, head: ["commit ", shaLink(newest.hash), ...parents], author: newest };
   }
   // a range diffs from before its oldest commit, a Ctrl pick compares the two ends
-  const base = rangeSel ? (oldest.parents[0] ?? "") : oldest.hash;
+  const base = selection.isRange ? (oldest.parents[0] ?? "") : oldest.hash;
   const list = sel.map((c) => `${short(c.hash)}  ${c.subject}`).join("\n");
   return {
     c: { ...newest, parents: base ? [base] : [] },
-    message: rangeSel ? `${sel.length} commits\n${list}` : `Compare ${short(oldest.hash)} → ${short(newest.hash)}\n${list}`,
-    head: [rangeSel ? "range " : "compare ", base ? sha(base) : "root", "..", sha(newest.hash)],
+    message: selection.isRange ? `${sel.length} commits\n${list}` : `Compare ${short(oldest.hash)} → ${short(newest.hash)}\n${list}`,
+    head: [selection.isRange ? "range " : "compare ", base ? shaLink(base) : "root", "..", shaLink(newest.hash)],
   };
 }
 
 /** A short hash that copies the full one on click. */
-const sha = (hash: string) => h("span", { className: "sha", textContent: short(hash), title: `Copy ${hash}`, onclick: () => copy(hash) });
+const shaLink = (hash: string) => h("span", { className: "sha", textContent: short(hash), title: `Copy ${hash}`, onclick: () => copy(hash) });
 
 // where the last click landed: "Copied!" pops up there
 let clickAt = [0, 0];
@@ -1796,17 +1823,17 @@ function fileStats(files: Change[]) {
 /** Swap the HEAD commit's message for an editor that rewrites it in place. */
 function editMessage(c: Commit, msg: string) {
   if (!isHead(c)) return say("only the checked out commit can be reworded", true);
-  editing = c.hash;
+  rewording = c.hash;
   $("c-msg").ondblclick = null;
   const [s, d] = splitMsg(msg);
   const summary = h("input", { className: "msg-in", value: s, spellcheck: false });
   const desc = h("textarea", { className: "msg-in", value: d, spellcheck: false, placeholder: "Description" });
   const left = h("small");
-  const cancel = () => ((editing = ""), renderPanel());
+  const cancel = () => ((rewording = ""), renderPanel());
   const update = async () => {
     const m = joinMsg(summary.value, desc.value);
     if (!m) return say("empty commit message", true);
-    if (await op("reword", m)) jumpTo(headHash());
+    if (await gitOp("reword", m)) jumpTo(headHash());
   };
   summary.oninput = () => countLeft(summary, left);
   countLeft(summary, left);
@@ -1827,26 +1854,26 @@ function editMessage(c: Commit, msg: string) {
 
 async function renderPanel() {
   const n = ++panelSeq;
-  const wip = !stashView && selected[0] === "WIP";
+  const wip = !selection.stash && selection.hashes[0] === "WIP";
   $("wip").hidden = !wip;
   $("commit").hidden = wip;
   if (wip) {
-    if (!st) return;
-    const n = new Set([...st.unstaged, ...st.staged].map((f) => f.path)).size;
-    const conflicts = st.unstaged.filter(isConflict), clean = (f: Change) => !isConflict(f);
-    $("wip-title").replaceChildren(...(opInfo ? [opTitle(conflicts.length)] : [`${n} file change${n === 1 ? "" : "s"} on `, h("b", { textContent: st.branch || "detached HEAD" })]));
+    if (!status) return;
+    const n = new Set([...status.unstaged, ...status.staged].map((f) => f.path)).size;
+    const conflicts = status.unstaged.filter(isConflict), clean = (f: Change) => !isConflict(f);
+    $("wip-title").replaceChildren(...(opInfo ? [opTitle(conflicts.length)] : [`${n} file change${n === 1 ? "" : "s"} on `, h("b", { textContent: status.branch || "detached HEAD" })]));
     $("unstaged-label").textContent = conflicts.length ? "Conflicted Files" : "Unstaged Files";
     $("staged-label").textContent = opInfo ? "Resolved Files" : "Staged Files";
     $("stage-all").textContent = conflicts.length ? "Mark all resolved" : "Stage all changes";
-    $("unstaged-n").textContent = `(${st.unstaged.length})`;
-    $("staged-n").textContent = `(${st.staged.length})`;
+    $("unstaged-n").textContent = `(${status.unstaged.length})`;
+    $("staged-n").textContent = `(${status.staged.length})`;
     renderCommitBtn();
-    fileList($("unstaged"), [...conflicts, ...st.unstaged.filter(clean)], (f) => openDiff("unstaged", f), [
-      ["Mark resolved", (f) => op("stage", f.path), isConflict],
+    fileList($("unstaged"), [...conflicts, ...status.unstaged.filter(clean)], (f) => openDiff("unstaged", f), [
+      ["Mark resolved", (f) => gitOp("stage", f.path), isConflict],
       ["Discard", (f) => ask(`Discard all changes to ${f.path}?`, "Discard").then((ok) => (ok ? discard(f.path, f.code === "?") : undefined)), clean],
-      ["Stage", (f) => op("stage", f.path), clean],
+      ["Stage", (f) => gitOp("stage", f.path), clean],
     ], (f) => fileMenu(f, "unstaged"));
-    fileList($("staged"), st.staged, (f) => openDiff("staged", f), [["Unstage", (f) => op("unstage", f.path)]], (f) => fileMenu(f, "staged"));
+    fileList($("staged"), status.staged, (f) => openDiff("staged", f), [["Unstage", (f) => gitOp("unstage", f.path)]], (f) => fileMenu(f, "staged"));
     return markOpenFile();
   }
   const view = panelCommit();
@@ -1858,8 +1885,8 @@ async function renderPanel() {
     if (n !== panelSeq) return;
     const msg = view.message ?? info.message;
     $("c-head").replaceChildren(...view.head);
-    if (editing !== view.c.hash) {
-      editing = "";
+    if (rewording !== view.c.hash) {
+      rewording = "";
       const [summary, desc] = splitMsg(msg);
       const reword = view.author && isHead(view.c) ? () => editMessage(view.c, msg) : null;
       $("c-msg").classList.remove("editing");
@@ -1883,7 +1910,7 @@ async function renderPanel() {
 }
 
 /** The file open in the diff or the merge tool. */
-const openFile = () => cur ?? (merging ? { kind: "unstaged" as Kind, f: merging.f } : null);
+const openFile = () => diffFile ?? (merging ? { kind: "unstaged" as DiffSource, f: merging.f } : null);
 
 function markOpenFile() {
   document.querySelectorAll(".file.sel").forEach((r) => r.classList.remove("sel"));
@@ -1895,8 +1922,8 @@ function markOpenFile() {
 
 const isConflict = (f: Change) => f.code === "U";
 // a rebase or cherry-pick step whose changes are all already there
-const emptyStep = () => !!opInfo && opInfo.state !== "merge" && !st?.staged.length && !st?.unstaged.length;
-const conflictCount = () => st?.unstaged.filter(isConflict).length ?? 0;
+const emptyStep = () => !!opInfo && opInfo.state !== "merge" && !status?.staged.length && !status?.unstaged.length;
+const conflictCount = () => status?.unstaged.filter(isConflict).length ?? 0;
 
 /** "Rebasing feature onto main" for the operation in progress. */
 function opLine(): (Node | string)[] {
@@ -1923,7 +1950,7 @@ function conflictLine(): (Node | string)[] {
 const amending = () => $("amend").classList.contains("on");
 
 function renderCommitBtn() {
-  const amend = amending(), staged = st?.staged.length ?? 0;
+  const amend = amending(), staged = status?.staged.length ?? 0;
   const b = $("commit-btn") as HTMLButtonElement;
   countLeft(input("summary"), $("summary-n"));
   // an operation in progress commits through its Continue
@@ -1951,7 +1978,7 @@ function renderCommitBtn() {
 async function commit() {
   const amend = amending();
   if (($("commit-btn") as HTMLButtonElement).disabled) return;
-  if (await op(amend ? "amend" : "commit", getMsg())) {
+  if (await gitOp(amend ? "amend" : "commit", getMsg())) {
     $("amend").classList.remove("on");
     setMsg("");
   }
@@ -2028,7 +2055,7 @@ function editor() {
   // the text layer covers view zones and Monaco hit-tests itself: match the mouse to a bar button by position
   const barButton = (e: Monaco.editor.IEditorMouseEvent) => {
     if (e.target.type !== monaco.editor.MouseTargetType.CONTENT_VIEW_ZONE) return undefined;
-    const node = bars.nodes[bars.mod.indexOf(e.target.detail.viewZoneId)];
+    const node = hunkZones.nodes[hunkZones.mod.indexOf(e.target.detail.viewZoneId)];
     const { clientX: x, clientY: y } = e.event.browserEvent;
     return [...(node?.querySelectorAll("button") ?? [])].find((b) => {
       const r = b.getBoundingClientRect();
@@ -2052,9 +2079,9 @@ function editor() {
 /** The line-level actions of one side: a +/− on the hovered changed line and the right-click menu. */
 function lineActions(ed: Monaco.editor.ICodeEditor, orig: boolean) {
   const hover = ed.createDecorationsCollection();
-  const staging = () => !!cur && cur.kind !== "commit";
+  const staging = () => !!diffFile && diffFile.kind !== "commit";
   const changed = (l: number) => hunks.some((c) => (orig ? c.oe && l >= c.os && l <= c.oe : c.me && l >= c.ms && l <= c.me));
-  const act = () => (cur?.kind === "staged" ? "unstage" : "stage");
+  const act = () => (diffFile?.kind === "staged" ? "unstage" : "stage");
   let at = -1;
   ed.onMouseMove((e) => {
     // a view zone reports the line next to it
@@ -2081,12 +2108,12 @@ function lineActions(ed: Monaco.editor.ICodeEditor, orig: boolean) {
     lastSide = orig ? "orig" : "mod";
     const sel = ed.getSelection(), model = ed.getModel();
     const text = sel && model ? (sel.isEmpty() ? model.getLineContent(sel.startLineNumber) : model.getValueInRange(sel)) : "";
-    const lines = (action: "stage" | "unstage" | "discard") => () => applyLines(selection(), action);
+    const lines = (action: "stage" | "unstage" | "discard") => () => applyLines(selectedLines(), action);
     popup(e.event.browserEvent, [
-      ...(cur?.kind === "unstaged" && staging()
+      ...(diffFile?.kind === "unstaged" && staging()
         ? ([["Discard selected lines", lines("discard")], ["Stage selected lines", lines("stage")]] as MenuItem[])
         : []),
-      ...(cur?.kind === "staged" ? ([["Unstage selected lines", lines("unstage")]] as MenuItem[]) : []),
+      ...(diffFile?.kind === "staged" ? ([["Unstage selected lines", lines("unstage")]] as MenuItem[]) : []),
       null,
       ["Copy", () => copy(text)],
     ]);
@@ -2138,7 +2165,7 @@ function setMode(m: Mode) {
   document.querySelectorAll<HTMLElement>("[data-mode]").forEach((b) => b.classList.toggle("on", b.dataset.mode === m));
 }
 
-const lineChanges = (): C4[] =>
+const lineChanges = (): LineChange[] =>
   (editor().getLineChanges() ?? []).map((c) => ({
     os: c.originalStartLineNumber,
     oe: c.originalEndLineNumber,
@@ -2148,9 +2175,9 @@ const lineChanges = (): C4[] =>
 
 /** A header bar above each hunk with its stage / unstage / discard buttons. */
 /** Undo hunk `c` of the shown commit in the working tree, where it shows up unstaged for review. */
-async function revertHunk(c: C4) {
-  if (!cur?.c) return;
-  const { f } = cur, at = cur.c;
+async function revertHunk(c: LineChange) {
+  if (!diffFile?.c) return;
+  const { f } = diffFile, at = diffFile.c;
   try {
     await run("revert_hunk", { commit: at.hash, parent: at.parents[0] ?? "", path: f.path, line: c.ms });
     toast(`Reverted a hunk of ${basename(f.path)}`, `From ${short(at.hash)}: the change is in the working tree, unstaged.`, "info");
@@ -2163,15 +2190,15 @@ async function revertHunk(c: C4) {
 function updateHunkBars() {
   const ed = editor(), split = store("mode") === "split";
   const acts: [string, string][] =
-    !cur ? []
-    : cur.kind === "unstaged" ? [["discard", "Discard hunk"], ["stage", "Stage hunk"]]
-    : cur.kind === "staged" ? [["unstage", "Unstage hunk"]]
-    : cur.c?.hash !== "WORKTREE" ? [["revert", "Revert hunk"]]
+    !diffFile ? []
+    : diffFile.kind === "unstaged" ? [["discard", "Discard hunk"], ["stage", "Stage hunk"]]
+    : diffFile.kind === "staged" ? [["unstage", "Unstage hunk"]]
+    : diffFile.c?.hash !== "WORKTREE" ? [["revert", "Revert hunk"]]
     : [];
-  hunks = cur ? lineChanges() : [];
+  hunks = diffFile ? lineChanges() : [];
   // bars head the hunks between folds; in the whole file the line numbers say where a change is
   const shown = store("mode") === "hunk" ? hunks : [];
-  const bar = (c: C4, buttons: boolean) => {
+  const bar = (c: LineChange, buttons: boolean) => {
     const count = (s: number, e: number) => (e ? e - s + 1 : 0);
     const el = h("div", { className: "hunk-bar" }, h("span", { textContent: `@@ -${c.os},${count(c.os, c.oe)} +${c.ms},${count(c.ms, c.me)} @@` }));
     if (buttons)
@@ -2183,14 +2210,14 @@ function updateHunkBars() {
   };
   // a pure insertion or deletion sits after its anchor line, a change replaces lines from its start
   ed.getModifiedEditor().changeViewZones((z) => {
-    bars.mod.forEach((id) => z.removeZone(id));
-    bars.nodes = shown.map((c) => bar(c, true));
-    bars.mod = shown.map((c, i) => z.addZone({ afterLineNumber: c.me ? c.ms - 1 : c.ms, heightInPx: 30, domNode: bars.nodes[i] }));
+    hunkZones.mod.forEach((id) => z.removeZone(id));
+    hunkZones.nodes = shown.map((c) => bar(c, true));
+    hunkZones.mod = shown.map((c, i) => z.addZone({ afterLineNumber: c.me ? c.ms - 1 : c.ms, heightInPx: 30, domNode: hunkZones.nodes[i] }));
   });
   // the original side gets the same bars in split view, so both sides stay aligned
   ed.getOriginalEditor().changeViewZones((z) => {
-    bars.orig.forEach((id) => z.removeZone(id));
-    bars.orig = split ? shown.map((c) => z.addZone({ afterLineNumber: c.oe ? c.os - 1 : c.os, heightInPx: 30, domNode: bar(c, false) })) : [];
+    hunkZones.orig.forEach((id) => z.removeZone(id));
+    hunkZones.orig = split ? shown.map((c) => z.addZone({ afterLineNumber: c.oe ? c.os - 1 : c.os, heightInPx: 30, domNode: bar(c, false) })) : [];
   });
   fitHunkBars();
 }
@@ -2201,7 +2228,7 @@ function fitHunkBars() {
   editor().getContainerDomNode().querySelectorAll<HTMLElement>(".hunk-bar").forEach((b) => (b.style.width = `${lay.contentWidth - lay.verticalScrollbarWidth}px`));
 }
 
-async function fetchSides(kind: Kind, f: Change, c?: Commit): Promise<[Blob, Blob]> {
+async function fetchSides(kind: DiffSource, f: Change, c?: Commit): Promise<[Blob, Blob]> {
   const none: Blob = { text: "", exists: false, binary: false };
   const blob = (at: string, path: string) => (at ? run<Blob>("blob", { at, path }) : Promise.resolve(none));
   const old = f.old ?? f.path;
@@ -2210,13 +2237,13 @@ async function fetchSides(kind: Kind, f: Change, c?: Commit): Promise<[Blob, Blo
   return Promise.all([blob(c!.parents[0] ?? "", old), blob(c!.hash, f.path)]);
 }
 
-async function openDiff(kind: Kind, f: Change, c?: Commit, inHistory = false) {
+async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistory = false) {
   await loadMonaco();
   // a file picked outside the history leaves it
   if (hist && !inHistory) await closeHistory();
   if (kind === "unstaged" && isConflict(f)) return openConflict(f);
   // clicking the open file again closes it
-  if (cur && cur.kind === kind && cur.f.path === f.path && cur.c?.hash === c?.hash && cur.c?.parents[0] === c?.parents[0]) return closeDiff();
+  if (diffFile && diffFile.kind === kind && diffFile.f.path === f.path && diffFile.c?.hash === c?.hash && diffFile.c?.parents[0] === c?.parents[0]) return closeDiff();
   if (!(await dropEdits())) return;
   let orig: Blob, mod: Blob;
   try {
@@ -2224,7 +2251,7 @@ async function openDiff(kind: Kind, f: Change, c?: Commit, inHistory = false) {
   } catch (e) {
     return say(String(e), true);
   }
-  cur = { kind, f, c, orig, mod, dirty: false };
+  diffFile = { kind, f, c, orig, mod, dirty: false };
   $("diff").hidden = false;
   document.body.classList.add("diffing");
   const range = c ? `  ·  ${c.parents[0] ? short(c.parents[0]) : "root"}..${short(c.hash)}` : "";
@@ -2247,12 +2274,12 @@ async function openDiff(kind: Kind, f: Change, c?: Commit, inHistory = false) {
 }
 
 function paintOpenEditor() {
-  if (!cur) return;
-  const { f } = cur;
+  if (!diffFile) return;
+  const { f } = diffFile;
   // a file from another branch may not be on disk: say so on the button, not as an error
   const ed = $("open-editor");
   run<boolean>("in_worktree", { path: f.path }).then((ok) => {
-    if (cur?.f.path !== f.path) return;
+    if (diffFile?.f.path !== f.path) return;
     // a class, not `disabled`: WebKit shows no tooltip on a disabled button
     ed.classList.toggle("off", !ok);
     ed.title = ok ? "Open the working tree file in VS Code" : `${f.path} is not in the working tree (not on the checked out branch)`;
@@ -2260,62 +2287,62 @@ function paintOpenEditor() {
 }
 
 function setModels(keepView: boolean) {
-  if (!cur) return;
+  if (!diffFile) return;
   const ed = editor();
   const view = keepView ? ed.saveViewState() : null;
   const prev = ed.getModel();
-  const uri = (side: string) => monaco.Uri.from({ scheme: "krill", path: `/${++seq}/${side}/${cur!.f.path}` });
-  const modified = monaco.editor.createModel(cur.mod.text, undefined, uri("b"));
-  ed.setModel({ original: monaco.editor.createModel(cur.orig.text, undefined, uri("a")), modified });
+  const uri = (side: string) => monaco.Uri.from({ scheme: "krill", path: `/${++modelSeq}/${side}/${diffFile!.f.path}` });
+  const modified = monaco.editor.createModel(diffFile.mod.text, undefined, uri("b"));
+  ed.setModel({ original: monaco.editor.createModel(diffFile.orig.text, undefined, uri("a")), modified });
   prev?.original.dispose();
   prev?.modified.dispose();
-  setOptions({ readOnly: !(cur.kind === "unstaged" && cur.mod.exists), glyphMargin: cur.kind !== "commit" });
+  setOptions({ readOnly: !(diffFile.kind === "unstaged" && diffFile.mod.exists), glyphMargin: diffFile.kind !== "commit" });
   modified.onDidChangeContent(() => {
-    if (!cur) return;
-    cur.dirty = true;
+    if (!diffFile) return;
+    diffFile.dirty = true;
     $("save").hidden = false;
   });
   if (view) ed.restoreViewState(view);
 }
 
 async function reloadDiff() {
-  if (!cur || cur.dirty || !st) return;
+  if (!diffFile || diffFile.dirty || !status) return;
   // the file may have moved between lists or changed status code
-  if (cur.kind !== "commit") cur.f = st[cur.kind].find((x) => x.path === cur!.f.path) ?? cur.f;
+  if (diffFile.kind !== "commit") diffFile.f = status[diffFile.kind].find((x) => x.path === diffFile!.f.path) ?? diffFile.f;
   // a commit's sides never change, the uncommitted row of a file history aside
-  else if (cur.c?.hash !== "WORKTREE") return paintOpenEditor();
-  const [orig, mod] = await fetchSides(cur.kind, cur.f, cur.c);
-  if (!cur || cur.dirty) return;
+  else if (diffFile.c?.hash !== "WORKTREE") return paintOpenEditor();
+  const [orig, mod] = await fetchSides(diffFile.kind, diffFile.f, diffFile.c);
+  if (!diffFile || diffFile.dirty) return;
   paintOpenEditor();
-  if (orig.text === cur.orig.text && mod.text === cur.mod.text && orig.binary === cur.orig.binary) return;
-  Object.assign(cur, { orig, mod });
+  if (orig.text === diffFile.orig.text && mod.text === diffFile.mod.text && orig.binary === diffFile.orig.binary) return;
+  Object.assign(diffFile, { orig, mod });
   if (!orig.binary && !mod.binary) setModels(true);
 }
 
 async function closeDiff(force = false) {
-  if (!force && cur?.dirty && !(await ask(`Drop unsaved edits to ${cur.f.path}?`, "Drop edits"))) return;
-  cur = null;
+  if (!force && diffFile?.dirty && !(await ask(`Drop unsaved edits to ${diffFile.f.path}?`, "Drop edits"))) return;
+  diffFile = null;
   $("diff").hidden = true;
   document.body.classList.remove("diffing");
   markOpenFile();
 }
 
 async function save() {
-  if (!cur?.dirty) return;
+  if (!diffFile?.dirty) return;
   const text = editor().getModifiedEditor().getModel()!.getValue(monaco.editor.EndOfLinePreference.TextDefined, true);
   try {
-    await run("write_file", { path: cur.f.path, text });
+    await run("write_file", { path: diffFile.f.path, text });
   } catch (e) {
     return say(String(e), true);
   }
-  cur.mod.text = text;
-  cur.dirty = false;
+  diffFile.mod.text = text;
+  diffFile.dirty = false;
   $("save").hidden = true;
-  say(`saved ${cur.f.path}`);
+  say(`saved ${diffFile.f.path}`);
 }
 
 /** Changed lines under the selection of the side that had focus last. */
-function selection(): Lines {
+function selectedLines(): Lines {
   const fromOrig = lastSide === "orig" && store("mode") === "split";
   const side = fromOrig ? editor().getOriginalEditor() : editor().getModifiedEditor();
   const sel = new Set<number>();
@@ -2328,17 +2355,17 @@ function selection(): Lines {
 }
 
 async function applyLines(pick: Lines, action: "stage" | "unstage" | "discard") {
-  if (!cur) return;
+  if (!diffFile) return;
   if (!pick.removed.size && !pick.added.size) return say("no changed line under the cursor/selection", true);
   await save();
-  const { f, orig, mod } = cur;
+  const { f, orig, mod } = diffFile;
   const ch = lineChanges(), all = allLines(ch);
   const whole = pick.removed.size === all.removed.size && pick.added.size === all.added.size;
   const minus = (a: Set<number>, b: Set<number>) => new Set([...a].filter((x) => !b.has(x)));
   const keep = () => applyChanges(orig.text, mod.text, ch, minus(all.removed, pick.removed), minus(all.added, pick.added));
   if (action === "discard") return discard(f.path, f.code === "?", whole ? undefined : keep());
   if (whole) {
-    await op(action, f.path);
+    await gitOp(action, f.path);
     return;
   }
   try {
@@ -2359,13 +2386,13 @@ async function discard(path: string, untracked: boolean, text?: string) {
     return b.binary ? undefined : b.exists ? b.text : null;
   };
   const before = await read().catch(() => undefined);
-  if (text === undefined) await op(untracked ? "clean" : "discard", path);
+  if (text === undefined) await gitOp(untracked ? "clean" : "discard", path);
   else await run("write_file", { path, text }).then(() => say(`discarded lines of ${path}`), (e) => say(String(e), true));
   const after = await read().catch(() => undefined);
   await refresh();
   // a binary file has no text to put back
   if (before === undefined || after === undefined || before === after) return;
-  const head = headHash(), branch = st?.branch ?? "";
+  const head = headHash(), branch = status?.branch ?? "";
   recordUndo(t, { op: "discard", branch: [branch, branch], head: [head, head], file: [path, before, after] });
 }
 
@@ -2390,7 +2417,7 @@ let mergeEds: {
 const conflictsOf = (chunks: Chunk[]) => chunks.filter((c): c is Conflict => !Array.isArray(c));
 const lineSpan = ([s, n]: number[]) => new monaco.Range(s, 1, s + n, 1);
 // a conflict's box sits at the middle of its lines (class half: between the two middle ones), or on the line after an empty side
-const tickLine = (ed: Monaco.editor.ICodeEditor, [s, n]: number[]) => Math.min(n ? s + Math.floor((n - 1) / 2) : s, ed.getModel()!.getLineCount());
+const boxLine = (ed: Monaco.editor.ICodeEditor, [s, n]: number[]) => Math.min(n ? s + Math.floor((n - 1) / 2) : s, ed.getModel()!.getLineCount());
 // NeverGrowsWhenTypingAtEdges, by value: Monaco is not loaded when this runs
 const tracked = { stickiness: 1 as Monaco.editor.TrackedRangeStickiness };
 
@@ -2425,7 +2452,7 @@ function mergeEditors() {
       if (!merging) return;
       if (e.target.type === T.GUTTER_GLYPH_MARGIN) {
         // an empty side has no lines: its box is on the line after
-        const k = lineIn(side, ln)?.k ?? merging.spans.findIndex((s) => !s[side][1] && tickLine(ed, s[side]) === ln);
+        const k = lineIn(side, ln)?.k ?? merging.spans.findIndex((s) => !s[side][1] && boxLine(ed, s[side]) === ln);
         if (k >= 0) pick(k, side);
       } else if (e.target.type === T.GUTTER_LINE_DECORATIONS || e.target.type === T.GUTTER_LINE_NUMBERS) {
         const hit = lineIn(side, ln);
@@ -2467,7 +2494,7 @@ async function openConflict(f: Change) {
   if (merging?.f.path === f.path) return closeMerge();
   if (!(await closeMerge())) return;
   await closeDiff();
-  if (cur) return;
+  if (diffFile) return;
   const text = f.conflict === "UU" || f.conflict === "AA" ? await run<Blob>("conflict_text", { path: f.path }).catch(() => null) : null;
   if (!text || text.binary) return conflictBanner(f);
   merging = { f, chunks: parseConflicts(text.text), picks: [], spans: [], ids: [], at: 0, dirty: false, hover: "" };
@@ -2489,7 +2516,7 @@ function loadMerge() {
   m.spans = s.regions.map((r) => ({ a: r.a, b: r.b }));
   for (const [ed, text, side] of [[eds.a, s.a, "a"], [eds.b, s.b, "b"], [eds.out, s.out, "out"]] as const) {
     const old = ed.getModel();
-    ed.setModel(monaco.editor.createModel(text, undefined, monaco.Uri.from({ scheme: "krill", path: `/${++seq}/${side}/${m.f.path}` })));
+    ed.setModel(monaco.editor.createModel(text, undefined, monaco.Uri.from({ scheme: "krill", path: `/${++modelSeq}/${side}/${m.f.path}` })));
     old?.dispose();
   }
   // edits move the output's conflicts around: decorations keep track of them
@@ -2584,7 +2611,7 @@ function paintMerge() {
         });
         return [
           ...(n ? lines : span(first, 0, "")),
-          line(tickLine(ed, s[side]), {
+          line(boxLine(ed, s[side]), {
             glyphMarginClassName: `m-tick${on ? " on" : ""}${n && n % 2 === 0 ? " half" : ""}`,
             glyphMarginHoverMessage: { value: on ? "Drop this side" : "Take this side" },
           }),
@@ -2629,7 +2656,7 @@ async function saveMerge() {
     return say(String(e), true);
   }
   await closeMerge(true);
-  op("stage", m.f.path);
+  gitOp("stage", m.f.path);
 }
 
 async function closeMerge(force = false) {
@@ -2660,7 +2687,7 @@ function conflictBanner(f: Change) {
   const close = () => ($("banner").hidden = true);
   $("banner").replaceChildren(
     h("span", { textContent: text }),
-    ...choices.map(([label, o]) => h("button", { textContent: label, onclick: () => (close(), op(o, f.path)) })),
+    ...choices.map(([label, o]) => h("button", { textContent: label, onclick: () => (close(), gitOp(o, f.path)) })),
     h("button", { textContent: "Cancel", onclick: close }),
   );
   $("banner").hidden = false;
@@ -2692,7 +2719,7 @@ async function openHistory(path: string, c?: Commit) {
   }
   // closed only now: the graph would show while git log runs
   await closeDiff();
-  if (cur) return;
+  if (diffFile) return;
   // the working tree file as a commit on top of HEAD: blob and diff take WORKTREE as a revision
   if (wipFiles().some((f) => f.path === path))
     revs.unshift([{ hash: "WORKTREE", parents: ["HEAD"], author: "", time: 0, refs: [], subject: "Uncommitted changes", body: "" }, { path, old: null, code: "M" }]);
@@ -2726,7 +2753,7 @@ async function showRev(i: number) {
   const [c, f] = m.revs[i];
   if (store("hist-view") === "diff") {
     // openDiff closes a diff opened again
-    const opening = cur?.c?.hash !== c.hash;
+    const opening = diffFile?.c?.hash !== c.hash;
     if (opening) await openDiff("commit", f, c, true);
     if (hist !== m || m.at !== i) return;
     histPane(false);
@@ -2742,7 +2769,7 @@ async function showRev(i: number) {
   m.blame = [];
   const ed = historyEditor(), view = ed.saveViewState(), old = ed.getModel();
   const text = blob.binary ? "Binary, non-UTF-8 or over 10 MB" : blob.exists ? blob.text : `Deleted in ${short(c.hash)}`;
-  ed.setModel(monaco.editor.createModel(text, undefined, monaco.Uri.from({ scheme: "krill", path: `/${++seq}/h/${f.path}` })));
+  ed.setModel(monaco.editor.createModel(text, undefined, monaco.Uri.from({ scheme: "krill", path: `/${++modelSeq}/h/${f.path}` })));
   old?.dispose();
   // another version of the same file: stay around the same lines
   if (view) ed.restoreViewState(view);
@@ -2809,17 +2836,17 @@ function paintBlame() {
     },
   });
   // who and when over each run of lines from one commit, and its strip, colored by its row
-  const md = (s: string) => s.replace(/[\\`*_{}[\]()#+\-.!<>|~]/g, "\\$&");
+  const escapeMarkdown = (s: string) => s.replace(/[\\`*_{}[\]()#+\-.!<>|~]/g, "\\$&");
   const color = (hash: string) => {
     const row = m.revs.findIndex(([c]) => c.hash === hash);
-    return row < 0 ? hue(hash) : row % COLORS.length;
+    return row < 0 ? colorIndex(hash) : row % COLORS.length;
   };
   blameHovers!.set(
     m.blame.flatMap((b, k) => {
       if (!b || m.blame[k - 1]?.hash === b.hash) return [];
       let end = k;
       while (m.blame[end + 1]?.hash === b.hash) end++;
-      const value = `**${md(b.author)}**, ${dateFmt.format(b.time * 1000)} · \`${short(b.hash)}\`\n\n${md(b.summary)}`;
+      const value = `**${escapeMarkdown(b.author)}**, ${dateFmt.format(b.time * 1000)} · \`${short(b.hash)}\`\n\n${escapeMarkdown(b.summary)}`;
       const options = { lineNumberHoverMessage: { value }, linesDecorationsClassName: `bl-strip bl-c${color(b.hash)}` };
       return [{ range: new monaco.Range(k + 1, 1, end + 1, 1), options }];
     }),
@@ -2950,20 +2977,31 @@ function toggleTerm(open = $("term").hidden) {
 /** Mark the commits matching the search box; non-matching rows dim. */
 function markHits() {
   const q = input("find-q").value.trim().toLowerCase();
-  hits = q
+  findHits = q
     ? commits.filter((c) => c.hash.startsWith(q) || `${c.subject}\n${c.body}\n${c.author}\n${c.refs.join(" ")}`.toLowerCase().includes(q)).map((c) => c.hash)
     : [];
-  const set = new Set(hits);
+  const set = new Set(findHits);
   $("rows").classList.toggle("finding", !!q);
   document.querySelectorAll<HTMLElement>("#rows .row").forEach((r) => r.classList.toggle("match", set.has(r.dataset.hash!)));
-  $("find-n").textContent = q ? `${hits.length ? hit + 1 : 0}/${hits.length}` : "";
+  $("find-n").textContent = q ? `${findHits.length ? findAt + 1 : 0}/${findHits.length}` : "";
 }
 
 function findStep(step: number) {
-  if (!hits.length) return;
-  hit = (hit + step + hits.length) % hits.length;
-  $("find-n").textContent = `${hit + 1}/${hits.length}`;
-  jumpTo(hits[hit]);
+  if (!findHits.length) return;
+  findAt = (findAt + step + findHits.length) % findHits.length;
+  $("find-n").textContent = `${findAt + 1}/${findHits.length}`;
+  jumpTo(findHits[findAt]);
+}
+
+let findIdle = 0;
+/** Search as typed, once the typing pauses: a jump runs git. */
+function findTyped() {
+  clearTimeout(findIdle);
+  findIdle = setTimeout(() => {
+    findAt = -1;
+    markHits();
+    findStep(1);
+  }, 150);
 }
 
 function openFind() {
@@ -2993,7 +3031,7 @@ function arrow(key: string) {
     const next = files[files.findIndex((x) => x.id === id && x.f.path === open.f.path) + (down ? 1 : -1)];
     return next && openListed(next.id, next.f);
   }
-  const i = shown.findIndex((c) => c.hash === anchor);
+  const i = shown.findIndex((c) => c.hash === selection.anchor);
   const next = shown[i < 0 ? 0 : i + (down ? 1 : -1)];
   if (!next) return;
   showRow(next.hash, "nearest");
@@ -3032,7 +3070,7 @@ function resizer(grip: HTMLElement, box: HTMLElement, key: string, size: (m: Poi
 
 /* wiring */
 
-document.querySelectorAll<HTMLElement>("[data-op]").forEach((b) => (b.onclick = () => (b.dataset.op === "push" ? push() : b.dataset.op === "pull" ? pull() : op(b.dataset.op!))));
+document.querySelectorAll<HTMLElement>("[data-op]").forEach((b) => (b.onclick = () => (b.dataset.op === "push" ? push() : b.dataset.op === "pull" ? pull() : gitOp(b.dataset.op!))));
 $("pull-mode").onclick = pullMenu;
 paintPull();
 // when each repository was last fetched in the background
@@ -3081,44 +3119,28 @@ $("dialog").onclick = (e) => {
 $("tab-q").onkeydown = (e) => {
   if (e.key === "Enter") $("tab-hits").querySelector<HTMLElement>(".tab-hit")?.click();
 };
-let findIdle = 0;
-$("find-q").oninput = () => {
-  clearTimeout(findIdle);
-  // a jump runs git: wait for a pause in the typing
-  findIdle = setTimeout(() => {
-    hit = -1;
-    markHits();
-    findStep(1);
-  }, 150);
-};
+$("find-q").oninput = findTyped;
 $("find-q").onkeydown = (e) => {
   if (e.key === "Enter") findStep(e.shiftKey ? -1 : 1);
 };
 $("find-prev").onclick = () => findStep(-1);
 $("find-next").onclick = () => findStep(1);
 $("find-close").onclick = closeFind;
-document.querySelectorAll<HTMLInputElement>(".file-filter").forEach(
-  (f) =>
-    (f.oninput = () => {
-      fileQuery = f.value.trim().toLowerCase();
-      document.querySelectorAll<HTMLInputElement>(".file-filter").forEach((o) => (o.value = f.value));
-      renderPanel();
-    }),
-);
-$("stage-all").onclick = () => op(conflictCount() ? "resolve-all" : "stage-all");
+document.querySelectorAll<HTMLInputElement>(".file-filter").forEach((f) => (f.oninput = () => filterFiles(f.value)));
+$("stage-all").onclick = () => gitOp(conflictCount() ? "resolve-all" : "stage-all");
 $("op-continue").onclick = () => {
   if ($("op-continue").classList.contains("off")) return say($("op-continue").title);
   // git refuses to continue an empty step and says to skip it
-  if (emptyStep()) return op("skip");
+  if (emptyStep()) return gitOp("skip");
   // a rebase step keeps its own message unless reworded
   const msg = getMsg().trim(), keep = opInfo?.state !== "merge" && msg === opInfo?.message.trim();
-  op("continue", keep ? "" : msg);
+  gitOp("continue", keep ? "" : msg);
 };
-$("op-skip").onclick = () => op("skip");
-$("op-abort").onclick = () => ask(`Abort the ${opInfo?.state}? What it did so far is dropped.`, "Abort").then((ok) => ok && op("abort"));
+$("op-skip").onclick = () => gitOp("skip");
+$("op-abort").onclick = () => ask(`Abort the ${opInfo?.state}? What it did so far is dropped.`, "Abort").then((ok) => ok && gitOp("abort"));
 $("opstate").onclick = () => {
-  stashView = null;
-  selected = [(anchor = "WIP")];
+  selection.stash = null;
+  selection.hashes = [(selection.anchor = "WIP")];
   paintSelection();
   showRow("WIP", "nearest");
   renderPanel();
@@ -3131,8 +3153,8 @@ $("m-next").onclick = () => merging && goConflict(merging.at + 1);
 input("m-all-a").onchange = () => pickAll("a");
 input("m-all-b").onchange = () => pickAll("b");
 $("discard-all").onclick = () =>
-  ask("Discard ALL changes: staged, unstaged and untracked files? This cannot be undone.", "Discard all").then((ok) => ok && op("discard-all"));
-$("unstage-all").onclick = () => op("unstage-all");
+  ask("Discard ALL changes: staged, unstaged and untracked files? This cannot be undone.", "Discard all").then((ok) => ok && gitOp("discard-all"));
+$("unstage-all").onclick = () => gitOp("unstage-all");
 $("commit-btn").onclick = commit;
 for (const id of ["summary", "desc"]) {
   $(id).onkeydown = (e) => {
@@ -3150,8 +3172,8 @@ $("amend").onclick = async () => {
 };
 $("term-btn").onclick = () => toggleTerm();
 $("term-close").onclick = () => toggleTerm(false);
-$("undo").onclick = () => walk(true);
-$("redo").onclick = () => walk(false);
+$("undo").onclick = () => undoRedo(true);
+$("redo").onclick = () => undoRedo(false);
 $("all-files").onclick = () => ($("all-files").classList.toggle("on"), renderPanel());
 document.querySelectorAll<HTMLElement>("[data-files]").forEach(
   (b) =>
@@ -3170,15 +3192,7 @@ document.querySelectorAll<HTMLElement>(".files-opts .sort").forEach(
       renderPanel();
     }),
 );
-document.querySelectorAll<HTMLElement>(".tree-all").forEach(
-  (b) =>
-    (b.onclick = () => {
-      if (b.classList.contains("off")) return say(b.title);
-      treeOpen = !!b.dataset.open;
-      flipped.clear();
-      renderPanel();
-    }),
-);
+document.querySelectorAll<HTMLElement>(".tree-all").forEach((b) => (b.onclick = () => (b.classList.contains("off") ? say(b.title) : foldAll(!!b.dataset.open))));
 paintFileOpts();
 resizer($("term-grip"), $("term"), "term-height", (m) =>
   Math.min($("center").clientHeight - 120, Math.max(80, $("term").getBoundingClientRect().bottom - m.clientY)),
@@ -3189,7 +3203,7 @@ resizer($("side-grip"), main, "side-width", (m) => Math.min(480, Math.max(160, m
 resizer($("panel-grip"), main, "panel-width", (m) => Math.min(innerWidth * 0.5, Math.max(300, innerWidth - m.clientX)), "--panel-w");
 new ResizeObserver(() => terms.get(tabs[active])?.fit.fit()).observe($("term"));
 $("close").onclick = () => closeDiff();
-$("d-history").onclick = () => cur && openHistory(cur.f.path, cur.c);
+$("d-history").onclick = () => diffFile && openHistory(diffFile.f.path, diffFile.c);
 $("h-close").onclick = () => closeHistory();
 document.querySelectorAll<HTMLElement>("[data-hview]").forEach((b) => (b.onclick = () => histView(b.dataset.hview!)));
 histView(store("hist-view") ?? "file");
@@ -3200,13 +3214,13 @@ $("h-blame").onclick = () => {
   paintBlameBtn();
   if (hist && histEd?.getModel()) paintBlame();
 };
-$("prev-change").onclick = () => cur && editor().goToDiff("previous");
-$("next-change").onclick = () => cur && editor().goToDiff("next");
+$("prev-change").onclick = () => diffFile && editor().goToDiff("previous");
+$("next-change").onclick = () => diffFile && editor().goToDiff("next");
 $("open-editor").onclick = () => {
-  if (!cur) return;
+  if (!diffFile) return;
   if ($("open-editor").classList.contains("off")) return say($("open-editor").title);
   const line = editor().getModifiedEditor().getPosition()?.lineNumber ?? 1;
-  run("open_in_editor", { path: cur.f.path, line }).catch((e) => say(String(e), true));
+  run("open_in_editor", { path: diffFile.f.path, line }).catch((e) => say(String(e), true));
 };
 $("save").onclick = () => save().then(refresh);
 const openPicked = async () => {
@@ -3257,8 +3271,8 @@ addEventListener("keydown", (e) => {
     else if (merging) closeMerge();
   } else if ((e.target as HTMLElement).closest?.("input:not([type=checkbox]), textarea, #editor, #merge, #h-file") || !repo) return;
   else if (e.ctrlKey && key === "f") (e.preventDefault(), openFind());
-  else if (e.ctrlKey && key === "z") (e.preventDefault(), walk(!e.shiftKey));
-  else if (e.ctrlKey && key === "y") (e.preventDefault(), walk(false));
+  else if (e.ctrlKey && key === "z") (e.preventDefault(), undoRedo(!e.shiftKey));
+  else if (e.ctrlKey && key === "y") (e.preventDefault(), undoRedo(false));
   else if (e.key.startsWith("Arrow") && !e.ctrlKey && !e.altKey && !e.shiftKey) (e.preventDefault(), arrow(e.key));
 });
 
@@ -3268,10 +3282,4 @@ setTimeout(async () => {
   if (!diffEditor) editor().setModel({ original: monaco.editor.createModel("a"), modified: monaco.editor.createModel("b") });
 }, 1000);
 
-(async () => {
-  tabs = (JSON.parse(store("tabs") ?? "[]") as string[]).map(newTab);
-  if (!tabs.length) tabs.push(newTab(""));
-  active = Math.min(Number(store("active")) || 0, tabs.length - 1);
-  const arg = await invoke<string>("initial_repo");
-  if (!arg || !(await openRepo(arg))) await switchTab(active, false);
-})();
+restoreTabs();
