@@ -322,7 +322,7 @@ export async function restoreTabs() {
   active = Math.min(Number(store("active-tab")) || 0, tabs.length - 1);
   const arg = await invoke<string>("initial_repo");
   const first = arg || tabs[active].repo;
-  if (first) $("splash-what").textContent = `${aliases()[first] ?? basename(first)} is loading…`;
+  $("splash-what").textContent = `${first ? (aliases()[first] ?? basename(first)) : "Home"} is loading…`;
   try {
     if (!arg || !(await openRepo(arg))) await switchTab(active, false);
   } finally {
