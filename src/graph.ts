@@ -1,7 +1,7 @@
 // The commit graph, the sidebar of refs, their menus and the find bar.
 import { invoke } from "@tauri-apps/api/core";
 import { layoutGraph } from "./core.js";
-import { Commit, LOG_LIMIT, Stash, Status, Worktree, active, commits, dropEdits, gitOp, headHash, hiddenBranches, hiddenRemotes, hideItem, isHead, isRepo, newTab, opInfo, openRepo, pull, push, redraw, refs, repo, run, selection, sideFolds, status, switchTab, tabName, tabs, toggleHidden, toggleRemote } from "./repo";
+import { Commit, LOG_LIMIT, Stash, Status, Worktree, active, commits, dropEdits, fakeCommit, findRef, gitOp, headHash, hiddenBranches, hiddenRemotes, hideItem, isHead, isRepo, newTab, opInfo, openRepo, paintRepoName, pull, push, redraw, refs, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote } from "./repo";
 import { $, COLORS, ICONS, MenuItem, ask, askName, basename, copy, dateFmt, dialog, h, ico, input, popup, say, short, spriteId, store, svg } from "./ui";
 import { dropTerm } from "./terminal";
 import { conflictCount, conflictLine, fileCounts, opLine, renderPanel, wipFiles } from "./panel";
@@ -68,15 +68,15 @@ export function renderSide() {
   const local: HTMLElement[] = [], tags: HTMLElement[] = [], remotes = new Map<string, HTMLElement[]>();
   for (const r of refs.refs) {
     if (r.name.startsWith("refs/heads/")) {
-      const name = r.name.slice(11), current = name === status?.branch;
+      const name = r.name.slice("refs/heads/".length), current = name === status?.branch;
       local.push(sideItem(name, "branch", r.hash, trackLabel(r.track), current ? "current" : "", branchMenu(name, false), () => current || checkoutBranch(name, false), current ? undefined : r.name));
     } else if (r.name.startsWith("refs/remotes/")) {
-      const full = r.name.slice(13), slash = full.indexOf("/");
+      const full = r.name.slice("refs/remotes/".length), slash = full.indexOf("/");
       const items = remotes.get(full.slice(0, slash)) ?? [];
       items.push(sideItem(full.slice(slash + 1), "branch", r.hash, "", "", branchMenu(full, true), () => checkoutBranch(full, true), r.name));
       remotes.set(full.slice(0, slash), items);
     } else {
-      const name = r.name.slice(10);
+      const name = r.name.slice("refs/tags/".length);
       tags.push(sideItem(name, "tag", r.hash, "", "", tagMenu(name), undefined, r.name));
     }
   }
@@ -102,10 +102,7 @@ export function renderSide() {
     el.title = w.path;
     return el;
   });
-  // a linked worktree names its main repository first
-  const main = refs.worktrees[0];
-  $("repo-name").textContent = !main || main === thisWorktree() ? tabName(tabs[active]) : `${basename(main.path)} › ${tabName(tabs[active])}`;
-  $("repo-name").title = repo;
+  paintRepoName();
   $("side").replaceChildren(
     section("local", "Local", local, true, "local"),
     section("remote", "Remote", [...remotes].map(([name, items]) => remoteSection(section(`remote/${name}`, name, items, false, "globe"), name)), true, "remote"),
@@ -116,8 +113,6 @@ export function renderSide() {
   );
 }
 
-// this checkout's entry: the repo tool's checkouts list their git dir, not their folder, as the main worktree
-const thisWorktree = () => refs.worktrees.find((w) => w.path === repo) ?? refs.worktrees[0];
 /** The worktree other than this one that has `branch` checked out, its folder still there. */
 const worktreeOf = (branch: string) => refs.worktrees.find((w) => w.branch === branch && w !== thisWorktree() && !w.prunable);
 
@@ -210,8 +205,8 @@ async function webUrl(remote: string) {
 
 /** The remote links point at: the current branch's upstream, else the first remote. */
 function linkRemote() {
-  const up = refs.refs.find((r) => r.name === `refs/heads/${status?.branch}`)?.upstream;
-  const names = refs.refs.filter((r) => r.name.startsWith("refs/remotes/")).map((r) => r.name.slice(13).split("/")[0]);
+  const up = findRef(`refs/heads/${status?.branch}`)?.upstream;
+  const names = refs.refs.filter((r) => r.name.startsWith("refs/remotes/")).map((r) => r.name.slice("refs/remotes/".length).split("/")[0]);
   return up ? up.split("/")[0] : (names[0] ?? "");
 }
 
@@ -260,14 +255,14 @@ export function renderGraph() {
   hiddenSet = new Set([...hiddenRemotes(), ...hiddenBranches()]);
   const n = status ? status.staged.length + status.unstaged.length : 0;
   const head = commits.find(isHead);
-  const wip: Commit = { hash: "WIP", parents: head ? [head.hash] : [], author: "", time: 0, refs: [], subject: "// WIP", body: "" };
+  const wip = fakeCommit("WIP", head ? [head.hash] : [], "// WIP");
   // an operation in progress keeps the row: its controls live in the WIP panel
   const list = n || opInfo ? [wip, ...commits] : [...commits];
   // a stash hangs off its base commit
   for (const s of refs.stashes) {
     if (hiddenSet.has(s.hash)) continue;
     const at = list.findIndex((c) => c.hash === s.parents[0]);
-    if (at >= 0) list.splice(at, 0, { hash: s.hash, parents: [s.parents[0]], author: "", time: 0, refs: [], subject: s.subject, body: "" });
+    if (at >= 0) list.splice(at, 0, fakeCommit(s.hash, [s.parents[0]], s.subject));
   }
   graphLayout = layoutGraph(list);
   // wide enough for its column title
@@ -372,15 +367,16 @@ function labels(c: Commit): Label[] {
   for (const ref of c.refs) {
     const r = ref.replace(/^HEAD -> /, "");
     if (r.startsWith("tag: refs/tags/")) {
-      if (!hiddenSet.has(r.slice(5))) get(r.slice(15), true);
+      const tag = r.slice("tag: ".length);
+      if (!hiddenSet.has(tag)) get(tag.slice("refs/tags/".length), true);
     }
     else if (hiddenSet.has(r)) continue;
     else if (r.startsWith("refs/heads/")) {
-      const l = get(r.slice(11));
+      const l = get(r.slice("refs/heads/".length));
       l.local = true;
       l.head ||= r !== ref;
     } else if (r.startsWith("refs/remotes/") && !r.endsWith("/HEAD")) {
-      const full = r.slice(13), slash = full.indexOf("/"), remote = full.slice(0, slash);
+      const full = r.slice("refs/remotes/".length), slash = full.indexOf("/"), remote = full.slice(0, slash);
       // a remote ref of no configured remote, like the `repo` tool's m/<branch>, is no remote branch
       if (!hiddenSet.has(remote) && refs.remotes.includes(remote)) get(full.slice(slash + 1)).remotes.push(remote);
     }
@@ -485,7 +481,7 @@ function checkoutBranch(name: string, remote: boolean) {
     return ask(`${local} is held by the worktree ${basename(stale.path)}, whose folder is gone. Prune it and checkout ${local}?`, "Prune and checkout").then(
       async (ok) => ok && (await gitOp("worktree-prune")) && gitOp("checkout", local),
     );
-  const mine = refs.refs.find((r) => r.name === `refs/heads/${local}`), theirs = refs.refs.find((r) => r.name === `refs/remotes/${name}`);
+  const mine = findRef(`refs/heads/${local}`), theirs = findRef(`refs/remotes/${name}`);
   if (!remote || !mine || !theirs || mine.hash === theirs.hash) return gitOp("checkout", local);
   // "[ahead 1, behind 2]" against its upstream
   const track = mine.upstream === name && mine.track ? ` (${mine.track.slice(1, -1)})` : "";
@@ -533,7 +529,7 @@ function commitMenu(e: MouseEvent, c: Commit) {
 
 /** Branch `name` (a remote one as "remote/branch"): the same menu in the sidebar and on graph labels. */
 function branchMenu(name: string, remote: boolean): MenuItem[] {
-  const ref = refs.refs.find((r) => r.name === (remote ? `refs/remotes/${name}` : `refs/heads/${name}`));
+  const ref = findRef(remote ? `refs/remotes/${name}` : `refs/heads/${name}`);
   const sha = ref?.hash ?? "", current = !remote && name === status?.branch;
   // where the branch lives on a remote: itself, or the local branch's upstream while that still exists
   const up = ref?.upstream ?? "";

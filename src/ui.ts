@@ -31,6 +31,10 @@ export const ICONS: Record<string, string> = {
   globe: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20z",
   home: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM9 22V12h6v10",
   repo: "M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z",
+  close: "M6 6l12 12M18 6 6 18",
+  up: "M12 19V5m-6 6 6-6 6 6",
+  down: "M12 5v14m-6-6 6 6 6-6",
+  caret: "m6 9 6 6 6-6",
   eyeOff: "M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.1 4M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a10 10 0 0 0 5.4-1.6",
 };
 export const colorIndex = (s: string) => [...s].reduce((a, ch) => a + ch.charCodeAt(0), 0) % COLORS.length;
@@ -72,6 +76,27 @@ export function store(key: string, value?: string) {
   } catch {}
   return value ?? null;
 }
+
+/** A design token of styles.css, like "--bg". */
+export const cssVar = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** Ctrl+Enter in any of `els` runs `fn`. */
+export function onCtrlEnter(els: HTMLElement[], fn: () => unknown) {
+  for (const el of els)
+    el.onkeydown = (e) => {
+      // a handler returning false cancels the key, so no expression body here
+      if (e.ctrlKey && e.key === "Enter") fn();
+    };
+}
+
+/** The bar over the graph that asks before an action, with `nodes` and a Cancel. */
+export function showBanner(...nodes: Node[]) {
+  $("banner").replaceChildren(...nodes, h("button", { textContent: "Cancel", onclick: hideBanner }));
+  $("banner").hidden = false;
+}
+export const hideBanner = () => ($("banner").hidden = true);
 
 export function say(msg: string, err = false) {
   // errors pop up, the status bar keeps the quiet news
@@ -126,10 +151,19 @@ let dialogCancel: (() => unknown) | null = null;
 // dialogs a newer one covers, like a clone under its passphrase prompt: back on top when it goes
 const dialogsUnder: { nodes: Element[]; cancel: (() => unknown) | null }[] = [];
 
-export function showDialog(dlg: HTMLElement, cancel: (() => unknown) | null) {
+/** Show a dialog, over any open one: `title` with a ×, `body`, then Cancel and the `actions`. */
+export function showDialog(title: string, body: Node[], actions: Node[], cancel: (() => unknown) | null, cls = "") {
   if (!$("dialog").hidden) dialogsUnder.push({ nodes: [...$("dialog").children], cancel: dialogCancel });
   dialogCancel = cancel;
-  $("dialog").replaceChildren(dlg);
+  $("dialog").replaceChildren(
+    h(
+      "div",
+      { className: `dlg ${cls}`.trim() },
+      h("div", { className: "dlg-head" }, h("b", { textContent: title }), h("button", { className: "x", textContent: "×", title: "Close (Esc)", onclick: closeDialog })),
+      ...body,
+      h("div", { className: "dlg-actions" }, h("button", { textContent: "Cancel", onclick: closeDialog }), ...actions),
+    ),
+  );
   $("dialog").hidden = false;
 }
 
@@ -168,19 +202,9 @@ export function dialog(
     };
   }
   showDialog(
-    h(
-      "div",
-      { className: "dlg" },
-      h("div", { className: "dlg-head" }, h("b", { textContent: title }), h("button", { className: "x", textContent: "×", title: "Close (Esc)", onclick: closeDialog })),
-      ...fields.flatMap(([label], k) => [h("label", { textContent: label }), inputs[k]]),
-      h(
-        "div",
-        { className: "dlg-actions" },
-        h("button", { textContent: "Cancel", onclick: closeDialog }),
-        ...more.map(([label, fn]) => h("button", { textContent: label, onclick: () => (hideDialog(), fn()) })),
-        h("button", { className: "primary", textContent: action, onclick: submit }),
-      ),
-    ),
+    title,
+    fields.flatMap(([label], k) => [h("label", { textContent: label }), inputs[k]]),
+    [...more.map(([label, fn]) => h("button", { textContent: label, onclick: () => (hideDialog(), fn()) })), h("button", { className: "primary", textContent: action, onclick: submit })],
     cancel ?? null,
   );
   (inputs[0] ?? $("dialog").querySelector("button.primary")).focus();
@@ -258,9 +282,23 @@ export function askName(label: string, initial: string, done: (name: string) => 
 /** A short hash that copies the full one on click. */
 export const shaLink = (hash: string) => h("span", { className: "sha", textContent: short(hash), title: `Copy ${hash}`, onclick: () => copy(hash) });
 
+// the page's icons drawn from ICONS: <svg data-icon="close">
+document.querySelectorAll<SVGElement>("svg[data-icon]").forEach((s) => {
+  s.setAttribute("viewBox", "0 0 24 24");
+  s.innerHTML = `<path d="${ICONS[s.dataset.icon!]}"/>`;
+});
 // where the last click landed: "Copied!" pops up there
 let clickAt = [0, 0];
 addEventListener("pointerdown", (e) => (clickAt = [e.clientX, e.clientY]), true);
+// a greyed-out button (a class, not `disabled`: WebKit shows no tooltip on a disabled one) says why instead of acting
+addEventListener(
+  "click",
+  (e) => {
+    const off = (e.target as Element).closest?.<HTMLElement>(".off");
+    if (off) (e.stopImmediatePropagation(), say(off.title));
+  },
+  true,
+);
 
 export async function copy(text: string) {
   try {

@@ -1,7 +1,7 @@
 // The right panel: work in progress or a commit's details, the file lists, the commit box.
-import { Change, Commit, commits, gitOp, headHash, isHead, opInfo, refresh, repo, run, runFixed, selection, status } from "./repo";
-import { $, ICONS, MenuItem, ask, avatar, basename, copy, dateFmt, h, ico, input, popup, say, shaLink, short, store, svg } from "./ui";
-import { DiffSource, diffFile, discard, merging, openDiff, openHistory } from "./diff";
+import { Change, Commit, commits, fakeCommit, gitOp, headHash, isHead, opInfo, refresh, repo, run, runFixed, selection, status } from "./repo";
+import { $, ICONS, MenuItem, ask, avatar, basename, copy, dateFmt, h, ico, input, onCtrlEnter, plural, popup, say, shaLink, short, store, svg } from "./ui";
+import { DiffSource, confirmDiscard, diffFile, merging, openDiff, openHistory } from "./diff";
 import { jumpTo } from "./graph";
 
 type Dir = { dirs: Map<string, Dir>; files: Change[] };
@@ -50,7 +50,7 @@ function fileMenu(f: Change, kind: DiffSource, c?: Commit): MenuItem[] {
       : kind === "unstaged"
       ? ([
           ["Stage", () => gitOp("stage", f.path)],
-          ["Discard changes", () => ask(`Discard all changes to ${f.path}?`, "Discard").then((ok) => (ok ? discard(f.path, f.code === "?") : undefined))],
+          ["Discard changes", () => confirmDiscard(f)],
         ] as MenuItem[])
       : []),
     ...(kind === "staged" ? ([["Unstage", () => gitOp("unstage", f.path)]] as MenuItem[]) : []),
@@ -214,7 +214,7 @@ export function paintFileOpts() {
 function panelCommit(): { c: Commit; message?: string; head: (Node | string)[]; author?: Commit } | null {
   if (selection.stash) {
     const s = selection.stash;
-    const c = { hash: s.hash, parents: s.parents.slice(0, 1), author: "", time: 0, refs: [], subject: s.subject, body: "" };
+    const c = fakeCommit(s.hash, s.parents.slice(0, 1), s.subject);
     return { c, message: s.subject, head: ["stash ", shaLink(s.hash), " · on ", shaLink(s.parents[0] ?? "")] };
   }
   const sel = commits.filter((c) => selection.hashes.includes(c.hash));
@@ -263,12 +263,7 @@ function editMessage(c: Commit, msg: string) {
   };
   summary.oninput = () => countLeft(summary, left);
   countLeft(summary, left);
-  for (const el of [summary, desc]) {
-    el.onkeydown = (e) => {
-      // a handler returning false cancels the key, so no expression body here
-      if (e.ctrlKey && e.key === "Enter") update();
-    };
-  }
+  onCtrlEnter([summary, desc], update);
   $("c-msg").classList.add("editing");
   $("c-msg").replaceChildren(
     h("div", { className: "summary" }, summary, left),
@@ -278,30 +273,38 @@ function editMessage(c: Commit, msg: string) {
   summary.focus();
 }
 
+/** The right panel: the work in progress, or the picked commit, range or stash. */
 export async function renderPanel() {
   const n = ++panelSeq;
   const wip = !selection.stash && selection.hashes[0] === "WIP";
   $("wip").hidden = !wip;
   $("commit").hidden = wip;
-  if (wip) {
-    if (!status) return;
-    const n = new Set([...status.unstaged, ...status.staged].map((f) => f.path)).size;
-    const conflicts = status.unstaged.filter(isConflict), clean = (f: Change) => !isConflict(f);
-    $("wip-title").replaceChildren(...(opInfo ? [opTitle(conflicts.length)] : [`${n} file change${n === 1 ? "" : "s"} on `, h("b", { textContent: status.branch || "detached HEAD" })]));
-    $("unstaged-label").textContent = conflicts.length ? "Conflicted Files" : "Unstaged Files";
-    $("staged-label").textContent = opInfo ? "Resolved Files" : "Staged Files";
-    $("stage-all").textContent = conflicts.length ? "Mark all resolved" : "Stage all changes";
-    $("unstaged-n").textContent = `(${status.unstaged.length})`;
-    $("staged-n").textContent = `(${status.staged.length})`;
-    renderCommitBtn();
-    fileList($("unstaged"), [...conflicts, ...status.unstaged.filter(clean)], (f) => openDiff("unstaged", f), [
-      ["Mark resolved", (f) => gitOp("stage", f.path), isConflict],
-      ["Discard", (f) => ask(`Discard all changes to ${f.path}?`, "Discard").then((ok) => (ok ? discard(f.path, f.code === "?") : undefined)), clean],
-      ["Stage", (f) => gitOp("stage", f.path), clean],
-    ], (f) => fileMenu(f, "unstaged"));
-    fileList($("staged"), status.staged, (f) => openDiff("staged", f), [["Unstage", (f) => gitOp("unstage", f.path)]], (f) => fileMenu(f, "staged"));
-    return markOpenFile();
-  }
+  if (wip) return renderWip();
+  return renderCommitDetails(n);
+}
+
+function renderWip() {
+  if (!status) return;
+  const n = new Set([...status.unstaged, ...status.staged].map((f) => f.path)).size;
+  const conflicts = status.unstaged.filter(isConflict), clean = (f: Change) => !isConflict(f);
+  $("wip-title").replaceChildren(...(opInfo ? [opTitle(conflicts.length)] : [`${plural(n, "file change")} on `, h("b", { textContent: status.branch || "detached HEAD" })]));
+  $("unstaged-label").textContent = conflicts.length ? "Conflicted Files" : "Unstaged Files";
+  $("staged-label").textContent = opInfo ? "Resolved Files" : "Staged Files";
+  $("stage-all").textContent = conflicts.length ? "Mark all resolved" : "Stage all changes";
+  $("unstaged-n").textContent = `(${status.unstaged.length})`;
+  $("staged-n").textContent = `(${status.staged.length})`;
+  renderCommitBtn();
+  fileList($("unstaged"), [...conflicts, ...status.unstaged.filter(clean)], (f) => openDiff("unstaged", f), [
+    ["Mark resolved", (f) => gitOp("stage", f.path), isConflict],
+    ["Discard", confirmDiscard, clean],
+    ["Stage", (f) => gitOp("stage", f.path), clean],
+  ], (f) => fileMenu(f, "unstaged"));
+  fileList($("staged"), status.staged, (f) => openDiff("staged", f), [["Unstage", (f) => gitOp("unstage", f.path)]], (f) => fileMenu(f, "staged"));
+  markOpenFile();
+}
+
+/** A commit's, range's or stash's message, author and files; `n` is the panel paint it belongs to. */
+async function renderCommitDetails(n: number) {
   const view = panelCommit();
   if (!view) return;
   try {
@@ -370,7 +373,7 @@ function opTitle(conflicts: number) {
 /** The WIP row while files are in conflict: an orange bar. */
 export function conflictLine(): (Node | string)[] {
   const k = conflictCount();
-  return [ico(ICONS.error), `${k} file conflict${k === 1 ? "" : "s"} · `, ...opLine()];
+  return [ico(ICONS.error), `${plural(k, "file conflict")} · `, ...opLine()];
 }
 
 export const amending = () => $("amend").classList.contains("on");
@@ -385,9 +388,8 @@ export function renderCommitBtn() {
   if (opInfo) {
     const left = conflictCount(), c = $("op-continue");
     c.textContent = opInfo.state === "merge" ? "Commit and merge" : `Continue ${opInfo.state}`;
-    // a class, not `disabled`: WebKit shows no tooltip on a disabled button
     c.classList.toggle("off", left > 0);
-    c.title = left ? `Resolve the ${left} conflicted file${left === 1 ? "" : "s"} first` : emptyStep() ? "Nothing left to commit in this step: Continue skips it" : "";
+    c.title = left ? `Resolve the ${plural(left, "conflicted file")} first` : emptyStep() ? "Nothing left to commit in this step: Continue skips it" : "";
     $("op-skip").hidden = opInfo.state === "merge";
     $("op-abort").textContent = `Abort ${opInfo.state}`;
   }
@@ -398,7 +400,7 @@ export function renderCommitBtn() {
       ? "Stage files to commit"
       : b.disabled
         ? "Type a summary to commit"
-        : `Commit changes to ${staged} file${staged === 1 ? "" : "s"}`;
+        : `Commit changes to ${plural(staged, "file")}`;
 }
 
 export async function commit() {

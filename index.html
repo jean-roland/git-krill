@@ -11,7 +11,7 @@
     <nav id="tabs">
       <div id="tablist"></div>
       <button id="new-tab" title="New tab (Ctrl+T)"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
-      <button id="tab-find" title="Search tabs"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+      <button id="tab-find" title="Search tabs"><svg data-icon="caret"></svg></button>
       <div id="tab-search" hidden>
         <input id="tab-q" placeholder="Search tabs" spellcheck="false" />
         <div class="head">Open tabs</div>
@@ -26,10 +26,10 @@
         <i class="sep"></i>
         <button class="tool" data-op="fetch" title="Fetch all remotes"><svg viewBox="0 0 24 24"><path d="M12 13v8m-4-4 4 4 4-4M4.4 15.3A7 7 0 1 1 15.7 8h1.8a4.5 4.5 0 0 1 2.4 8.3"/></svg>Fetch</button>
         <button class="tool" id="pull" data-op="pull" title="Pull"><svg viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M5 21h14"/></svg>Pull<small id="behind"></small></button>
-        <button class="tool caret" id="pull-mode" title="Pull mode"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+        <button class="tool caret" id="pull-mode" title="Pull mode"><svg data-icon="caret"></svg></button>
         <button class="tool" data-op="push" title="Push"><svg viewBox="0 0 24 24"><path d="M12 21V9m-5 5 5-5 5 5M5 3h14"/></svg>Push<small id="ahead"></small></button>
         <i class="sep"></i>
-        <button class="tool" data-op="stash-push" title="Stash all changes"><svg viewBox="0 0 24 24"><path d="M3 4h18v4H3zM5 8v12h14V8M10 12h4"/></svg>Stash</button>
+        <button class="tool" data-op="stash-push" title="Stash all changes"><svg data-icon="stash"></svg>Stash</button>
         <button class="tool" data-op="stash-pop" title="Pop the last stash"><svg viewBox="0 0 24 24"><path d="M3 4h18v4H3zM5 8v12h14V8M12 18v-6m-3 3 3-3 3 3"/></svg>Pop</button>
         <i class="sep"></i>
         <button class="tool" id="term-btn" title="Terminal (Ctrl+`)"><svg viewBox="0 0 24 24"><path d="M4 17l6-6-6-6M12 19h8"/></svg>Terminal</button>
@@ -48,8 +48,8 @@
             <div class="home-box">
               <h1>Welcome to Git Krill</h1>
               <div class="home-actions">
-                <button id="open-repo" class="tinted" title="Ctrl+O"><svg viewBox="0 0 24 24"><path d="M3 18.5v-12A1.5 1.5 0 0 1 4.5 5H9l2 2.5h7A1.5 1.5 0 0 1 19.5 9v1.5M3 18.5l2.6-7A1.5 1.5 0 0 1 7 10.5h14l-2.8 8.5a1.5 1.5 0 0 1-1.4 1H4.5A1.5 1.5 0 0 1 3 18.5z"/></svg>Open repository…</button>
-                <button id="clone-btn" class="tinted"><svg viewBox="0 0 24 24"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20z"/></svg>Clone repository…</button>
+                <button id="open-repo" class="tinted" title="Ctrl+O"><svg data-icon="folderOpen"></svg>Open repository…</button>
+                <button id="clone-btn" class="tinted"><svg data-icon="globe"></svg>Clone repository…</button>
                 <button id="init-repo" class="tinted"><svg viewBox="0 0 24 24"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5zM12 11v6M9 14h6"/></svg>Init repository…</button>
               </div>
               <div class="head">Recent</div>
@@ -59,9 +59,9 @@
           <div id="find" hidden>
             <input id="find-q" placeholder="Search commits: message, author, branch, hash" spellcheck="false" />
             <small id="find-n"></small>
-            <button class="icon" id="find-prev" title="Previous (Shift+Enter)"><svg viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button>
-            <button class="icon" id="find-next" title="Next (Enter)"><svg viewBox="0 0 24 24"><path d="M12 5v14m-6-6 6 6 6-6"/></svg></button>
-            <button class="icon" id="find-close" title="Close (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+            <button class="icon" id="find-prev" title="Previous (Shift+Enter)"><svg data-icon="up"></svg></button>
+            <button class="icon" id="find-next" title="Next (Enter)"><svg data-icon="down"></svg></button>
+            <button class="icon" id="find-close" title="Close (Esc)"><svg data-icon="close"></svg></button>
           </div>
           <div id="graph">
             <div id="cols"><span class="refs">Branch / Tag</span><span class="g-col">Graph</span><span class="subject">Commit message</span></div>
@@ -70,15 +70,15 @@
           <div id="diff" hidden>
             <div class="bar">
               <span id="d-path"></span>
-              <button class="icon" id="prev-change" title="Previous change"><svg viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button>
-              <button class="icon" id="next-change" title="Next change"><svg viewBox="0 0 24 24"><path d="M12 5v14m-6-6 6 6 6-6"/></svg></button>
+              <button class="icon" id="prev-change" title="Previous change"><svg data-icon="up"></svg></button>
+              <button class="icon" id="next-change" title="Next change"><svg data-icon="down"></svg></button>
               <span class="seg">
                 <button data-mode="hunk" title="Changed hunks only"><svg viewBox="0 0 24 24"><path d="M4 5h16M4 9h11M4 15h16M4 19h11"/></svg>Hunk</button><button data-mode="inline" title="Whole file, one column"><svg viewBox="0 0 24 24"><path d="M4 5h16M4 10h16M4 15h16M4 20h16"/></svg>Inline</button><button data-mode="split" title="Whole file, side by side"><svg viewBox="0 0 24 24"><path d="M3 4h18v16H3zM12 4v16"/></svg>Split</button>
               </span>
               <button id="save" class="primary" hidden>Save</button>
               <button id="d-history" title="The commits that touched this file"><svg viewBox="0 0 24 24"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2"/></svg>File history</button>
               <button id="open-editor" title="Open the working tree file in VS Code"><svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>Open in editor</button>
-              <button class="icon" id="close" title="Close (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+              <button class="icon" id="close" title="Close (Esc)"><svg data-icon="close"></svg></button>
             </div>
             <div id="editor"></div>
             <div id="binary" hidden>Binary, non-UTF-8 or over 10 MB: whole-file actions only.</div>
@@ -94,7 +94,7 @@
                 </span>
                 <button id="h-blame" class="toggle"><svg viewBox="0 0 24 24"><path d="M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0"/></svg>Blame</button>
               </span>
-              <button class="icon" id="h-close" title="Close (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+              <button class="icon" id="h-close" title="Close (Esc)"><svg data-icon="close"></svg></button>
             </div>
             <div id="h-list"></div>
             <div id="h-main"></div>
@@ -106,7 +106,7 @@
               <button id="m-sync" class="toggle" title="Scroll the three panes together"><svg viewBox="0 0 24 24"><path d="M8 3v18M16 3v18M4 17l4 4 4-4M12 17l4 4 4-4"/></svg>Sync scrolling</button>
               <button id="m-reset" title="Drop the picks and edits"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8M3 3v5h5"/></svg>Reset</button>
               <button id="m-save" class="primary" title="Write the output and mark the file resolved (Ctrl+S)"><svg viewBox="0 0 24 24"><path d="M5 3h11l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM7 3v5h8V3M7 21v-7h10v7"/></svg>Save</button>
-              <button class="icon" id="m-close" title="Close (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+              <button class="icon" id="m-close" title="Close (Esc)"><svg data-icon="close"></svg></button>
             </div>
             <div class="m-sides">
               <div class="m-side"><label class="m-head"><input type="checkbox" id="m-all-a" /><b class="m-tag a">A</b>current <code id="m-a-commit"></code> on <b id="m-a-name"></b></label><div id="m-a" class="m-ed"></div></div>
@@ -115,9 +115,9 @@
             <div class="m-head m-out-head">
               <span>Output</span>
               <span class="m-nav">
-                <button class="icon" id="m-prev" title="Previous conflict"><svg viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button>
+                <button class="icon" id="m-prev" title="Previous conflict"><svg data-icon="up"></svg></button>
                 <span id="m-at"></span>
-                <button class="icon" id="m-next" title="Next conflict"><svg viewBox="0 0 24 24"><path d="M12 5v14m-6-6 6 6 6-6"/></svg></button>
+                <button class="icon" id="m-next" title="Next conflict"><svg data-icon="down"></svg></button>
               </span>
             </div>
             <div id="m-out" class="m-ed"></div>
@@ -140,7 +140,7 @@
           <div class="head"><span id="staged-label">Staged Files</span> <span id="staged-n"></span><button id="unstage-all" class="bad">Unstage all changes</button></div>
           <div id="staged" class="files"></div>
           <div id="commit-box">
-            <div class="cb-head">Commit<button id="amend" class="toggle" title="Rewrite the previous commit with the staged changes and this message"><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>Amend</button></div>
+            <div class="cb-head">Commit<button id="amend" class="toggle" title="Rewrite the previous commit with the staged changes and this message"><svg data-icon="m"></svg>Amend</button></div>
             <div class="summary"><input id="summary" class="msg-in" placeholder="Summary" spellcheck="false" /><small id="summary-n"></small></div>
             <textarea id="desc" class="msg-in" placeholder="Description" spellcheck="false"></textarea>
             <button id="commit-btn" class="primary"></button>

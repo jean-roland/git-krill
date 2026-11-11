@@ -3,9 +3,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { repoName } from "./core.js";
-import { $, COLORS, ICONS, MenuItem, ask, basename, closeDialog, colorIndex, dialog, h, hideDialog, hint, ico, input, pickDir, popup, say, showDialog, showMenu, store, svg, toast } from "./ui";
-import { closeHistory, closeMerge, diffFile, merging, reloadDiff } from "./diff";
-import { getMsg, isConflict, renderPanel, setMsg } from "./panel";
+import { $, COLORS, ICONS, MenuItem, ask, basename, colorIndex, dialog, h, hideBanner, hideDialog, hint, ico, input, pickDir, popup, say, showBanner, showDialog, showMenu, store, svg, toast } from "./ui";
+import { closeHistory, closeMerge, closeResolvedMerge, diffFile, reloadDiff } from "./diff";
+import { getMsg, renderPanel, setMsg } from "./panel";
 import { paintWipRow, renderGraph, renderSide, resetGraph } from "./graph";
 import { dropTerm, showTerm } from "./terminal";
 
@@ -81,23 +81,13 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
   let ok = true;
   try {
     const out = await run<string>("git_op", { op: name, arg: arg1, arg2 });
-    // pre-commit's report, "name.....Passed": proof the hooks ran, worth a toast
-    const hook = (l: string) => l.match(/^(.+?)\.{3,}(?:\(.*\))?(Passed|Skipped)$/);
-    const hooks = out.split("\n").flatMap((l) => {
-      const m = hook(l);
-      return m ? [m] : [];
-    });
     // git's own last word, not pre-commit's notes about stashing
-    const last = out.trim().split("\n").filter((l) => !hook(l) && !/^\[(INFO|WARNING)\]/.test(l)).pop()?.trim() || `${name}: done`;
+    const last = out.trim().split("\n").filter((l) => !hookLine(l) && !/^\[(INFO|WARNING)\]/.test(l)).pop()?.trim() || `${name}: done`;
     say(last);
-    if (hooks.length) {
-      const passed = hooks.filter((m) => m[2] === "Passed").length;
-      const lines = hooks.map((m) => `${m[2] === "Passed" ? "✓" : "–"} ${m[1]}${m[2] === "Passed" ? "" : " (skipped)"}`);
-      toast(`Hooks passed: ${passed} ran, ${hooks.length - passed} skipped`, lines.join("\n"), "info");
-    }
+    toastHooks(out);
     // what the server says on push (pull request links, warnings) deserves more than the status bar
     const remote = out.split("\n").flatMap((l) => (l.startsWith("remote:") && l.slice(7).trim() ? [l.slice(7).trim()] : []));
-    const upstream = refs.refs.find((r) => r.name === `refs/heads/${branch}`)?.upstream ?? "";
+    const upstream = findRef(`refs/heads/${branch}`)?.upstream ?? "";
     const done = DONE[name]?.(arg1, arg2, branch, upstream);
     // git said nothing: the title is all there is
     if (done) toast(done, remote.length ? remote.join("\n") : out.trim() ? last : "", "info");
@@ -127,6 +117,17 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
   return ok;
 }
 
+// pre-commit's report, "name.....Passed": proof the hooks ran, worth a toast
+const hookLine = (l: string) => l.match(/^(.+?)\.{3,}(?:\(.*\))?(Passed|Skipped)$/);
+
+function toastHooks(out: string) {
+  const hooks = out.split("\n").flatMap((l) => hookLine(l) ?? []);
+  if (!hooks.length) return;
+  const passed = hooks.filter((m) => m[2] === "Passed").length;
+  const lines = hooks.map((m) => `${m[2] === "Passed" ? "✓" : "–"} ${m[1]}${m[2] === "Passed" ? "" : " (skipped)"}`);
+  toast(`Hooks passed: ${passed} ran, ${hooks.length - passed} skipped`, lines.join("\n"), "info");
+}
+
 /** A step for Undo; the oldest go past 50, a discard's holding its file twice. */
 export function recordUndo(t: Tab, step: UndoStep) {
   t.undo.push(step);
@@ -153,29 +154,26 @@ export const paintPull = () => ($("pull").title = `Pull, ${PULLS[store("pull") ?
 /** Push; a branch without upstream first asks where to, in a banner. */
 export function push() {
   const branch = status?.branch ?? "";
-  if (!branch || refs.refs.find((r) => r.name === `refs/heads/${branch}`)?.upstream) return gitOp("push");
+  if (!branch || findRef(`refs/heads/${branch}`)?.upstream) return gitOp("push");
   if (!refs.remotes.length) return toast(`Push failed: ${branch}`, "This repository has no remote.", "err");
   const remote = h("select", {}, ...refs.remotes.map((r) => h("option", { value: r, textContent: r })));
   remote.value = refs.remotes.includes("origin") ? "origin" : refs.remotes[0];
   const name = h("input", { value: branch, spellcheck: false });
-  const close = () => ($("banner").hidden = true);
   const submit = () => {
     if (!name.value.trim()) return;
-    close();
+    hideBanner();
     gitOp("push-upstream", [remote.value, name.value.trim()]);
   };
   name.onkeydown = (e) => {
     if (e.key === "Enter") submit();
   };
-  $("banner").replaceChildren(
+  showBanner(
     h("span", { textContent: `Where should "${branch}" push to and pull from?` }),
     remote,
     h("span", { textContent: "/" }),
     name,
     h("button", { className: "primary", textContent: "Push", onclick: submit }),
-    h("button", { textContent: "Cancel", onclick: close }),
   );
-  $("banner").hidden = false;
   name.select();
 }
 
@@ -235,8 +233,7 @@ async function reload() {
     status = s;
     refs = rf;
     opInfo = info;
-    // resolved or aborted elsewhere: nothing left to merge
-    if (merging && !s.unstaged.some((f) => f.path === merging!.f.path && isConflict(f))) closeMerge(true);
+    closeResolvedMerge();
     const step = opInfo ? JSON.stringify([opInfo.state, opInfo.step, opInfo.message]) : "";
     if (step !== opStep) {
       if (opStep || step) setMsg(opInfo?.message ?? "");
@@ -305,6 +302,14 @@ function renderToolbar() {
 /* tabs and home */
 
 const aliases = (): Record<string, string> => JSON.parse(store("aliases") ?? "{}");
+/** The header's repository name and the window title; a linked worktree names its main repository first. */
+export function paintRepoName() {
+  const name = tabName(tabs[active]), main = refs.worktrees[0];
+  $("repo-name").textContent = !main || main === thisWorktree() ? name : `${basename(main.path)} › ${name}`;
+  $("repo-name").title = repo;
+  getCurrentWindow().setTitle(repo ? `Git Krill · ${name}` : "Git Krill");
+}
+
 export const tabName = (t: Tab) => (t.repo ? (aliases()[t.repo] ?? basename(t.repo)) : "Home");
 // closed this session, for Ctrl+Shift+T
 const closedTabs: string[] = [];
@@ -411,10 +416,9 @@ export async function switchTab(i: number, save = true) {
   renderTabs();
   document.body.classList.toggle("home", !repo);
   $("home").hidden = !!repo;
-  getCurrentWindow().setTitle(repo ? `Git Krill · ${tabName(t)}` : "Git Krill");
+  paintRepoName();
   showTerm(false);
   if (!repo) return renderRecent();
-  $("repo-name").textContent = tabName(t);
   await refresh();
   if (tabs[active] !== t) return;
   $("graph").scrollTop = t.scroll;
@@ -474,10 +478,7 @@ function renameTab(i: number) {
     else if (keep) delete all[t.repo];
     store("aliases", JSON.stringify(all));
     renderTabs();
-    if (t === tabs[active]) {
-      $("repo-name").textContent = tabName(t);
-      getCurrentWindow().setTitle(`Git Krill · ${tabName(t)}`);
-    }
+    if (t === tabs[active]) paintRepoName();
   };
   box.onkeydown = (e) => {
     e.stopPropagation();
@@ -612,19 +613,11 @@ export function cloneDialog() {
     if (p) (parent.value = p), paint();
   };
   showDialog(
-    h(
-      "div",
-      { className: "dlg clone-dlg" },
-      h("div", { className: "dlg-head" }, h("b", { textContent: "Clone a repository" }), h("button", { className: "x", textContent: "×", title: "Close (Esc)", onclick: closeDialog })),
-      h("label", { textContent: "Where to clone to" }),
-      h("div", { className: "dlg-row" }, parent, h("button", { textContent: "Browse…", onclick: browse })),
-      h("label", { textContent: "URL" }),
-      url,
-      fullLabel,
-      full,
-      h("div", { className: "dlg-actions" }, h("button", { textContent: "Cancel", onclick: closeDialog }), go),
-    ),
+    "Clone a repository",
+    [h("label", { textContent: "Where to clone to" }), h("div", { className: "dlg-row" }, parent, h("button", { textContent: "Browse…", onclick: browse })), h("label", { textContent: "URL" }), url, fullLabel, full],
+    [go],
     null,
+    "clone-dlg",
   );
   paint();
   url.focus();
@@ -653,6 +646,12 @@ function toggleListed(key: string, item: string) {
 }
 export const toggleHidden = (ref: string) => toggleListed(`hide-refs:${repo}`, ref);
 export const toggleRemote = (name: string) => toggleListed(`hide:${repo}`, name);
+
+/** A row that is no commit of the log (WIP, a stash, uncommitted lines), shaped like one. */
+export const fakeCommit = (hash: string, parents: string[], subject: string): Commit => ({ hash, parents, author: "", time: 0, refs: [], subject, body: "" });
+export const findRef = (name: string) => refs.refs.find((r) => r.name === name);
+// this checkout's entry: the repo tool's checkouts list their git dir, not their folder, as the main worktree
+export const thisWorktree = () => refs.worktrees.find((w) => w.path === repo) ?? refs.worktrees[0];
 
 export const isHead = (c: Commit) => c.refs.some((r) => r === "HEAD" || r.startsWith("HEAD -> "));
 // when each repository was last fetched in the background

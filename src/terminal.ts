@@ -3,28 +3,28 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { Tab, active, refresh, repo, tabs } from "./repo";
-import { $, h, say, store } from "./ui";
+import { $, cssVar, h, say, store } from "./ui";
 import { relayout } from "./diff";
 
 type Term = { term: Terminal; fit: FitAddon; el: HTMLElement; id: number; armed: boolean };
 export const terms = new Map<Tab, Term>();
 let termIdle = 0;
 
-const termTheme = {
-  background: "#1b1f27",
-  foreground: "#e4e8ef",
-  cursor: "#1a9ea6",
-  selectionBackground: "#1a9ea666",
-  black: "#2c323d",
-  red: "#ff5470",
-  green: "#3ee88f",
-  yellow: "#ffcf3f",
+const termTheme = () => ({
+  background: cssVar("--bg"),
+  foreground: cssVar("--text"),
+  cursor: cssVar("--accent"),
+  selectionBackground: `${cssVar("--accent")}66`,
+  black: cssVar("--raised"),
+  red: cssVar("--del"),
+  green: cssVar("--add"),
+  yellow: cssVar("--mod"),
   blue: "#4f8cff",
-  magenta: "#b467ff",
+  magenta: cssVar("--ren"),
   cyan: "#26d4ca",
-  white: "#e4e8ef",
+  white: cssVar("--text"),
   brightBlack: "#5d6575",
-};
+});
 
 /** The tab's shell, started on first use in its repo. */
 function termFor(tab: Tab) {
@@ -32,7 +32,7 @@ function termFor(tab: Tab) {
   if (known) return known;
   const el = h("div", { className: "term" });
   $("term").append(el);
-  const term = new Terminal({ fontFamily: getComputedStyle(document.body).getPropertyValue("--mono"), fontSize: 13, theme: termTheme, cursorBlink: true });
+  const term = new Terminal({ fontFamily: cssVar("--mono"), fontSize: 13, theme: termTheme(), cursorBlink: true });
   const t: Term = { term, fit: new FitAddon(), el, id: 0, armed: false };
   terms.set(tab, t);
   term.loadAddon(t.fit);

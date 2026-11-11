@@ -2,8 +2,8 @@
 import type * as Monaco from "monaco-editor/esm/vs/editor/edcore.main";
 import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import { applyChanges, allLines, pickLines, parseConflicts, mergeSides, pickedLines, parseBlame, toggleSide, toggleLine, hasSide, pickedOf } from "./core.js";
-import { Blob, Change, Commit, active, dropEdits, gitOp, headHash, opInfo, recordUndo, refresh, run, status, tabs } from "./repo";
-import { $, COLORS, MenuItem, ask, avatar, avatarSvg, basename, colorIndex, copy, dateFmt, dayFmt, esc, h, input, popup, say, short, store, toast } from "./ui";
+import { Blob, Change, Commit, active, dropEdits, fakeCommit, gitOp, headHash, opInfo, recordUndo, refresh, run, status, tabs } from "./repo";
+import { $, COLORS, MenuItem, ask, avatar, avatarSvg, basename, colorIndex, copy, cssVar, dateFmt, dayFmt, esc, h, hideBanner, input, plural, popup, say, short, showBanner, store, toast } from "./ui";
 import { isConflict, markOpenFile, wipFiles } from "./panel";
 
 export type DiffSource = "unstaged" | "staged" | "commit";
@@ -30,19 +30,6 @@ export const loadMonaco = () =>
       ...cpp.language.tokenizer.root,
     ] as Monaco.languages.IMonarchLanguageRule[];
     for (const id of ["c", "cpp"]) monaco.languages.setMonarchTokensProvider(id, { ...cpp.language, tokenizer: { ...cpp.language.tokenizer, root } });
-  }));
-export let diffFile: { kind: DiffSource; f: Change; c?: Commit; orig: Blob; mod: Blob; dirty: boolean } | null = null;
-export let diffEditor: Monaco.editor.IStandaloneDiffEditor | null = null;
-// hunk header bars, as view zone ids per side
-let hunkZones: { mod: string[]; orig: string[]; nodes: HTMLElement[] } = { mod: [], orig: [], nodes: [] };
-let hunks: LineChange[] = [];
-let lastSide: "orig" | "mod" = "mod";
-let modelSeq = 0;
-
-/* diff */
-
-export function editor() {
-  if (diffEditor) return diffEditor;
   monaco.editor.defineTheme("krill", {
     base: "vs-dark",
     inherit: true,
@@ -64,31 +51,40 @@ export function editor() {
     ],
     colors: {
       "editor.foreground": "#cccccc",
-      "editor.background": "#1b1f27",
-      "editorGutter.background": "#1b1f27",
+      "editor.background": cssVar("--bg"),
+      "editorGutter.background": cssVar("--bg"),
       "editorLineNumber.foreground": "#5d6575",
-      "editorLineNumber.activeForeground": "#e4e8ef",
+      "editorLineNumber.activeForeground": cssVar("--text"),
       "editor.lineHighlightBackground": "#222833",
-      "editor.selectionBackground": "#1a9ea666",
-      "editorWidget.background": "#232832",
+      "editor.selectionBackground": `${cssVar("--accent")}66`,
+      "editorWidget.background": cssVar("--panel"),
       "scrollbarSlider.background": "#ffffff14",
-      "diffEditor.insertedLineBackground": "#3ee88f14",
-      "diffEditor.insertedTextBackground": "#3ee88f38",
-      "diffEditor.removedLineBackground": "#ff547014",
-      "diffEditor.removedTextBackground": "#ff547038",
+      "diffEditor.insertedLineBackground": `${cssVar("--add")}14`,
+      "diffEditor.insertedTextBackground": `${cssVar("--add")}38`,
+      "diffEditor.removedLineBackground": `${cssVar("--del")}14`,
+      "diffEditor.removedTextBackground": `${cssVar("--del")}38`,
       "diffEditor.diagonalFill": "#ffffff0c",
-      "diffEditorGutter.insertedLineBackground": "#3ee88f30",
-      "diffEditorGutter.removedLineBackground": "#ff547030",
+      "diffEditorGutter.insertedLineBackground": `${cssVar("--add")}30`,
+      "diffEditorGutter.removedLineBackground": `${cssVar("--del")}30`,
     },
   });
+  }));
+export let diffFile: { kind: DiffSource; f: Change; c?: Commit; orig: Blob; mod: Blob; dirty: boolean } | null = null;
+export let diffEditor: Monaco.editor.IStandaloneDiffEditor | null = null;
+// hunk header bars, as view zone ids per side
+let hunkZones: { mod: string[]; orig: string[]; nodes: HTMLElement[] } = { mod: [], orig: [], nodes: [] };
+let hunks: LineChange[] = [];
+let lastSide: "orig" | "mod" = "mod";
+let modelSeq = 0;
+// a fresh URI each time: the language comes from the path's extension, and an old model may still hold the last one
+const newModel = (text: string, path: string) => monaco.editor.createModel(text, undefined, monaco.Uri.from({ scheme: "krill", path: `/${++modelSeq}/${path}` }));
 
+/* diff */
+
+export function editor() {
+  if (diffEditor) return diffEditor;
   diffEditor = monaco.editor.createDiffEditor($("editor"), {
-    theme: "krill",
-    automaticLayout: true,
-    fontFamily: getComputedStyle(document.body).getPropertyValue("--mono"),
-    fontSize: 13,
-    stickyScroll: { enabled: false },
-    scrollBeyondLastLine: false,
+    ...plainOpts(),
     // its height lands ~200 ms late, once long lines are measured, and rescales the change markers; Shift+wheel still scrolls sideways
     scrollbar: { horizontal: "hidden" },
     // whitespace-only changes must show: they get staged too
@@ -97,8 +93,6 @@ export function editor() {
     renderMarginRevertIcon: false,
     renderGutterMenu: false,
     useInlineViewWhenSpaceIsLimited: false,
-    // ours instead: line actions, no command palette
-    contextmenu: false,
   });
   const me = diffEditor.getModifiedEditor();
   lineActions(me, false);
@@ -335,7 +329,6 @@ function paintOpenEditor() {
   const ed = $("open-editor");
   run<boolean>("on_disk", { path: f.path }).then((ok) => {
     if (diffFile?.f.path !== f.path) return;
-    // a class, not `disabled`: WebKit shows no tooltip on a disabled button
     ed.classList.toggle("off", !ok);
     ed.title = ok ? "Open the working tree file in VS Code" : `${f.path} is not in the working tree (not on the checked out branch)`;
   });
@@ -346,9 +339,8 @@ function setModels(keepView: boolean) {
   const ed = editor();
   const view = keepView ? ed.saveViewState() : null;
   const prev = ed.getModel();
-  const uri = (side: string) => monaco.Uri.from({ scheme: "krill", path: `/${++modelSeq}/${side}/${diffFile!.f.path}` });
-  const modified = monaco.editor.createModel(diffFile.mod.text, undefined, uri("b"));
-  ed.setModel({ original: monaco.editor.createModel(diffFile.orig.text, undefined, uri("a")), modified });
+  const modified = newModel(diffFile.mod.text, `b/${diffFile.f.path}`);
+  ed.setModel({ original: newModel(diffFile.orig.text, `a/${diffFile.f.path}`), modified });
   prev?.original.dispose();
   prev?.modified.dispose();
   setOptions({ readOnly: !(diffFile.kind === "unstaged" && diffFile.mod.exists), glyphMargin: diffFile.kind !== "commit" });
@@ -433,6 +425,8 @@ async function applyLines(pick: Lines, action: "stage" | "unstage" | "discard") 
   await refresh();
 }
 
+export const confirmDiscard = (f: Change) => ask(`Discard all changes to ${f.path}?`, "Discard").then((ok) => (ok ? discard(f.path, f.code === "?") : undefined));
+
 /** Discard `path` back to the index, or to `text` for some of its lines; undone by writing the old text back. */
 export async function discard(path: string, untracked: boolean, text?: string) {
   const t = tabs[active];
@@ -476,11 +470,11 @@ const boxLine = (ed: Monaco.editor.ICodeEditor, [s, n]: number[]) => Math.min(n 
 // NeverGrowsWhenTypingAtEdges, by value: Monaco is not loaded when this runs
 const tracked = { stickiness: 1 as Monaco.editor.TrackedRangeStickiness };
 
-/** A plain editor's options, like the diff editor's. */
+/** Every editor's options: ours instead of Monaco's context menu, line actions and no command palette. */
 const plainOpts = (): Monaco.editor.IStandaloneEditorConstructionOptions => ({
   theme: "krill",
   automaticLayout: true,
-  fontFamily: getComputedStyle(document.body).getPropertyValue("--mono"),
+  fontFamily: cssVar("--mono"),
   fontSize: 13,
   scrollBeyondLastLine: false,
   stickyScroll: { enabled: false },
@@ -490,7 +484,6 @@ const plainOpts = (): Monaco.editor.IStandaloneEditorConstructionOptions => ({
 /** The merge tool's three editors, made on first use. */
 function mergeEditors() {
   if (mergeEds) return mergeEds;
-  editor();
   // no folding: its arrows would crowd the line buttons
   const opts = { ...plainOpts(), minimap: { enabled: false }, glyphMargin: true, folding: false };
   // the side panes' line buttons sit right of the line numbers
@@ -571,7 +564,7 @@ export function loadMerge() {
   m.spans = s.regions.map((r) => ({ a: r.a, b: r.b }));
   for (const [ed, text, side] of [[eds.a, s.a, "a"], [eds.b, s.b, "b"], [eds.out, s.out, "out"]] as const) {
     const old = ed.getModel();
-    ed.setModel(monaco.editor.createModel(text, undefined, monaco.Uri.from({ scheme: "krill", path: `/${++modelSeq}/${side}/${m.f.path}` })));
+    ed.setModel(newModel(text, `${side}/${m.f.path}`));
     old?.dispose();
   }
   // edits move the output's conflicts around: decorations keep track of them
@@ -683,7 +676,7 @@ function paintMerge() {
     }),
   );
   const left = m.picks.filter((p) => !p.length).length;
-  $("m-count").textContent = `${m.ids.length} conflict${m.ids.length === 1 ? "" : "s"}${left ? `, ${left} without a pick` : ""}`;
+  $("m-count").textContent = `${plural(m.ids.length, "conflict")}${left ? `, ${left} without a pick` : ""}`;
   for (const side of ["a", "b"] as const) input(`m-all-${side}`).checked = m.picks.length > 0 && m.picks.every((p, k) => hasSide(conflicts[k], p, side));
   $("m-at").textContent = m.ids.length ? `conflict ${m.at + 1} of ${m.ids.length}` : "";
 }
@@ -714,6 +707,11 @@ export async function saveMerge() {
   gitOp("stage", m.f.path);
 }
 
+/** Close the merge tool once its file is resolved or the merge aborted, here or elsewhere. */
+export function closeResolvedMerge() {
+  if (merging && !status?.unstaged.some((f) => f.path === merging!.f.path && isConflict(f))) closeMerge(true);
+}
+
 export async function closeMerge(force = false) {
   if (!merging) return true;
   if (!force && merging.dirty && !(await ask(`Drop the merge of ${merging.f.path}?`, "Drop"))) return false;
@@ -739,13 +737,7 @@ function conflictBanner(f: Change) {
             : f.conflict === "UA"
               ? [`${f.path} was added on ${inc} only.`, [["Keep the file", "take-incoming"], ["Delete the file", "take-current"]]]
               : [`${f.path} cannot be merged line by line (binary, not UTF-8 or over 10 MB).`, [[`Take current (${cur})`, "take-current"], [`Take incoming (${inc})`, "take-incoming"]]];
-  const close = () => ($("banner").hidden = true);
-  $("banner").replaceChildren(
-    h("span", { textContent: text }),
-    ...choices.map(([label, o]) => h("button", { textContent: label, onclick: () => (close(), gitOp(o, f.path)) })),
-    h("button", { textContent: "Cancel", onclick: close }),
-  );
-  $("banner").hidden = false;
+  showBanner(h("span", { textContent: text }), ...choices.map(([label, o]) => h("button", { textContent: label, onclick: () => (hideBanner(), gitOp(o, f.path)) })));
 }
 
 /* file history */
@@ -775,7 +767,7 @@ export async function openHistory(path: string, c?: Commit) {
   if (diffFile) return;
   // the working tree file as a commit on top of HEAD: blob and diff take WORKTREE as a revision
   if (wipFiles().some((f) => f.path === path))
-    revs.unshift([{ hash: "WORKTREE", parents: ["HEAD"], author: "", time: 0, refs: [], subject: "Uncommitted changes", body: "" }, { path, old: null, code: "M" }]);
+    revs.unshift([fakeCommit("WORKTREE", ["HEAD"], "Uncommitted changes"), { path, old: null, code: "M" }]);
   if (!revs.length) return say(`${path} has no commits yet`);
   hist = { path, revs, at: -1, blame: [] };
   $("h-path").textContent = `File history: ${path}`;
@@ -822,7 +814,7 @@ export async function showRev(i: number) {
   m.blame = [];
   const ed = historyEditor(), view = ed.saveViewState(), old = ed.getModel();
   const text = blob.binary ? "Binary, non-UTF-8 or over 10 MB" : blob.exists ? blob.text : `Deleted in ${short(c.hash)}`;
-  ed.setModel(monaco.editor.createModel(text, undefined, monaco.Uri.from({ scheme: "krill", path: `/${++modelSeq}/h/${f.path}` })));
+  ed.setModel(newModel(text, `h/${f.path}`));
   old?.dispose();
   // another version of the same file: stay around the same lines
   if (view) ed.restoreViewState(view);
@@ -861,7 +853,6 @@ const diffDrawn = () =>
 
 function historyEditor() {
   if (histEd) return histEd;
-  editor();
   histEd = monaco.editor.create($("h-file"), { ...plainOpts(), readOnly: true, minimap: { renderCharacters: false, showSlider: "always" } });
   // a click in the blame gutter shows the line's commit
   histEd.onMouseDown((e) => {
@@ -909,7 +900,6 @@ export function paintBlame() {
 /** Blame's three states: on, off, and dimmed in the diff view. */
 export function paintBlameBtn() {
   const b = $("h-blame"), diff = store("hist-view") === "diff", on = store("blame") === "on";
-  // a class, not `disabled`: WebKit shows no tooltip on a disabled button
   b.classList.toggle("off", diff);
   b.classList.toggle("on", on && !diff);
   b.title = diff ? "Blame: only in the File view" : on ? "Hide each line's commit" : "Show each line's commit next to it";

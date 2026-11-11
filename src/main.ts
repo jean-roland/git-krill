@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import "@xterm/xterm/css/xterm.css";
 import { Mode, closeDiff, closeHistory, closeMerge, diffEditor, diffFile, editor, goConflict, hist, histEd, histView, loadMerge, loadMonaco, merging, monaco, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setMode, showRev } from "./diff";
 import { SORTS, amending, commit, conflictCount, emptyStep, fileLists, filterFiles, foldAll, getMsg, openFile, paintFileOpts, renderCommitBtn, renderPanel, setMsg } from "./panel";
-import { $, ask, closeDialog, input, pickDir, say, store } from "./ui";
+import { $, ask, closeDialog, hideBanner, input, onCtrlEnter, pickDir, say, store } from "./ui";
 import { closeFind, drawRows, findStep, findTyped, openFind, paintSelection, showRow, shown } from "./graph";
 import { Change, active, addTab, autoFetch, cloneDialog, closeTab, gitOp, opInfo, openPicked, openRepo, paintPull, pull, pullMenu, push, refresh, renderTabHits, reopenTab, repo, restoreTabs, run, selection, switchTab, tabs, undoRedo } from "./repo";
 import { terms, toggleTerm } from "./terminal";
@@ -63,7 +63,7 @@ $("pull-mode").onclick = pullMenu;
 paintPull();
 addEventListener("focus", () => autoFetch());
 setInterval(() => autoFetch(), 5 * 60_000);
-document.querySelectorAll<HTMLElement>("[data-mode]").forEach((b) => (b.onclick = () => b.classList.contains("off") || setMode(b.dataset.mode as Mode)));
+document.querySelectorAll<HTMLElement>("[data-mode]").forEach((b) => (b.onclick = () => setMode(b.dataset.mode as Mode)));
 $("new-tab").onclick = addTab;
 // past their narrowest, tabs scroll sideways under the wheel
 $("tablist").onwheel = (e) => ($("tablist").scrollLeft += e.deltaY + e.deltaX);
@@ -93,7 +93,6 @@ $("find-close").onclick = closeFind;
 document.querySelectorAll<HTMLInputElement>(".file-filter").forEach((f) => (f.oninput = () => filterFiles(f.value)));
 $("stage-all").onclick = () => gitOp(conflictCount() ? "resolve-all" : "stage-all");
 $("op-continue").onclick = () => {
-  if ($("op-continue").classList.contains("off")) return say($("op-continue").title);
   // git refuses to continue an empty step and says to skip it
   if (emptyStep()) return gitOp("skip");
   // a rebase step keeps its own message unless reworded
@@ -120,12 +119,7 @@ $("discard-all").onclick = () =>
   ask("Discard ALL changes: staged, unstaged and untracked files? This cannot be undone.", "Discard all").then((ok) => ok && gitOp("discard-all"));
 $("unstage-all").onclick = () => gitOp("unstage-all");
 $("commit-btn").onclick = commit;
-for (const id of ["summary", "desc"]) {
-  $(id).onkeydown = (e) => {
-    // a handler returning false cancels the key, so no expression body here
-    if (e.ctrlKey && e.key === "Enter") commit();
-  };
-}
+onCtrlEnter([$("summary"), $("desc")], commit);
 $("summary").oninput = renderCommitBtn;
 $("amend").onclick = async () => {
   $("amend").classList.toggle("on");
@@ -156,7 +150,7 @@ document.querySelectorAll<HTMLElement>(".files-opts .sort").forEach(
       renderPanel();
     }),
 );
-document.querySelectorAll<HTMLElement>(".tree-all").forEach((b) => (b.onclick = () => (b.classList.contains("off") ? say(b.title) : foldAll(!!b.dataset.open))));
+document.querySelectorAll<HTMLElement>(".tree-all").forEach((b) => (b.onclick = () => foldAll(!!b.dataset.open)));
 paintFileOpts();
 resizer($("term-grip"), $("term"), "term-height", (m) =>
   Math.min($("center").clientHeight - 120, Math.max(80, $("term").getBoundingClientRect().bottom - m.clientY)),
@@ -182,7 +176,6 @@ $("prev-change").onclick = () => diffFile && editor().goToDiff("previous");
 $("next-change").onclick = () => diffFile && editor().goToDiff("next");
 $("open-editor").onclick = () => {
   if (!diffFile) return;
-  if ($("open-editor").classList.contains("off")) return say($("open-editor").title);
   const line = editor().getModifiedEditor().getPosition()?.lineNumber ?? 1;
   run("open_in_editor", { path: diffFile.f.path, line }).catch((e) => say(String(e), true));
 };
@@ -222,7 +215,7 @@ addEventListener("keydown", (e) => {
   else if (e.ctrlKey && key === "w") (e.preventDefault(), closeTab(active));
   else if (e.key === "Escape") {
     if (!$("menu").hidden) $("menu").hidden = $("submenu").hidden = true;
-    else if (!$("banner").hidden) $("banner").hidden = true;
+    else if (!$("banner").hidden) hideBanner();
     else if (!$("dialog").hidden) closeDialog();
     else if (!$("tab-search").hidden) $("tab-search").hidden = true;
     else if (!$("find").hidden && !openFile()) closeFind();
