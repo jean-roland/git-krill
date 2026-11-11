@@ -53,6 +53,7 @@ button:hover { border-color: var(--accent); }
 button:disabled, button.off { opacity: 0.45; cursor: default; border-color: var(--border); }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
 /* a dimmed accent, still readable as the main action */
+button.primary:hover:not(:disabled, .off) { background: color-mix(in srgb, var(--accent) 80%, #fff); border-color: color-mix(in srgb, var(--accent) 80%, #fff); }
 button.primary:disabled { background: color-mix(in srgb, var(--accent) 30%, var(--bg)); border-color: color-mix(in srgb, var(--accent) 45%, var(--bg)); color: color-mix(in srgb, var(--text) 65%, var(--bg)); cursor: default; opacity: 1; }
 button.good { color: var(--add); }
 button.bad { color: var(--del); }
@@ -73,8 +74,8 @@ header {
 #repo-name { font-weight: 600; font-size: 14px; }
 .h-side .ico svg { width: 15px; height: 15px; }
 #repo-ico { margin-right: -2px; color: var(--dim); }
-#branch-ico { margin: 0 -2px 0 8px; color: var(--accent); }
-#branch { font-weight: 600; color: var(--accent); }
+#branch-ico { margin: 0 -2px 0 4px; padding: 2px 0 2px 12px; border-left: 1px solid color-mix(in srgb, var(--dim) 50%, transparent); color: var(--accent); }
+#branch { font-weight: 600; font-size: 14px; color: var(--accent); }
 #opstate { color: var(--mod); }
 .tool {
   position: relative;
@@ -108,8 +109,10 @@ header {
 
 /* tabs */
 /* a shade under the toolbar; the active tab takes the toolbar's colour and opens into it */
-#tabs { display: flex; align-items: flex-end; gap: 2px; padding: 6px 8px 0; background: var(--bg); }
-#tablist { display: flex; gap: 2px; min-width: 0; overflow-x: auto; }
+/* min-width: the window's width bounds the tabs, they never push + and search out */
+#tabs { display: flex; align-items: flex-end; gap: 2px; min-width: 0; padding: 6px 8px 0; background: var(--bg); }
+#tablist { display: flex; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+#tablist::-webkit-scrollbar { display: none; }
 .tab {
   position: relative;
   display: flex;
@@ -118,26 +121,36 @@ header {
   padding: 8px 8px 8px 14px;
   border-radius: 8px 8px 0 0;
   font-size: 14px;
+  /* an even height: + and the separators then share a centre to the pixel */
+  line-height: 20px;
   color: var(--dim);
   cursor: pointer;
   white-space: nowrap;
   user-select: none;
+  /* many tabs shrink to this before they scroll */
+  flex: 0 1 auto;
+  min-width: 104px;
 }
+.tab-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .tab:hover { background: var(--hover); }
 .tab.drag { cursor: grabbing; background: var(--sel); }
-/* a line between two tabs */
-.tab + .tab::before { content: ""; position: absolute; left: -2px; top: 9px; bottom: 9px; width: 2px; border-radius: 1px; background: color-mix(in srgb, var(--dim) 55%, transparent); }
+/* a line between two tabs, and before + */
+#new-tab { position: relative; }
+.tab + .tab::before, #new-tab::before { content: ""; position: absolute; left: -2px; top: 9px; bottom: 9px; width: 2px; border-radius: 1px; background: color-mix(in srgb, var(--dim) 55%, transparent); }
 .tab .ico svg { width: 15px; height: 15px; }
+.tab-badge { flex: none; display: grid; place-items: center; width: 17px; height: 17px; border-radius: 4px; font: 700 11px/1 system-ui, sans-serif; color: var(--bg); background: var(--c); }
 .tab.on { background: var(--panel); color: var(--text); box-shadow: inset 0 2px var(--accent); }
 .tab .x { border: none; background: none; padding: 0 5px; color: var(--dim); visibility: hidden; }
 .tab:hover .x, .tab.on .x { visibility: visible; }
 .tab .x:hover { color: var(--text); background: var(--hover); }
 .tab-alias { width: 140px; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--accent); border-radius: 4px; padding: 0 4px; }
-#new-tab { border: none; background: none; color: var(--dim); font-size: 18px; padding: 4px 12px; }
-#tab-find { margin: 0 0 4px auto; padding: 3px 6px; border: none; background: none; color: color-mix(in srgb, var(--text) 75%, transparent); line-height: 0; }
+/* both in the middle of the tabs' height */
+#new-tab, #tab-find { align-self: stretch; display: flex; align-items: center; border: none; border-radius: 6px 6px 0 0; background: none; color: color-mix(in srgb, var(--text) 75%, transparent); line-height: 0; }
+#new-tab { padding: 0 10px; }
+#tab-find { margin-left: auto; padding: 0 8px; }
 #tab-find:hover, #new-tab:hover { color: var(--accent); background: var(--hover); }
 #tab-find svg, #find svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-#tab-find svg { width: 20px; height: 20px; }
+#tab-find svg, #new-tab svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 #tab-search {
   position: fixed;
   top: 34px;
@@ -301,12 +314,10 @@ body.home main { grid-template-columns: 1fr; }
 .lanes path { fill: none; stroke-width: 2; }
 .lanes path.link { stroke-width: 1; }
 .lanes circle { stroke: var(--bg); stroke-width: 1.5; }
-.lanes circle.head { stroke: var(--text); stroke-width: 2; }
-.lanes circle.wip { fill: var(--bg); stroke: var(--dim); stroke-dasharray: 2 2; }
+.lanes circle.wip { fill: none; stroke-width: 2; stroke-dasharray: 3 3; }
 .lanes rect.stash { fill: var(--bg); stroke: var(--dim); stroke-width: 1.5; stroke-dasharray: 2 2; }
 .lanes svg.stash path { stroke: var(--text); }
 .lanes circle.av { fill: none; stroke-width: 2; }
-.lanes circle.av.head { stroke: var(--text) !important; }
 .row {
   display: flex;
   align-items: center;
@@ -421,7 +432,7 @@ body.home main { grid-template-columns: 1fr; }
 .c-d, .c-u { color: var(--del); }
 .c-r { color: var(--ren); }
 #commit-box { display: flex; flex-direction: column; gap: 6px; padding: 10px; border-top: 1px solid var(--border); }
-.cb-head { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--dim); }
+.cb-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--dim); }
 .cb-head #amend { padding: 1px 10px; text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 13px; }
 .summary { position: relative; }
 .summary small { position: absolute; right: 8px; top: 7px; font-size: 12px; color: var(--dim); }
@@ -502,6 +513,7 @@ textarea.msg-in { height: 104px; resize: vertical; }
 .seg button:first-child { border-radius: 6px 0 0 6px; }
 .seg button:last-child { border-radius: 0 6px 6px 0; }
 /* above its neighbours, which overlap its border by a pixel */
+.seg button:hover { position: relative; z-index: 2; }
 .seg button.on { position: relative; z-index: 1; background: var(--sel); border-color: var(--accent); }
 .seg button svg { width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 #editor { flex: 1; min-height: 0; }
@@ -624,6 +636,10 @@ footer {
 #side .eye svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 #side details.hidden-remote > summary, #side .item.hidden-ref { opacity: 0.5; }
 .menu button:hover { background: var(--sel); }
+.menu-title { display: flex; justify-content: center; align-items: center; gap: 7px; max-width: 380px; padding: 5px 14px 8px; margin-bottom: 4px; white-space: nowrap; font-weight: 700; color: var(--text); border-bottom: 1px solid var(--border); }
+.menu-title span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.menu-title .ico { color: var(--dim); }
+.menu-title .ico svg { width: 15px; height: 15px; }
 .menu button.sub::after { content: "›"; float: right; margin-left: 24px; color: var(--dim); }
 #submenu { z-index: 11; }
 .hunk-bar button.hover { border-color: currentColor; background: color-mix(in srgb, currentColor 16%, var(--raised)); }
@@ -641,7 +657,7 @@ footer {
 /* one height whatever the bar holds: the file and diff views share it */
 #hist .bar { box-sizing: border-box; height: 37px; }
 /* on/off buttons: Blame, Sync scrolling */
-.toggle svg { width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.toggle svg, #d-history svg, #open-editor svg, #m-reset svg, #m-save svg { width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .toggle.on { background: var(--sel); border-color: var(--accent); }
 #h-grip { left: calc(var(--hl-w, 360px) - 4px); }
 #hist #d-history, #hist #close, #hist #open-editor { display: none; }
@@ -669,8 +685,9 @@ svg.bl-av { cursor: pointer; }
 #merge { position: absolute; inset: 0; z-index: 10; display: flex; flex-direction: column; background: var(--bg); }
 #m-path { font: 12px var(--mono); }
 #m-count { margin-right: auto; color: var(--dim); font-size: 12px; }
-.m-sides { flex: 1; display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
-.m-side { display: flex; flex-direction: column; min-width: 0; }
+/* the row may shrink under its editors' size, so they relayout instead of spilling over the output's header */
+.m-sides { flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: minmax(0, 1fr); min-height: 0; }
+.m-side { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .m-side + .m-side { border-left: 1px solid var(--border); }
 .m-head { display: flex; align-items: center; gap: 8px; padding: 4px 10px; font-size: 12px; color: var(--dim); background: var(--panel); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .m-head b { color: var(--text); }
@@ -693,9 +710,13 @@ svg.bl-av { cursor: pointer; }
 .m-reg-u, .m-mreg.u { --bar: var(--m-u); --tint: color-mix(in srgb, var(--m-u) 27%, transparent); }
 .m-reg-a, .m-reg-b, .m-reg-u { background: var(--tint); }
 /* the gutter stays clear under the box column, then the bar, then the tint */
-.m-mreg { background: linear-gradient(90deg, transparent var(--m-box), var(--bar) 0 calc(var(--m-box) + 3px), var(--tint) 0); }
+/* the bar keeps a gap from the checkboxes */
+.m-mreg { background: linear-gradient(90deg, transparent calc(var(--m-box) + 5px), var(--bar) 0 calc(var(--m-box) + 8px), var(--tint) 0); }
 .m-gap { box-shadow: inset 0 2px 0 var(--dim); }
 .m-tick { cursor: pointer; }
+/* a side's take-all box, drawn like the conflicts' own */
+.m-head input[type="checkbox"] { appearance: none; flex: none; width: 13px; height: 13px; margin: 0; border: 1.5px solid var(--dim); border-radius: 3px; background: none; cursor: pointer; }
+.m-head input[type="checkbox"]:checked { border-color: var(--accent); background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8.5l2.8 2.8L12 5.5' fill='none' stroke='%23fff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 100% no-repeat, var(--accent); }
 .m-tick::after { content: ""; display: block; box-sizing: border-box; width: 13px; height: 13px; margin: calc((var(--m-lh) - 13px) / 2) 0 0 calc((var(--m-box) - 13px) / 2); border: 1.5px solid var(--dim); border-radius: 3px; }
 /* an even line count puts the middle between two lines */
 .m-tick.half::after { transform: translateY(calc(var(--m-lh) / 2)); }

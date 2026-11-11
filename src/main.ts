@@ -29,7 +29,8 @@ type C4 = { os: number; oe: number; ms: number; me: number };
 type Lines = { removed: Set<number>; added: Set<number> };
 // null draws a separator
 // an entry with items opens them beside it on hover
-type MenuItem = [string, (() => unknown) | MenuItem[]] | null;
+// a title heads the menu with what its items act on, so they need not name it
+type MenuItem = [string, (() => unknown) | MenuItem[]] | { title: string; icon: string } | null;
 type Term = { term: Terminal; fit: FitAddon; el: HTMLElement; id: number; armed: boolean };
 
 (self as any).MonacoEnvironment = { getWorker: () => new EditorWorker() };
@@ -84,6 +85,8 @@ const ICONS: Record<string, string> = {
   remote: "M7 18a4.5 4.5 0 0 1-.5-9A6 6 0 0 1 18 9a4.5 4.5 0 0 1 .5 9z",
   tag: "M3 12V4h8l10 10-8 8zM7.5 8.5h.01",
   check: "M5 12l5 5L20 7",
+  commit: "M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM12 2v6M12 16v6",
+  file: "M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM14 3v5h5",
   branch: "M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9",
   stash: "M3 4h18v4H3zM5 8v12h14V8M10 12h4",
   worktree: "M8 19a4 4 0 0 1-2.24-7.32A3.5 3.5 0 0 1 9 6.03V6a3 3 0 1 1 6 0v.04a3.5 3.5 0 0 1 3.24 5.65A4 4 0 0 1 16 19zM12 19v3",
@@ -438,8 +441,8 @@ function renderToolbar() {
   $("branch").textContent = st.branch || "detached HEAD";
   $("repo-ico").innerHTML = svg(tabs[active].worktree ? ICONS.worktree : ICONS.repo);
   $("branch-ico").innerHTML = svg(ICONS.branch);
-  $("behind").textContent = st.behind ? `↓${st.behind}` : "";
-  $("ahead").textContent = st.ahead ? `↑${st.ahead}` : "";
+  $("behind").textContent = st.behind ? String(st.behind) : "";
+  $("ahead").textContent = st.ahead ? String(st.ahead) : "";
   $("opstate").hidden = !st.state;
   $("opname").textContent = st.state;
   const { undo, redo } = tabs[active];
@@ -484,12 +487,16 @@ function renderTabs() {
           onauxclick: (e: MouseEvent) => e.button === 1 && closeTab(i),
           oncontextmenu: (e: MouseEvent) => popup(e, tabMenu(i)),
         },
-        ico(t.repo ? (t.worktree ? ICONS.worktree : ICONS.repo) : ICONS.home),
-        tabName(t),
+        // a repo's initial on a colour of its own, so tabs tell apart at a glance
+        t.repo && !t.worktree
+          ? h("span", { className: "tab-badge", textContent: tabName(t)[0]?.toUpperCase() ?? "", style: `--c: ${COLORS[hue(t.repo)]}` })
+          : ico(t.repo ? ICONS.worktree : ICONS.home),
+        h("span", { className: "tab-name", textContent: tabName(t) }),
         h("button", { className: "x", textContent: "×", title: "Close (Ctrl+W)", onclick: (e: Event) => (e.stopPropagation(), closeTab(i)) }),
       ),
     ),
   );
+  $("tablist").children[active]?.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
 /** Drag tab `i` sideways to move it: it swaps with a neighbour once the pointer passes that neighbour's middle. */
@@ -812,6 +819,7 @@ const prune = (w: Worktree) =>
 function worktreeMenu(w: Worktree, main: boolean): MenuItem[] {
   const here = w.path === repo;
   return [
+    { title: w.branch || basename(w.path), icon: ICONS.worktree },
     ...(here || w.prunable ? [] : ([["Open worktree", () => openWorktree(w.path)], ["Open in a new tab", () => openRepo(w.path)]] as MenuItem[])),
     ["Copy path", () => copy(w.path)],
     ...(w.prunable
@@ -857,11 +865,12 @@ function remoteSection(d: HTMLElement, name: string) {
   sum.prepend(eye(name, hidden, () => toggleRemote(name)));
   sum.oncontextmenu = (e) =>
     popup(e, [
-      [`Fetch ${name}`, () => op("fetch-remote", name)],
-      [hidden ? `Show ${name} in the graph` : `Hide ${name} from the graph`, () => toggleRemote(name)],
-      [`Edit ${name}…`, () => editRemote(name)],
+      { title: name, icon: ICONS.globe },
+      ["Fetch", () => op("fetch-remote", name)],
+      [hidden ? "Show in the graph" : "Hide from the graph", () => toggleRemote(name)],
+      ["Edit…", () => editRemote(name)],
       null,
-      [`Copy link to ${name}`, async () => copy(await webUrl(name))],
+      ["Copy link", async () => copy(await webUrl(name))],
     ]);
   d.classList.toggle("hidden-remote", hidden);
   return d;
@@ -1071,6 +1080,7 @@ const stashOf = (hash: string) => refs.stashes.find((s) => s.hash === hash);
 
 function stashMenu(s: Stash): MenuItem[] {
   return [
+    { title: s.subject, icon: ICONS.stash },
     ["Apply stash", () => op("stash-apply", s.name)],
     ["Pop stash", () => op("stash-pop", s.name)],
     ["Drop stash", () => ask(`Drop stash "${s.subject}"? It cannot be undone.`, "Drop").then((ok) => ok && op("stash-drop", s.name))],
@@ -1134,12 +1144,15 @@ function lanesSvg(from: number, to: number) {
       d += l0 === l1 ? `L${X(l1)} ${Y(r1)}` : `C${X(l0)} ${ym} ${X(l1)} ${ym} ${X(l1)} ${Y(r1)}`;
     }
     const dash = list[e.row].hash === "WIP" || stashOf(list[e.row].hash) ? ' stroke-dasharray="3 3"' : "";
+    // the hollow WIP ring: its line leaves from the rim
+    if (list[e.row].hash === "WIP") d = d.replace(/^M([\d.]+) ([\d.]+)/, (_, x, y) => `M${x} ${+y + 9}`);
     svg += `<path d="${d}" stroke="${color(e.via)}"${dash}/>`;
   }
   // commits show their author, merges stay a small dot
   for (let i = from; i < to; i++) {
     const c = list[i], l = laid.nodes[i], at = `cx="${X(l)}" cy="${Y(i)}"`;
-    if (c.hash === "WIP") svg += `<circle ${at} r="6" class="wip"/>`;
+    // the size of an author's ring, dashed in its lane's colour like the line it starts
+    if (c.hash === "WIP") svg += `<circle ${at} r="9" style="stroke:${color(l)}" class="wip"/>`;
     else if (stashOf(c.hash))
       svg +=
         `<rect x="${X(l) - 9}" y="${Y(i) - 9}" width="18" height="18" rx="3" class="stash"/>` +
@@ -1148,7 +1161,7 @@ function lanesSvg(from: number, to: number) {
     else
       svg +=
         `<use href="#${spriteId(c.author)}" x="${X(l) - 9}" y="${Y(i) - 9}" width="18" height="18"/>` +
-        `<circle ${at} r="9" style="stroke:${color(l)}" class="av${isHead(c) ? " head" : ""}"/>`;
+        `<circle ${at} r="9" style="stroke:${color(l)}" class="av"/>`;
     // labelled commits get a line from their label column to the dot, under it
     if (labels(c).length) svg = `<path d="M0 ${Y(i) + 0.5}H${X(l)}" stroke="${color(l)}" class="link"/>` + svg;
   }
@@ -1325,25 +1338,30 @@ function checkoutBranch(name: string, remote: boolean) {
 }
 
 /** Checkout, merge and rebase for branch `name` (a remote one as "remote/branch"). */
-function refMenu(name: string, remote: boolean): MenuItem[] {
+/** Checkout, merge and rebase for branch `name`; `named` when other branches share the menu, else its title names it. */
+function refMenu(name: string, remote: boolean, named = true): MenuItem[] {
   const branch = st?.branch || "HEAD";
   // checking out a remote branch by its short name creates the tracking branch
   const local = remote ? name.slice(name.indexOf("/") + 1) : name;
   const items: MenuItem[] = [];
-  if (remote || name !== st?.branch) items.push([`Checkout ${local}`, () => checkoutBranch(name, remote)]);
+  if (remote || name !== st?.branch) items.push([named ? `Checkout ${local}` : "Checkout", () => checkoutBranch(name, remote)]);
   if (name !== st?.branch)
-    items.push([`Merge ${name} into ${branch}`, () => op("merge", name)], [`Rebase ${branch} onto ${name}`, () => op("rebase", name)]);
+    items.push(
+      [named ? `Merge ${name} into ${branch}` : `Merge into ${branch}`, () => op("merge", name)],
+      [named ? `Rebase ${branch} onto ${name}` : `Rebase ${branch} onto this branch`, () => op("rebase", name)],
+    );
   return items;
 }
 
 function commitMenu(e: MouseEvent, c: Commit) {
   const branch = st?.branch || "HEAD", ls = labels(c).filter((l) => !l.tag);
   popup(e, [
+    { title: `${short(c.hash)} ${c.subject}`, icon: ICONS.commit },
     ...ls.flatMap((l) => refMenu(labelRef(l), !l.local)),
     null,
-    [`Checkout ${short(c.hash)} (detached)`, () => op("checkout", c.hash)],
-    [`Rebase ${branch} onto ${short(c.hash)}`, () => op("rebase", c.hash)],
-    [`Cherry-pick ${short(c.hash)}`, () => op("cherry-pick", c.hash)],
+    ["Checkout (detached)", () => op("checkout", c.hash)],
+    [`Rebase ${branch} onto this commit`, () => op("rebase", c.hash)],
+    ["Cherry-pick", () => op("cherry-pick", c.hash)],
     null,
     ...commitItems(c.hash),
     null,
@@ -1360,17 +1378,19 @@ function branchMenu(name: string, remote: boolean): MenuItem[] {
   const onRemote = remote ? name : refs.refs.some((r) => r.name === `refs/remotes/${up}`) ? up : "";
   const slash = onRemote.indexOf("/"), rem = onRemote.slice(0, slash), remBranch = onRemote.slice(slash + 1);
   return [
-    ...refMenu(name, remote),
+    { title: name, icon: ICONS.branch },
+    ...refMenu(name, remote, false),
     null,
     ...(current ? ([["Pull", pull], ["Push", push], null] as MenuItem[]) : []),
     ...commitItems(sha),
     ...(current ? ([["Edit commit message", rewordHead]] as MenuItem[]) : []),
     null,
-    ...(remote ? [] : ([[`Rename ${name}…`, () => askName("New branch name", name, (n) => op("branch-rename", [name, n]))]] as MenuItem[])),
-    ...(remote || current ? [] : ([[`Delete ${name}`, () => deleteBranch(name, onRemote)]] as MenuItem[])),
+    ...(remote ? [] : ([["Rename…", () => askName("New branch name", name, (n) => op("branch-rename", [name, n]))]] as MenuItem[])),
+    ...(current || !ref ? [] : [hideItem(ref.name)]),
+    ...(remote || current ? [] : ([["Delete", () => deleteBranch(name, onRemote)]] as MenuItem[])),
     // a local branch's upstream too: one menu for both
     ...(onRemote
-      ? ([[`Delete ${remBranch} on ${rem}`, () => ask(`Delete branch ${remBranch} on ${rem}? This pushes the deletion.`, "Delete").then((ok) => ok && op("push-delete", [rem, remBranch]))]] as MenuItem[])
+      ? ([[remote ? `Delete on ${rem}` : `Delete ${remBranch} on ${rem}`, () => ask(`Delete branch ${remBranch} on ${rem}? This pushes the deletion.`, "Delete").then((ok) => ok && op("push-delete", [rem, remBranch]))]] as MenuItem[])
       : []),
     null,
     ...copyItems(sha, remote ? remBranch : name, rem || linkRemote(), remBranch),
@@ -1388,13 +1408,14 @@ async function deleteBranch(name: string, upstream: string) {
 
 function tagMenu(name: string): MenuItem[] {
   return [
-    [`Checkout ${name} (detached)`, () => op("checkout", name)],
+    { title: name, icon: ICONS.tag },
+    ["Checkout (detached)", () => op("checkout", name)],
     null,
-    ...refs.remotes.map((r): MenuItem => [`Push ${name} to ${r}`, () => op("tag-push", [r, name])]),
-    [`Delete ${name}`, () => ask(`Delete tag ${name}?`, "Delete").then((ok) => ok && op("tag-delete", name))],
+    ...refs.remotes.map((r): MenuItem => [`Push to ${r}`, () => op("tag-push", [r, name])]),
+    ["Delete", () => ask(`Delete tag ${name}?`, "Delete").then((ok) => ok && op("tag-delete", name))],
     ...refs.remotes.map(
       (r): MenuItem => [
-        `Delete ${name} on ${r}`,
+        `Delete on ${r}`,
         () => ask(`Delete tag ${name} on ${r}? This pushes the deletion.`, "Delete").then((ok) => ok && op("push-delete", [r, `refs/tags/${name}`])),
       ],
     ),
@@ -1433,6 +1454,7 @@ function copyItems(sha: string, branch: string, remote: string, remoteBranch = b
 function fileMenu(f: Change, kind: Kind, c?: Commit): MenuItem[] {
   const neutral = (e: unknown) => say(String(e));
   return [
+    { title: basename(f.path), icon: ICONS.file },
     ...(kind === "unstaged" && isConflict(f)
       ? ([
           [`Take current (${opInfo?.current ?? "HEAD"})`, () => op("take-current", f.path)],
@@ -1498,6 +1520,7 @@ function fillMenu(m: HTMLElement, items: MenuItem[]) {
   m.replaceChildren(
     ...rows.map((it) => {
       if (!it) return h("hr");
+      if (!Array.isArray(it)) return h("div", { className: "menu-title", title: it.title }, ico(it.icon), h("span", { textContent: it.title }));
       const [label, act] = it;
       const b = h("button", { textContent: label });
       if (typeof act === "function") {
@@ -1663,7 +1686,7 @@ function panelCommit(): { c: Commit; message?: string; head: (Node | string)[]; 
   if (stashView) {
     const s = stashView;
     const c = { hash: s.hash, parents: s.parents.slice(0, 1), author: "", time: 0, refs: [], subject: s.subject, body: "" };
-    return { c, message: `${s.name}\n${s.subject}`, head: ["stash ", sha(s.hash), " · on ", sha(s.parents[0] ?? "")] };
+    return { c, message: s.subject, head: ["stash ", sha(s.hash), " · on ", sha(s.parents[0] ?? "")] };
   }
   const sel = commits.filter((c) => selected.includes(c.hash));
   if (!sel.length) return null;
@@ -2088,6 +2111,8 @@ function updateHunkBars() {
     : cur.c?.hash !== "WORKTREE" ? [["revert", "Revert hunk"]]
     : [];
   hunks = cur ? lineChanges() : [];
+  // bars head the hunks between folds; in the whole file the line numbers say where a change is
+  const shown = store("mode") === "hunk" ? hunks : [];
   const bar = (c: C4, buttons: boolean) => {
     const count = (s: number, e: number) => (e ? e - s + 1 : 0);
     const el = h("div", { className: "hunk-bar" }, h("span", { textContent: `@@ -${c.os},${count(c.os, c.oe)} +${c.ms},${count(c.ms, c.me)} @@` }));
@@ -2104,13 +2129,13 @@ function updateHunkBars() {
   // a pure insertion or deletion sits after its anchor line, a change replaces lines from its start
   ed.getModifiedEditor().changeViewZones((z) => {
     bars.mod.forEach((id) => z.removeZone(id));
-    bars.nodes = hunks.map((c) => bar(c, true));
-    bars.mod = hunks.map((c, i) => z.addZone({ afterLineNumber: c.me ? c.ms - 1 : c.ms, heightInPx: 30, domNode: bars.nodes[i] }));
+    bars.nodes = shown.map((c) => bar(c, true));
+    bars.mod = shown.map((c, i) => z.addZone({ afterLineNumber: c.me ? c.ms - 1 : c.ms, heightInPx: 30, domNode: bars.nodes[i] }));
   });
   // the original side gets the same bars in split view, so both sides stay aligned
   ed.getOriginalEditor().changeViewZones((z) => {
     bars.orig.forEach((id) => z.removeZone(id));
-    bars.orig = split ? hunks.map((c) => z.addZone({ afterLineNumber: c.oe ? c.os - 1 : c.os, heightInPx: 30, domNode: bar(c, false) })) : [];
+    bars.orig = split ? shown.map((c) => z.addZone({ afterLineNumber: c.oe ? c.os - 1 : c.os, heightInPx: 30, domNode: bar(c, false) })) : [];
   });
 }
 
@@ -2836,6 +2861,8 @@ function dropTerm(tab: Tab) {
 function showTerm(focus: boolean) {
   const open = !!store("term") && !!repo;
   $("term").hidden = !open;
+  // the editors above get the new height in this frame, not the next
+  relayout();
   $("term-btn").classList.toggle("on", open);
   terms.forEach((t, tab) => (t.el.hidden = tab !== tabs[active]));
   if (!open) return;
@@ -2966,6 +2993,8 @@ addEventListener("focus", () => autoFetch());
 setInterval(() => autoFetch(), 5 * 60_000);
 document.querySelectorAll<HTMLElement>("[data-mode]").forEach((b) => (b.onclick = () => b.classList.contains("off") || setMode(b.dataset.mode as Mode)));
 $("new-tab").onclick = addTab;
+// past their narrowest, tabs scroll sideways under the wheel
+$("tablist").onwheel = (e) => ($("tablist").scrollLeft += e.deltaY + e.deltaX);
 $("graph").addEventListener("scroll", () => drawRows(), { passive: true });
 window.addEventListener("resize", () => drawRows());
 $("tab-find").onclick = () => {
@@ -3105,7 +3134,6 @@ $("open-editor").onclick = () => {
   run("open_in_editor", { path: cur.f.path, line }).catch((e) => say(String(e), true));
 };
 $("save").onclick = () => save().then(refresh);
-$("refresh").onclick = refresh;
 const openPicked = async () => {
   const p = await pickDir("Open repository");
   if (p) await openRepo(p);

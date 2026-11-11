@@ -10,7 +10,7 @@
   <body>
     <nav id="tabs">
       <div id="tablist"></div>
-      <button id="new-tab" title="New tab (Ctrl+T)">+</button>
+      <button id="new-tab" title="New tab (Ctrl+T)"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
       <button id="tab-find" title="Search tabs"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
       <div id="tab-search" hidden>
         <input id="tab-q" placeholder="Search tabs" spellcheck="false" />
@@ -36,7 +36,6 @@
       </div>
       <div class="h-side right">
         <span id="opstate" hidden title="Show the work in progress"><b id="opname"></b> in progress</span>
-        <button class="tool" id="refresh" title="Refresh (F5)"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4L21 8M21 3v5h-5"/></svg>Refresh</button>
       </div>
     </header>
     <main>
@@ -77,8 +76,8 @@
                 <button data-mode="hunk" title="Changed hunks only"><svg viewBox="0 0 24 24"><path d="M4 5h16M4 9h11M4 15h16M4 19h11"/></svg>Hunk</button><button data-mode="inline" title="Whole file, one column"><svg viewBox="0 0 24 24"><path d="M4 5h16M4 10h16M4 15h16M4 20h16"/></svg>Inline</button><button data-mode="split" title="Whole file, side by side"><svg viewBox="0 0 24 24"><path d="M3 4h18v16H3zM12 4v16"/></svg>Split</button>
               </span>
               <button id="save" class="primary" hidden>Save</button>
-              <button id="d-history" title="The commits that touched this file">File history</button>
-              <button id="open-editor" title="Open the working tree file in VS Code">Open in editor</button>
+              <button id="d-history" title="The commits that touched this file"><svg viewBox="0 0 24 24"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2"/></svg>File history</button>
+              <button id="open-editor" title="Open the working tree file in VS Code"><svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>Open in editor</button>
               <button class="icon" id="close" title="Close (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
             </div>
             <div id="editor"></div>
@@ -105,8 +104,8 @@
               <span id="m-path"></span>
               <span id="m-count"></span>
               <button id="m-sync" class="toggle" title="Scroll the three panes together"><svg viewBox="0 0 24 24"><path d="M8 3v18M16 3v18M4 17l4 4 4-4M12 17l4 4 4-4"/></svg>Sync scrolling</button>
-              <button id="m-reset" title="Drop the picks and edits">Reset</button>
-              <button id="m-save" class="primary" title="Write the output and mark the file resolved (Ctrl+S)">Save</button>
+              <button id="m-reset" title="Drop the picks and edits"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8M3 3v5h5"/></svg>Reset</button>
+              <button id="m-save" class="primary" title="Write the output and mark the file resolved (Ctrl+S)"><svg viewBox="0 0 24 24"><path d="M5 3h11l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM7 3v5h8V3M7 21v-7h10v7"/></svg>Save</button>
               <button class="icon" id="m-close" title="Close (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
             </div>
             <div class="m-sides">
@@ -135,7 +134,7 @@
             <button id="discard-all" title="Discard all changes"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 13h12l1-13M9 7V4h6v3"/></svg></button>
             <span id="wip-title"></span>
           </div>
-          <div class="files-opts"><span class="fo-left"><button class="sort" title="Sort the files"></button><button class="tree-all" data-open="1" title="Expand all folders"><svg viewBox="0 0 24 24"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></svg></button><button class="tree-all" data-open="" title="Collapse all folders"><svg viewBox="0 0 24 24"><path d="m7 20 5-5 5 5M7 4l5 5 5-5"/></svg></button></span><span class="seg"><button data-files="path">Path</button><button data-files="tree">Tree</button></span><span></span><input class="file-filter" placeholder="Filter files" spellcheck="false" /></div>
+          <div class="files-opts"><span class="fo-left"><button class="sort" title="Sort the files"></button><button class="tree-all" data-open="1" title="Expand all folders"><svg viewBox="0 0 24 24"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></svg></button><button class="tree-all" data-open="" title="Collapse all folders"><svg viewBox="0 0 24 24"><path d="m7 20 5-5 5 5M7 4l5 5 5-5"/></svg></button></span><span class="seg"><button data-files="path" title="One row per file, folders in front"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>Path</button><button data-files="tree" title="Files under their folders"><svg viewBox="0 0 24 24"><path d="M4 5h8M7 5v13a1 1 0 0 0 1 1h9M7 12h10"/></svg>Tree</button></span><span></span><input class="file-filter" placeholder="Filter files" spellcheck="false" /></div>
           <div class="head"><span id="unstaged-label">Unstaged Files</span> <span id="unstaged-n"></span><button id="stage-all" class="good">Stage all changes</button></div>
           <div id="unstaged" class="files"></div>
           <div class="head"><span id="staged-label">Staged Files</span> <span id="staged-n"></span><button id="unstage-all" class="bad">Unstage all changes</button></div>
@@ -154,7 +153,7 @@
           <div id="c-grip" title="Drag to resize"></div>
           <div id="c-author"></div>
           <div id="c-stats" class="p-title"></div>
-          <div class="files-opts"><span class="fo-left"><button class="sort" title="Sort the files"></button><button class="tree-all" data-open="1" title="Expand all folders"><svg viewBox="0 0 24 24"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></svg></button><button class="tree-all" data-open="" title="Collapse all folders"><svg viewBox="0 0 24 24"><path d="m7 20 5-5 5 5M7 4l5 5 5-5"/></svg></button></span><span class="seg"><button data-files="path">Path</button><button data-files="tree">Tree</button></span><button id="all-files" class="toggle" title="List every file of the commit, not only the changed ones"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>View all files</button><input class="file-filter" placeholder="Filter files" spellcheck="false" /></div>
+          <div class="files-opts"><span class="fo-left"><button class="sort" title="Sort the files"></button><button class="tree-all" data-open="1" title="Expand all folders"><svg viewBox="0 0 24 24"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></svg></button><button class="tree-all" data-open="" title="Collapse all folders"><svg viewBox="0 0 24 24"><path d="m7 20 5-5 5 5M7 4l5 5 5-5"/></svg></button></span><span class="seg"><button data-files="path" title="One row per file, folders in front"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>Path</button><button data-files="tree" title="Files under their folders"><svg viewBox="0 0 24 24"><path d="M4 5h8M7 5v13a1 1 0 0 0 1 1h9M7 12h10"/></svg>Tree</button></span><button id="all-files" class="toggle" title="List every file of the commit, not only the changed ones"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>View all files</button><input class="file-filter" placeholder="Filter files" spellcheck="false" /></div>
           <div id="c-files" class="files"></div>
         </div>
       </aside>

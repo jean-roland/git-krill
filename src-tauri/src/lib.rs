@@ -245,7 +245,8 @@ fn refs(repo: String) -> Result<Refs, String> {
                 name: f[0].to_string(),
                 hash: f[1].to_string(),
                 parents: f[2].split_whitespace().map(String::from).collect(),
-                subject: f[3].to_string(),
+                // the message alone: git prefixes "On <branch>: " (or "WIP on"), and a refname holds no ':'
+                subject: f[3].split_once(": ").filter(|(on, _)| on.starts_with("On ") || on.starts_with("WIP on ")).map_or(f[3], |(_, msg)| msg).to_string(),
             })
         })
         .collect();
