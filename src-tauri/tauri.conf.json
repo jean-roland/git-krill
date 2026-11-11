@@ -16,7 +16,8 @@
         "title": "Git Krill",
         "width": 1600,
         "height": 1000,
-        "visible": false
+        "visible": false,
+        "backgroundColor": "#1b1f27"
       }
     ],
     "security": {

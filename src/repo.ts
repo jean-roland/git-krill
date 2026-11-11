@@ -3,8 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { repoName } from "./core.js";
-import { $, COLORS, ICONS, MenuItem, ask, basename, colorIndex, dialog, h, hideBanner, hideDialog, hint, ico, input, pickDir, popup, say, showBanner, showDialog, showMenu, store, svg, toast } from "./ui";
-import { closeHistory, closeMerge, closeResolvedMerge, diffFile, reloadDiff } from "./diff";
+import { $, COLORS, ICONS, MenuItem, basename, colorIndex, dialog, h, hideBanner, hideDialog, hint, ico, input, pickDir, popup, say, showBanner, showDialog, showMenu, store, svg, toast } from "./ui";
+import { closeHistory, closeMerge, closeResolvedMerge, confirmDrop, diffFile, reloadDiff } from "./diff";
 import { getMsg, renderPanel, setMsg } from "./panel";
 import { paintWipRow, renderGraph, renderSide, resetGraph } from "./graph";
 import { dropTerm, showTerm } from "./terminal";
@@ -392,7 +392,7 @@ function dragTab(e: PointerEvent, i: number) {
 }
 
 /** Whether the open diff's and merge's unsaved edits may go, asking first; the merge closes. */
-export const dropEdits = async () => (!diffFile?.dirty || (await ask(`Drop unsaved edits to ${diffFile.f.path}?`, "Drop edits"))) && (await closeMerge());
+export const dropEdits = async () => (await confirmDrop()) && (await closeMerge(true));
 
 export async function switchTab(i: number, save = true) {
   if (save && !(await dropEdits())) return;

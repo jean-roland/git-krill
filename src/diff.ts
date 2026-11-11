@@ -2,7 +2,7 @@
 import type * as Monaco from "monaco-editor/esm/vs/editor/edcore.main";
 import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import { applyChanges, allLines, pickLines, parseConflicts, mergeSides, pickedLines, parseBlame, toggleSide, toggleLine, hasSide, pickedOf } from "./core.js";
-import { Blob, Change, Commit, active, dropEdits, fakeCommit, gitOp, headHash, opInfo, recordUndo, refresh, run, status, tabs } from "./repo";
+import { Blob, Change, Commit, active, fakeCommit, gitOp, headHash, opInfo, recordUndo, refresh, run, status, tabs } from "./repo";
 import { $, COLORS, ICONS, MenuItem, ask, avatar, avatarSvg, basename, colorIndex, copy, cssVar, dateFmt, dayFmt, esc, h, hideBanner, input, megabytes, plural, popup, say, short, showBanner, store, svg, toast, whileLoading } from "./ui";
 import { isConflict, markOpenFile, wipFiles } from "./panel";
 
@@ -304,6 +304,10 @@ async function fetchSides(kind: DiffSource, f: Change, c?: Commit, full = false)
   return Promise.all([blob(c!.parents[0] ?? "", old), blob(c!.hash, f.path)]);
 }
 
+/** Whether the open diff's and merge's unsaved edits may go, asking first; nothing closes yet. */
+export const confirmDrop = async () =>
+  (!diffFile?.dirty || (await ask(`Drop unsaved edits to ${diffFile.f.path}?`, "Drop edits"))) && (!merging?.dirty || (await ask(`Drop the merge of ${merging.f.path}?`, "Drop")));
+
 export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistory = false) {
   await loadMonaco();
   // a file picked outside the history leaves it
@@ -311,13 +315,15 @@ export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistor
   if (kind === "unstaged" && isConflict(f)) return openConflict(f);
   // clicking the open file again closes it
   if (diffFile && diffFile.kind === kind && diffFile.f.path === f.path && diffFile.c?.hash === c?.hash && diffFile.c?.parents[0] === c?.parents[0]) return closeDiff();
-  if (!(await dropEdits())) return;
+  if (!(await confirmDrop())) return;
   let orig: Blob, mod: Blob;
   try {
     [orig, mod] = await fetchSides(kind, f, c);
   } catch (e) {
     return say(String(e), true);
   }
+  // the merge tool goes only now, with the diff coming in the same frame: no graph in between
+  await closeMerge(true);
   diffFile = { kind, f, c, orig, mod, dirty: false, full: false };
   $("diff").hidden = false;
   document.body.classList.add("diffing");
@@ -591,11 +597,11 @@ function mergeEditors() {
 /** A conflicted file: the merge tool when both sides have text, else a banner to pick a whole side. */
 async function openConflict(f: Change) {
   if (merging?.f.path === f.path) return closeMerge();
-  if (!(await closeMerge())) return;
-  await closeDiff();
-  if (diffFile) return;
+  if (!(await confirmDrop())) return;
   const text = f.conflict === "UU" || f.conflict === "AA" ? await run<Blob>("conflict_text", { path: f.path }).catch(() => null) : null;
-  if (!text || text.binary) return conflictBanner(f);
+  // the open view goes only now, with the next one coming in the same frame: no graph in between
+  await closeDiff(true);
+  if (!text || text.binary) return closeMerge(true).then(() => conflictBanner(f));
   merging = { f, chunks: parseConflicts(text.text), picks: [], spans: [], ids: [], at: 0, dirty: false, hover: "" };
   $("merge").hidden = false;
   document.body.classList.add("diffing");
