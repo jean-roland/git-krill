@@ -22,7 +22,7 @@ Download the `.deb` from the [releases](https://github.com/jean-roland/Git_Krill
 sudo apt install ./git-krill_0.1.0_amd64.deb
 ```
 
-Run `krill`, or `krill path/to/repo`. Needs `git` (tested with 2.43). "Open in editor" uses VS Code's `code` command.
+Run `git-krill`, or `git-krill path/to/repo`. Needs `git` (tested with 2.43). "Open in editor" uses VS Code's `code` command.
 
 ## Build
 
@@ -32,7 +32,7 @@ Needs Rust 1.85 or newer, Node.js 18 or newer, and Tauri's system libraries:
 sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
 npm install
 npx tauri build              # the .deb lands in src-tauri/target/release/bundle/deb/
-npx tauri build --no-bundle  # the bare binary only: src-tauri/target/release/krill
+npx tauri build --no-bundle  # the bare binary only: src-tauri/target/release/git-krill
 npm test
 ```
 
