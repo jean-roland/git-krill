@@ -676,6 +676,22 @@ fn take_side(repo: &str, stage: &str, path: &str) -> Result<String, String> {
     git_with_stderr(repo, &["add", "--", path])
 }
 
+/// \brief Apply or pop stash `name` (the latest when empty), its staged changes staged again when they still fit the index.
+fn stash_restore(repo: &str, verb: &str, name: &str) -> Result<String, String> {
+    let mut args = vec!["stash", verb, "--index"];
+    if !name.is_empty() {
+        args.push(not_option(name)?);
+    }
+    match git_with_stderr(repo, &args) {
+        // git refuses before touching anything: everything comes back unstaged instead
+        Err(e) if e.contains("without --index") => {
+            args.retain(|&a| a != "--index");
+            git_with_stderr(repo, &args)
+        }
+        r => r,
+    }
+}
+
 /// \brief Mark every conflicted file resolved, as the work tree has it.
 fn resolve_all(repo: &str) -> Result<String, String> {
     let files = git(repo, &["diff", "--name-only", "--diff-filter=U", "-z"])?;
@@ -696,6 +712,8 @@ fn git_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         "take-current" => return take_side(&repo, "2", &arg),
         "take-incoming" => return take_side(&repo, "3", &arg),
         "resolve-all" => return resolve_all(&repo),
+        "stash-apply" => return stash_restore(&repo, "apply", &arg),
+        "stash-pop" => return stash_restore(&repo, "pop", &arg),
         // in the background: a key that needs its passphrase fails quietly instead of asking
         "auto-fetch" => return report(git_cmd(&repo, &["fetch", "--all", "--prune"], None, false)?),
         "discard-all" => {
@@ -760,10 +778,6 @@ fn git_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         "worktree-remove" => vec!["worktree", "remove", not_option(&arg)?],
         "worktree-force-remove" => vec!["worktree", "remove", "--force", not_option(&arg)?],
         "worktree-prune" => vec!["worktree", "prune"],
-        "stash-apply" => vec!["stash", "apply", not_option(&arg)?],
-        // no stash named: the latest
-        "stash-pop" if arg.is_empty() => vec!["stash", "pop"],
-        "stash-pop" => vec!["stash", "pop", not_option(&arg)?],
         "stash-drop" => vec!["stash", "drop", not_option(&arg)?],
         "continue" if state == "merge" && !arg.is_empty() => vec!["commit", "-m", &arg],
         "continue" if state == "merge" => vec!["commit", "--no-edit"],
