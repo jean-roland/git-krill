@@ -228,7 +228,7 @@ async function reload() {
   const r = repo;
   if (!r) return;
   try {
-    const [s, log, rf] = await Promise.all([run<Status>("status"), run<Commit[]>("log", { limit: LOG_LIMIT, hide: [...hiddenRemotes().map((r) => `refs/remotes/${r}/*`), ...hiddenBranches().filter((k) => k.startsWith("refs/"))] }), run<Refs>("refs")]);
+    const [s, log, rf] = await Promise.all([run<Status>("status"), run<Commit[]>("log", { limit: LOG_LIMIT, ...graphFilter() }), run<Refs>("refs")]);
     const info = s.state ? await run<OpInfo>("op_info").catch(() => null) : null;
     if (r !== repo) return;
     status = s;
@@ -631,22 +631,44 @@ listen<string>("askpass", ({ payload: prompt }) => {
   dialog(/passphrase/i.test(prompt) ? "SSH key passphrase" : "Sign in", [[prompt, "", secret ? "password" : "text"]], "OK", ([v]) => reply(v), [], () => reply(null));
 });
 
+// remotes whose branches all leave the graph, new ones included
 export const hiddenRemotes = (): string[] => JSON.parse(store(`hidden-remotes:${repo}`) ?? "[]");
-// full ref names of the branches kept out of the graph
-export const hiddenBranches = (): string[] => JSON.parse(store(`hidden-refs:${repo}`) ?? "[]");
+// refs and stash hashes flipped one by one: hidden, or for a hidden remote's branch, shown again
+const flippedRefs = (): string[] => JSON.parse(store(`hidden-refs:${repo}`) ?? "[]");
 export const sideFolds = (): Record<string, boolean> => JSON.parse(store(`sidebar-folds:${repo}`) ?? "{}");
+const remoteOf = (ref: string) => (ref.startsWith("refs/remotes/") ? ref.slice("refs/remotes/".length).split("/")[0] : "");
+
+// what the graph leaves out, as of its last paint: refs, stash hashes and hidden remotes' names
+export let hiddenSet = new Set<string>();
+export function updateHidden() {
+  const remotes = hiddenRemotes(), flipped = new Set(flippedRefs());
+  hiddenSet = new Set([...remotes, ...[...flipped].filter((k) => !remoteOf(k))]);
+  for (const r of refs.refs) if (remoteOf(r.name) && remotes.includes(remoteOf(r.name)) !== flipped.has(r.name)) hiddenSet.add(r.name);
+}
+
+/** The log's ref patterns to leave out, and the branches of hidden remotes shown again. */
+function graphFilter() {
+  const remotes = hiddenRemotes(), flipped = flippedRefs().filter((k) => k.startsWith("refs/"));
+  const ofHidden = (k: string) => remotes.includes(remoteOf(k));
+  return { hide: [...remotes.map((r) => `refs/remotes/${r}/*`), ...flipped.filter((k) => !ofHidden(k))], show: flipped.filter((k) => ofHidden(k) && findRef(k)) };
+}
 
 /** Show or hide `key` in the menus that offer it. */
-export const hideItem = (key: string): MenuItem => [hiddenBranches().includes(key) ? "Show in the graph" : "Hide from the graph", () => toggleHidden(key)];
+export const hideItem = (key: string): MenuItem => [hiddenSet.has(key) ? "Show in the graph" : "Hide from the graph", () => toggleHidden(key)];
 
-/** Add `item` to the list stored at `key`, or take it out, then redraw what it hides. */
-function toggleListed(key: string, item: string) {
-  const list: string[] = JSON.parse(store(key) ?? "[]");
-  store(key, JSON.stringify(list.includes(item) ? list.filter((x) => x !== item) : [...list, item]));
+export function toggleHidden(key: string) {
+  const list = flippedRefs();
+  store(`hidden-refs:${repo}`, JSON.stringify(list.includes(key) ? list.filter((x) => x !== key) : [...list, key]));
   redraw();
 }
-export const toggleHidden = (ref: string) => toggleListed(`hidden-refs:${repo}`, ref);
-export const toggleRemote = (name: string) => toggleListed(`hidden-remotes:${repo}`, name);
+
+/** Hide or show all of `name`'s branches: the ones flipped one by one follow it again. */
+export function toggleRemote(name: string) {
+  const remotes = hiddenRemotes();
+  store(`hidden-remotes:${repo}`, JSON.stringify(remotes.includes(name) ? remotes.filter((r) => r !== name) : [...remotes, name]));
+  store(`hidden-refs:${repo}`, JSON.stringify(flippedRefs().filter((k) => remoteOf(k) !== name)));
+  redraw();
+}
 
 /** A row that is no commit of the log (WIP, a stash, uncommitted lines), shaped like one. */
 export const fakeCommit = (hash: string, parents: string[], subject: string): Commit => ({ hash, parents, author: "", time: 0, refs: [], subject, body: "" });

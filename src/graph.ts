@@ -1,7 +1,7 @@
 // The commit graph, the sidebar of refs, their menus and the find bar.
 import { invoke } from "@tauri-apps/api/core";
 import { layoutGraph } from "./core.js";
-import { Commit, LOG_LIMIT, Stash, Status, Worktree, active, commits, dropEdits, fakeCommit, findRef, gitOp, headHash, hiddenBranches, hiddenRemotes, hideItem, isHead, isRepo, newTab, opInfo, openRepo, paintRepoName, pull, push, redraw, refs, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote } from "./repo";
+import { Commit, LOG_LIMIT, Stash, Status, Worktree, active, commits, dropEdits, fakeCommit, findRef, gitOp, headHash, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, newTab, opInfo, openRepo, paintRepoName, pull, push, redraw, refs, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
 import { $, COLORS, ICONS, MenuItem, ask, askName, basename, copy, dateFmt, dialog, h, ico, input, popup, say, short, spriteId, store, svg } from "./ui";
 import { dropTerm } from "./terminal";
 import { conflictCount, conflictLine, fileCounts, opLine, renderPanel, wipFiles } from "./panel";
@@ -11,7 +11,6 @@ type Label = { name: string; tag: boolean; head: boolean; local: boolean; remote
 const ROW = 26, LANE = 22;
 // rows per chunk; the chunks within two of the view are drawn, a fast scroll fills one at a time
 const CHUNK = 40;
-let hiddenSet = new Set<string>();
 let findHits: string[] = [];
 let findAt = -1;
 // the graph rows and their lane colors, drawn by chunks: only those near the view are in the DOM
@@ -57,7 +56,7 @@ function sideItem(label: string, icon: string, hash: string, extra: string, cls:
 export function renderSide() {
   // what the user folded stays folded, per repository
   const r = repo, folds = sideFolds();
-  hiddenSet = new Set([...hiddenRemotes(), ...hiddenBranches()]);
+  updateHidden();
   const section = (key: string, title: string, items: HTMLElement[], open: boolean, icon = "") => {
     const count = h("span", { className: "n", textContent: String(items.length) });
     const d = h("details", { open: folds[key] ?? open }, h("summary", {}, ...(icon ? [ico(ICONS[icon])] : []), title, count), ...items);
@@ -252,7 +251,7 @@ export function resetGraph() {
 }
 
 export function renderGraph() {
-  hiddenSet = new Set([...hiddenRemotes(), ...hiddenBranches()]);
+  updateHidden();
   const n = status ? status.staged.length + status.unstaged.length : 0;
   const head = commits.find(isHead);
   const wip = fakeCommit("WIP", head ? [head.hash] : [], "// WIP");
@@ -379,7 +378,7 @@ function labels(c: Commit): Label[] {
     } else if (r.startsWith("refs/remotes/") && !r.endsWith("/HEAD")) {
       const full = r.slice("refs/remotes/".length), slash = full.indexOf("/"), remote = full.slice(0, slash);
       // a remote ref of no configured remote, like the `repo` tool's m/<branch>, is no remote branch
-      if (!hiddenSet.has(remote) && refs.remotes.includes(remote)) get(full.slice(slash + 1)).remotes.push(remote);
+      if (refs.remotes.includes(remote)) get(full.slice(slash + 1)).remotes.push(remote);
     }
   }
   return [...out.values()].sort((a, b) => +b.head - +a.head || +a.tag - +b.tag || +b.local - +a.local);

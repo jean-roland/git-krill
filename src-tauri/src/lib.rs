@@ -306,7 +306,7 @@ fn repo_root(path: String) -> Result<String, String> {
 }
 
 #[tauri::command(async)]
-fn log(repo: String, limit: u32, hide: Vec<String>) -> Result<Vec<Commit>, String> {
+fn log(repo: String, limit: u32, hide: Vec<String>, show: Vec<String>) -> Result<Vec<Commit>, String> {
     let n = format!("-n{limit}");
     // hidden remotes and branches (ref patterns) leave the graph, stash commits drag their index/untracked parents into it
     let hidden: Vec<String> = hide.iter().map(|r| format!("--exclude={r}")).collect();
@@ -315,6 +315,10 @@ fn log(repo: String, limit: u32, hide: Vec<String>) -> Result<Vec<Commit>, Strin
     args.extend(["--exclude=refs/stash", "--all", "--topo-order", "--decorate=full", &n,
                  "--format=%H%x00%P%x00%an%x00%at%x00%D%x00%s%x00%b%x1e"]);
     // a stash base can be on no branch any more (rebased away): keep it so the stash has a row
+    // a hidden remote's branches shown again: named outright, the patterns above only drop the ones --all brings
+    for s in &show {
+        args.push(not_option(s)?);
+    }
     let bases = git(&repo, &["stash", "list", "--format=%P"])?;
     args.extend(bases.lines().filter_map(|l| l.split_whitespace().next()));
     let out = git(&repo, &args)?;
