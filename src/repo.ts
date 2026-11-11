@@ -234,6 +234,8 @@ async function reload() {
     status = s;
     refs = rf;
     opInfo = info;
+    const landed = landing;
+    if (landed) land();
     closeResolvedMerge();
     const step = opInfo ? JSON.stringify([opInfo.state, opInfo.step, opInfo.message]) : "";
     if (step !== opStep) {
@@ -250,7 +252,7 @@ async function reload() {
       if (!selection.hashes.length && !selection.stash) selection.hashes = ["WIP"];
       // nothing to commit: open on HEAD, not on an empty WIP panel
       if (selection.hashes[0] === "WIP" && !s.staged.length && !s.unstaged.length && !opInfo && headHash()) selection.hashes = [(selection.anchor = headHash())];
-      renderGraph();
+      renderGraph(landed?.scroll);
     }
     if (selection.stash && !rf.stashes.some((x) => x.hash === selection.stash!.hash)) selection.stash = null;
     const rk = JSON.stringify([rf, s.branch]);
@@ -414,24 +416,35 @@ export async function switchTab(i: number, save = true) {
   selection.anchor = selection.hashes[0];
   selection.isRange = false;
   selection.stash = null;
-  setMsg(t.msg);
   commits = [];
   status = null;
   opInfo = null;
   graphKey = sideKey = panelKey = opStep = "";
-  resetGraph();
-  $("sidebar").replaceChildren();
   saveTabs();
   renderTabs();
+  showTerm(false);
+  // the last tab stays on screen until this one's data is in, then it all changes in one frame
+  landing = t;
+  if (!repo) return land(), renderRecent();
+  await refresh();
+  if (tabs[active] !== t) return;
+  // its refresh failed: show it empty rather than the last tab
+  if (landing === t) land();
+  autoFetch();
+}
+
+let landing: Tab | null = null;
+
+/** Clear the last tab's view for the one switched to. */
+function land() {
+  const t = landing!;
+  landing = null;
+  setMsg(t.msg);
+  resetGraph();
+  $("sidebar").replaceChildren();
   document.body.classList.toggle("home", !repo);
   $("home").hidden = !!repo;
   paintRepoName();
-  showTerm(false);
-  if (!repo) return renderRecent();
-  await refresh();
-  if (tabs[active] !== t) return;
-  $("graph").scrollTop = t.scroll;
-  autoFetch();
 }
 
 export async function closeTab(i: number) {

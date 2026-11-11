@@ -250,7 +250,8 @@ export function resetGraph() {
   $("rows").replaceChildren();
 }
 
-export function renderGraph() {
+/** Draw the graph from `commits`, at `scroll` when given, before its rows draw: no frame at the old place. */
+export function renderGraph(scroll?: number) {
   updateHidden();
   const n = status ? status.staged.length + status.unstaged.length : 0;
   const head = commits.find(isHead);
@@ -273,6 +274,7 @@ export function renderGraph() {
     h("div", { className: "chunk", style: `height: ${Math.min(CHUNK, list.length - k * CHUNK) * ROW}px` }),
   );
   $("rows").replaceChildren(...chunks);
+  if (scroll !== undefined) $("graph").scrollTop = scroll;
   drawRows();
   if (!$("find").hidden) markHits();
 }
