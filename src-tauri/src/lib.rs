@@ -278,8 +278,8 @@ fn repo_root(path: String) -> Result<String, String> {
 #[tauri::command(async)]
 fn log(repo: String, limit: u32, hide: Vec<String>) -> Result<Vec<Commit>, String> {
     let n = format!("-n{limit}");
-    // hidden remotes leave the graph, stash commits drag their index/untracked parents into it
-    let hidden: Vec<String> = hide.iter().map(|r| format!("--exclude=refs/remotes/{r}/*")).collect();
+    // hidden remotes and branches (ref patterns) leave the graph, stash commits drag their index/untracked parents into it
+    let hidden: Vec<String> = hide.iter().map(|r| format!("--exclude={r}")).collect();
     let mut args: Vec<&str> = vec!["log"];
     args.extend(hidden.iter().map(String::as_str));
     args.extend(["--exclude=refs/stash", "--all", "--topo-order", "--decorate=full", &n,

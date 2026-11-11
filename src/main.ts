@@ -385,7 +385,7 @@ async function refresh() {
   const r = repo;
   if (!r) return;
   try {
-    const [s, log, rf] = await Promise.all([run<Status>("status"), run<Commit[]>("log", { limit: LOG_LIMIT, hide: hiddenRemotes() }), run<Refs>("refs")]);
+    const [s, log, rf] = await Promise.all([run<Status>("status"), run<Commit[]>("log", { limit: LOG_LIMIT, hide: [...hiddenRemotes().map((r) => `refs/remotes/${r}/*`), ...hiddenBranches().filter((k) => k.startsWith("refs/"))] }), run<Refs>("refs")]);
     if (r !== repo) return;
     st = s;
     refs = rf;
@@ -714,11 +714,25 @@ function trackLabel(track: string) {
   return [ahead && `↑${ahead}`, behind && `↓${behind}`].filter(Boolean).join(" ");
 }
 
-function sideItem(label: string, icon: string, hash: string, extra: string, cls: string, menu: MenuItem[], dbl?: () => unknown) {
+/** The eye at a sidebar row's left edge: hides `key` (a ref, or a stash's hash) from the graph, or shows it again. */
+function eye(key: string, hidden: boolean, toggle = () => toggleHidden(key)) {
+  return h("button", {
+    className: `eye${hidden ? " on" : ""}`,
+    title: hidden ? "Show in the graph" : "Hide from the graph",
+    innerHTML: svg(hidden ? ICONS.eyeOff : ICONS.eye),
+    // the row under it would jump, fold or check out
+    onclick: (e: Event) => (e.preventDefault(), e.stopPropagation(), toggle()),
+    ondblclick: (e: Event) => e.stopPropagation(),
+  });
+}
+
+/** A sidebar row; `hide` is what its eye keeps out of the graph, none on the checked out branch. */
+function sideItem(label: string, icon: string, hash: string, extra: string, cls: string, menu: MenuItem[], dbl?: () => unknown, hide?: string) {
+  const hidden = !!hide && hiddenSet.has(hide);
   return h(
     "div",
-    { className: `item ${cls}`, title: label, onclick: () => jumpTo(hash), ondblclick: dbl ?? null, oncontextmenu: (e: MouseEvent) => popup(e, menu) },
-    ...(cls === "current" ? [h("span", { className: "ico check", innerHTML: svg(ICONS.check) })] : []),
+    { className: `item ${cls}${hidden ? " hidden-ref" : ""}`, title: label, onclick: () => jumpTo(hash), ondblclick: dbl ?? null, oncontextmenu: (e: MouseEvent) => popup(e, menu) },
+    ...(cls === "current" ? [h("span", { className: "ico check", innerHTML: svg(ICONS.check) })] : hide ? [eye(hide, hidden)] : []),
     ico(ICONS[icon]),
     h("span", { className: "label", textContent: label }),
     h("small", { textContent: extra }),
@@ -726,11 +740,13 @@ function sideItem(label: string, icon: string, hash: string, extra: string, cls:
 }
 
 function renderSide() {
-  // keep what the user folded across re-renders
-  const was = new Map([...$("side").querySelectorAll("details")].map((d) => [d.dataset.key, d.open]));
-  const section = (key: string, title: string, items: HTMLElement[], open = true, icon = "") => {
+  // what the user folded stays folded, per repository
+  const r = repo, folds = sideFolds();
+  hiddenSet = new Set([...hiddenRemotes(), ...hiddenBranches()]);
+  const section = (key: string, title: string, items: HTMLElement[], open: boolean, icon = "") => {
     const count = h("span", { className: "n", textContent: String(items.length) });
-    const d = h("details", { open: was.get(key) ?? open }, h("summary", {}, ...(icon ? [ico(ICONS[icon])] : []), title, count), ...items);
+    const d = h("details", { open: folds[key] ?? open }, h("summary", {}, ...(icon ? [ico(ICONS[icon])] : []), title, count), ...items);
+    d.ontoggle = () => r === repo && store(`side:${r}`, JSON.stringify({ ...sideFolds(), [key]: d.open }));
     d.dataset.key = key;
     return d;
   };
@@ -738,26 +754,27 @@ function renderSide() {
   for (const r of refs.refs) {
     if (r.name.startsWith("refs/heads/")) {
       const name = r.name.slice(11), current = name === st?.branch;
-      local.push(sideItem(name, "branch", r.hash, trackLabel(r.track), current ? "current" : "", branchMenu(name, false), () => current || checkoutBranch(name, false)));
+      local.push(sideItem(name, "branch", r.hash, trackLabel(r.track), current ? "current" : "", branchMenu(name, false), () => current || checkoutBranch(name, false), current ? undefined : r.name));
     } else if (r.name.startsWith("refs/remotes/")) {
       const full = r.name.slice(13), slash = full.indexOf("/");
       const items = remotes.get(full.slice(0, slash)) ?? [];
-      items.push(sideItem(full.slice(slash + 1), "branch", r.hash, "", "", branchMenu(full, true), () => checkoutBranch(full, true)));
+      items.push(sideItem(full.slice(slash + 1), "branch", r.hash, "", "", branchMenu(full, true), () => checkoutBranch(full, true), r.name));
       remotes.set(full.slice(0, slash), items);
     } else {
       const name = r.name.slice(10);
-      tags.push(sideItem(name, "tag", r.hash, "", "", tagMenu(name)));
+      tags.push(sideItem(name, "tag", r.hash, "", "", tagMenu(name), undefined, r.name));
     }
   }
   const stashes = refs.stashes.map((s) =>
     h(
       "div",
       {
-        className: "item",
+        className: `item${hiddenSet.has(s.hash) ? " hidden-ref" : ""}`,
         title: `${s.name}: ${s.subject}`,
         onclick: () => showStash(s, true),
         oncontextmenu: (e: MouseEvent) => popup(e, stashMenu(s)),
       },
+      eye(s.hash, hiddenSet.has(s.hash)),
       ico(ICONS.stash),
       h("span", { className: "label", textContent: s.subject }),
     ),
@@ -776,10 +793,11 @@ function renderSide() {
   $("repo-name").title = repo;
   $("side").replaceChildren(
     section("local", "Local", local, true, "local"),
-    section("remote", "Remote", [...remotes].map(([name, items]) => remoteSection(section(`remote/${name}`, name, items, true, "globe"), name)), true, "remote"),
-    ...(worktrees.length > 1 ? [section("worktrees", "Worktrees", worktrees, true, "worktree")] : []),
+    section("remote", "Remote", [...remotes].map(([name, items]) => remoteSection(section(`remote/${name}`, name, items, false, "globe"), name)), true, "remote"),
+    // the checkout alone is no list of worktrees
+    section("worktrees", "Worktrees", worktrees.length > 1 ? worktrees : [], false, "worktree"),
     section("tags", "Tags", tags, false, "tag"),
-    section("stashes", "Stashes", stashes, true, "stash"),
+    section("stashes", "Stashes", stashes, false, "stash"),
   );
 }
 
@@ -836,14 +854,7 @@ async function removeWorktree(w: Worktree) {
 function remoteSection(d: HTMLElement, name: string) {
   const hidden = hiddenRemotes().includes(name);
   const sum = d.querySelector("summary")!;
-  const eye = h("button", {
-    className: `eye${hidden ? " on" : ""}`,
-    title: hidden ? "Show in the graph" : "Hide from the graph",
-    innerHTML: svg(hidden ? ICONS.eyeOff : ICONS.eye),
-    // inside a summary a click would also fold the folder
-    onclick: (e: Event) => (e.preventDefault(), e.stopPropagation(), toggleRemote(name)),
-  });
-  sum.insertBefore(eye, sum.querySelector(".n"));
+  sum.prepend(eye(name, hidden, () => toggleRemote(name)));
   sum.oncontextmenu = (e) =>
     popup(e, [
       [`Fetch ${name}`, () => op("fetch-remote", name)],
@@ -1001,6 +1012,19 @@ listen<string>("askpass", ({ payload: prompt }) => {
 });
 
 const hiddenRemotes = (): string[] => JSON.parse(store(`hide:${repo}`) ?? "[]");
+// full ref names of the branches kept out of the graph
+const hiddenBranches = (): string[] => JSON.parse(store(`hide-refs:${repo}`) ?? "[]");
+const sideFolds = (): Record<string, boolean> => JSON.parse(store(`side:${repo}`) ?? "{}");
+
+/** Show or hide `key` in the menus that offer it. */
+const hideItem = (key: string): MenuItem => [hiddenBranches().includes(key) ? "Show in the graph" : "Hide from the graph", () => toggleHidden(key)];
+
+function toggleHidden(ref: string) {
+  const hidden = hiddenBranches();
+  store(`hide-refs:${repo}`, JSON.stringify(hidden.includes(ref) ? hidden.filter((r) => r !== ref) : [...hidden, ref]));
+  logKey = refsKey = "";
+  refresh();
+}
 
 function toggleRemote(name: string) {
   const hidden = hiddenRemotes();
@@ -1052,6 +1076,7 @@ function stashMenu(s: Stash): MenuItem[] {
     ["Drop stash", () => ask(`Drop stash "${s.subject}"? It cannot be undone.`, "Drop").then((ok) => ok && op("stash-drop", s.name))],
     null,
     ["Edit stash message…", () => dialog("Edit stash message", [["Message", s.subject]], "Save", ([m]) => m && op("stash-message", [s.name, m]))],
+    hideItem(s.hash),
   ];
 }
 
@@ -1060,7 +1085,7 @@ function stashMenu(s: Stash): MenuItem[] {
 const isHead = (c: Commit) => c.refs.some((r) => r === "HEAD" || r.startsWith("HEAD -> "));
 
 function renderGraph() {
-  hiddenSet = new Set(hiddenRemotes());
+  hiddenSet = new Set([...hiddenRemotes(), ...hiddenBranches()]);
   const n = st ? st.staged.length + st.unstaged.length : 0;
   const head = commits.find(isHead);
   const wip: Commit = { hash: "WIP", parents: head ? [head.hash] : [], author: "", time: 0, refs: [], subject: "// WIP", body: "" };
@@ -1068,6 +1093,7 @@ function renderGraph() {
   const list = n || opInfo ? [wip, ...commits] : [...commits];
   // a stash hangs off its base commit
   for (const s of refs.stashes) {
+    if (hiddenSet.has(s.hash)) continue;
     const at = list.findIndex((c) => c.hash === s.parents[0]);
     if (at >= 0) list.splice(at, 0, { hash: s.hash, parents: [s.parents[0]], author: "", time: 0, refs: [], subject: s.subject, body: "" });
   }
@@ -1168,7 +1194,10 @@ function labels(c: Commit): Label[] {
   };
   for (const ref of c.refs) {
     const r = ref.replace(/^HEAD -> /, "");
-    if (r.startsWith("tag: refs/tags/")) get(r.slice(15), true);
+    if (r.startsWith("tag: refs/tags/")) {
+      if (!hiddenSet.has(r.slice(5))) get(r.slice(15), true);
+    }
+    else if (hiddenSet.has(r)) continue;
     else if (r.startsWith("refs/heads/")) {
       const l = get(r.slice(11));
       l.local = true;
@@ -1370,6 +1399,7 @@ function tagMenu(name: string): MenuItem[] {
       ],
     ),
     null,
+    hideItem(`refs/tags/${name}`),
     ["Copy tag name", () => copy(name)],
   ];
 }
@@ -1541,7 +1571,8 @@ function fileList(
       ...actions.filter(([, , when]) => !when || when(f)).map(([label, fn]) => h("button", { textContent: label, onclick: (e: Event) => (e.stopPropagation(), fn(f)) })),
     );
     row.dataset.path = f.path;
-    row.style.paddingLeft = `${10 + depth * 14}px`;
+    row.style.paddingLeft = `${10 + depth * 20}px`;
+    row.style.setProperty("--depth", String(depth));
     return row;
   };
   const tree = () => {
@@ -1570,7 +1601,8 @@ function fileList(
           const toggle = () => (flipped.has(path) ? flipped.delete(path) : flipped.add(path), draw());
           const folder = h("div", { className: "folder", onclick: toggle, title: path }, h("span", { className: "twisty", textContent: shut ? "▸" : "▾" }), ico(shut ? ICONS.folder : ICONS.folderOpen), name);
           if (shut) folder.append(...fileCounts(within(sub)));
-          folder.style.paddingLeft = `${8 + depth * 14}px`;
+          folder.style.paddingLeft = `${8 + depth * 20}px`;
+          folder.style.setProperty("--depth", String(depth));
           rows.push(folder);
         }
         walkDir(sub, `${path}/`, depth + 1, shown && !shut, [...route, path]);
