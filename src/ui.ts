@@ -39,17 +39,17 @@ export const ICONS: Record<string, string> = {
   eyeOff: "M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.1 4M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a10 10 0 0 0 5.4-1.6",
 };
 export const colorIndex = (s: string) => [...s].reduce((a, ch) => a + ch.charCodeAt(0), 0) % COLORS.length;
-// each author's sprite is one <symbol> in #sprites, which every avatar of theirs uses
+// each author's sprite is one <symbol> in #sprites, which every avatar of theirs uses: a light sprite on a dark disc of a neighbouring hue, the disc a cell wider all round
 const spriteIds = new Map<string, string>();
 export function spriteId(name: string) {
   let id = spriteIds.get(name);
   if (id) return id;
   spriteIds.set(name, (id = `av-${spriteIds.size}`));
-  const { cells, hue: tint } = sprite(name);
+  const { cells, hue } = sprite(name);
   const d = cells.flatMap((row, r) => row.map((on, c) => (on ? `M${c + 1} ${r + 1}h1v1h-1z` : ""))).join("");
   $("sprites").insertAdjacentHTML(
     "beforeend",
-    `<symbol id="${id}" viewBox="0 0 9 9"><circle cx="4.5" cy="4.5" r="4.5" fill="hsl(${tint},30%,20%)"/><path d="${d}" fill="hsl(${tint},75%,65%)"/></symbol>`,
+    `<symbol id="${id}" viewBox="-1 -1 11 11"><circle cx="4.5" cy="4.5" r="5.5" fill="hsl(${hue + 40},70%,24%)"/><path d="${d}" fill="hsl(${hue},75%,72%)"/></symbol>`,
   );
   return id;
 }

@@ -96,6 +96,7 @@ test("sprite: same name same sprite, mirrored, eyes open, names differ", () => {
   assert.equal(a.cells[2][1], false);
   assert.equal(a.cells[1][1] && a.cells[3][1] && a.cells[2][0] && a.cells[2][2], true);
   assert.notDeepEqual(sprite("Bob Martin"), a);
+  assert.deepEqual(sprite("Ann LEE"), a);
 });
 
 test("repoName: the clone folder from ssh, https and path urls", () => {

@@ -135,9 +135,9 @@ export function parseBlame(text) {
 
 /** An author's pixel sprite: 7x7 cells mirrored left to right, with two eyes, and a hue (0-359), all from `seed`. */
 export function sprite(seed) {
-  // FNV-1a seeds mulberry32: a name always draws the same sprite
+  // FNV-1a seeds mulberry32: a name always draws the same sprite, a shouted word ("CHAZAL") as if written "Chazal"
   let s = 2166136261;
-  for (const ch of seed) s = Math.imul(s ^ ch.charCodeAt(0), 16777619);
+  for (const ch of seed.replace(/\p{Lu}{2,}/gu, (w) => w[0] + w.slice(1).toLowerCase())) s = Math.imul(s ^ ch.charCodeAt(0), 16777619);
   const rand = () => {
     s = (s + 0x6d2b79f5) | 0;
     let t = Math.imul(s ^ (s >>> 15), 1 | s);
