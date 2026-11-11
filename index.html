@@ -81,7 +81,7 @@
               <button class="icon" id="diff-close" title="Close (Esc)"><svg data-icon="close"></svg></button>
             </div>
             <div id="diff-editor"></div>
-            <div id="diff-binary" hidden>Binary, non-UTF-8 or over 10 MB: whole-file actions only.</div>
+            <div id="diff-binary" hidden></div>
             <div id="hist-file" hidden></div>
           </div>
           <div id="hist" hidden>
@@ -164,6 +164,7 @@
     <div id="banner" hidden></div>
     <div id="dialog" hidden></div>
     <div id="toasts"></div>
+    <div id="loading" hidden><div class="spinner"></div><span id="loading-label"></span></div>
     <svg id="sprites" width="0" height="0" aria-hidden="true"></svg>
   </body>
 </html>

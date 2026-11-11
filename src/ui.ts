@@ -35,6 +35,7 @@ export const ICONS: Record<string, string> = {
   up: "M12 19V5m-6 6 6-6 6 6",
   down: "M12 5v14m-6-6 6 6 6-6",
   caret: "m6 9 6 6 6-6",
+  load: "M12 3v12m-5-5 5 5 5-5M5 21h14",
   eyeOff: "M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.1 4M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a10 10 0 0 0 5.4-1.6",
 };
 export const colorIndex = (s: string) => [...s].reduce((a, ch) => a + ch.charCodeAt(0), 0) % COLORS.length;
@@ -90,6 +91,25 @@ export function store(key: string, value?: string) {
 
 /** A design token of styles.css, like "--bg". */
 export const cssVar = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+export const megabytes = (bytes: number) => `${(bytes / (1 << 20)).toFixed(bytes < 100 << 20 ? 1 : 0)} MB`;
+
+/** Run `work` under a spinner that covers the window: nothing else can start meanwhile, for 30 s at most; `work` drops a late result. */
+export async function whileLoading(label: string, work: (gaveUp: () => boolean) => Promise<unknown>) {
+  $("loading-label").textContent = label;
+  $("loading").hidden = false;
+  // painted before the work starts: a big load holds the page up
+  await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+  let timer = 0, late = false;
+  // a load that fails on the way never answers: the window must not wait for it forever
+  const deadline = new Promise((done) => (timer = setTimeout(() => ((late = true), done(say(`${label} no answer after 30 s, gave up`, true))), 30_000)));
+  try {
+    await Promise.race([work(() => late), deadline]);
+  } finally {
+    clearTimeout(timer);
+    $("loading").hidden = true;
+  }
+}
 
 export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
@@ -293,6 +313,8 @@ export function askName(label: string, initial: string, done: (name: string) => 
 /** A short hash that copies the full one on click. */
 export const shaLink = (hash: string) => h("span", { className: "sha", textContent: short(hash), title: `Copy ${hash}`, onclick: () => copy(hash) });
 
+// keys wait with the rest of the window while a big file loads
+addEventListener("keydown", (e) => !$("loading").hidden && (e.preventDefault(), e.stopImmediatePropagation()), true);
 // the page's icons drawn from ICONS: <svg data-icon="close">
 document.querySelectorAll<SVGElement>("svg[data-icon]").forEach((s) => {
   s.setAttribute("viewBox", "0 0 24 24");
@@ -306,7 +328,7 @@ addEventListener(
   "click",
   (e) => {
     const off = (e.target as Element).closest?.<HTMLElement>(".off");
-    if (off) (e.stopImmediatePropagation(), say(off.title));
+    if (off) (e.stopImmediatePropagation(), say(off.title || off.dataset.tip || ""));
   },
   true,
 );

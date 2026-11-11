@@ -67,7 +67,7 @@ button.bad { color: var(--del); }
 /* line icons: stroked, the lanes' stash glyph aside; no weight, so the rules below can set their stroke */
 :where(svg[viewBox="0 0 24 24"]:not(.stash)) { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 /* an icon before a button's text */
-.toggle svg, #diff-history svg, #open-editor svg, #m-reset svg, #m-save svg { width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; }
+.toggle svg, #diff-history svg, #open-editor svg, #m-reset svg, #m-save svg, .force-load svg { width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; }
 
 /* header: repository, branch, toolbar */
 header {
@@ -544,6 +544,31 @@ textarea.msg-in { height: 104px; resize: vertical; }
 .seg button svg { width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; }
 #diff-editor { flex: 1; min-height: 0; }
 #diff-binary { padding: 20px; color: var(--dim); }
+#diff-binary button { margin-left: 8px; }
+/* greyed by its colours, not opacity: its tooltip stays readable */
+#diff-binary button.off { opacity: 1; color: var(--dim); }
+/* a tooltip at once, under its element: the native one waits a second */
+[data-tip] { position: relative; }
+[data-tip]:hover::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  width: max-content;
+  max-width: 360px;
+  padding: 6px 9px;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: normal;
+  text-align: left;
+  color: var(--text);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 24px #0006;
+  pointer-events: none;
+}
 /* the +/− on a hovered changed line */
 .line-act { cursor: pointer; }
 .line-act::after { display: block; width: 14px; height: 14px; margin: 2px 0 0 4px; border-radius: 3px; font: 700 12px/14px var(--mono); text-align: center; color: #111; }
@@ -719,6 +744,10 @@ svg.blame-av { cursor: pointer; }
 .clone-at { flex: 0 1 auto; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 13px var(--mono); color: var(--dim); }
 .dlg-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .dlg-actions button { flex: 1 0 auto; padding: 7px 14px; white-space: nowrap; }
+/* a big load: the window waits under it */
+#loading { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; font-size: 14px; background: #0009; cursor: progress; }
+.spinner { width: 34px; height: 34px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 #toasts { position: fixed; left: 16px; bottom: 36px; z-index: 30; display: flex; flex-direction: column; gap: 10px; width: 460px; max-width: calc(100vw - 32px); }
 /* the click's "Copied!" bubble */
 .copied { position: fixed; z-index: 40; padding: 3px 8px; border-radius: 5px; font-size: 12px; font-weight: 600; color: var(--on-accent); background: var(--accent); pointer-events: none; animation: copied 1.2s ease-out forwards; }

@@ -2,7 +2,7 @@ mod askpass;
 mod pty;
 
 use serde::Serialize;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -100,10 +100,12 @@ struct Blob {
     text: String,
     exists: bool,
     binary: bool,
+    // too big to load unasked: its size in bytes
+    large: Option<u64>,
 }
 
-/// \brief Run git; with `ask`, ssh and https prompts reach krill's dialog, without they fail at once and say so.
-fn git_cmd(repo: &str, args: &[&str], input: Option<&[u8]>, ask: bool) -> Result<Output, String> {
+/// \brief A git command in `repo`; with `ask`, ssh and https prompts reach krill's dialog, without they fail at once and say so.
+fn git_command(repo: &str, args: &[&str], ask: bool) -> Command {
     let mut git = Command::new("git");
     git.current_dir(repo)
         .args(args)
@@ -111,13 +113,17 @@ fn git_cmd(repo: &str, args: &[&str], input: Option<&[u8]>, ask: bool) -> Result
         .env("GIT_EDITOR", "true")
         .env("GIT_TERMINAL_PROMPT", "0")
         // paths from the UI are names, not globs: `f[12].c` must not also match f1.c
-        .env("GIT_LITERAL_PATHSPECS", "1")
-        .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .env("GIT_LITERAL_PATHSPECS", "1");
     askpass::env(&mut git, ask);
     // its own session, off the terminal krill may run from: ssh would wait there for a key passphrase
     unsafe { git.pre_exec(|| (libc::setsid() >= 0).then_some(()).ok_or_else(std::io::Error::last_os_error)) };
+    git
+}
+
+/// \brief Run git, `input` on its stdin.
+fn git_cmd(repo: &str, args: &[&str], input: Option<&[u8]>, ask: bool) -> Result<Output, String> {
+    let mut git = git_command(repo, args, ask);
+    git.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = git.spawn().map_err(|e| e.to_string())?;
     if let Some(data) = input {
         child.stdin.take().unwrap().write_all(data).map_err(|e| e.to_string())?;
@@ -424,7 +430,7 @@ fn conflict_text(repo: String, path: String) -> Result<Blob, String> {
     if out.status.code().is_none_or(|c| c >= 128) {
         return Err(output_text(&out));
     }
-    Ok(blob_of(out.stdout))
+    Ok(if out.stdout.len() > MAX_TEXT { BINARY } else { blob_of(out.stdout) })
 }
 
 #[tauri::command(async)]
@@ -494,35 +500,61 @@ fn blame(repo: String, at: String, path: String) -> Result<String, String> {
     git(&repo, &["blame", "--porcelain", not_option(&at)?, "--", &path])
 }
 
+// past this a file loads only when asked: each copy on its way to the editor costs as much
 const MAX_TEXT: usize = 10 << 20;
-const BINARY: Blob = Blob { text: String::new(), exists: true, binary: true };
+// asked or not, past this it does not load: a bigger answer never reaches the window (it stalls past ~256 MB)
+const MAX_ASKED: usize = 200 << 20;
+const BINARY: Blob = Blob { text: String::new(), exists: true, binary: true, large: None };
+const MISSING: Blob = Blob { text: String::new(), exists: false, binary: false, large: None };
+const fn large(size: u64) -> Blob {
+    Blob { text: String::new(), exists: true, binary: false, large: Some(size) }
+}
 
-/// \brief A file's bytes as text; non-UTF-8 counts as binary (a lossy round trip would corrupt it on save/stage), so does past MAX_TEXT.
+/// \brief A file's bytes as text; non-UTF-8 counts as binary: a lossy round trip would corrupt it on save/stage.
 fn blob_of(bytes: Vec<u8>) -> Blob {
-    match (bytes.len() <= MAX_TEXT).then(|| String::from_utf8(bytes)) {
-        Some(Ok(text)) if !text.contains('\0') => Blob { text, exists: true, binary: false },
+    match String::from_utf8(bytes) {
+        Ok(text) if !text.contains('\0') => Blob { text, exists: true, binary: false, large: None },
         _ => BINARY,
     }
 }
 
-/// \brief File content `at` a commit, "INDEX" or "WORKTREE"; past MAX_TEXT bytes it counts as binary.
+/// \brief Blob `spec` (rev:path) read up to `max` bytes; past them, only its size.
+fn git_blob(repo: &str, spec: &str, max: usize) -> Result<Blob, String> {
+    let mut child = git_command(repo, &["cat-file", "blob", spec], true).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(|e| e.to_string())?;
+    let mut bytes = Vec::new();
+    let mut out = child.stdout.take().unwrap().take(max as u64 + 1);
+    tokio::task::block_in_place(|| out.read_to_end(&mut bytes)).map_err(|e| e.to_string())?;
+    if bytes.len() > max {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Ok(large(git(repo, &["cat-file", "-s", spec])?.trim().parse().unwrap_or(0)));
+    }
+    // no such file there: git says so and fails
+    if !tokio::task::block_in_place(|| child.wait()).map_err(|e| e.to_string())?.success() {
+        return Ok(MISSING);
+    }
+    Ok(blob_of(bytes))
+}
+
+/// \brief File content `at` a commit, "INDEX" or "WORKTREE"; past MAX_TEXT bytes only its size, unless `full`.
 #[tauri::command(async)]
-fn blob(repo: String, at: String, path: String) -> Result<Blob, String> {
+fn blob(repo: String, at: String, path: String, full: Option<bool>) -> Result<Blob, String> {
+    let max = if full.unwrap_or(false) { MAX_ASKED } else { MAX_TEXT };
     let bytes = match at.as_str() {
         "WORKTREE" => {
             let p = work_path(&repo, &path)?;
             match std::fs::symlink_metadata(&p) {
                 // git stores the link target, not what it points to
                 Ok(m) if m.file_type().is_symlink() => std::fs::read_link(&p).ok().map(|t| t.to_string_lossy().into_owned().into_bytes()),
-                Ok(m) if m.len() > MAX_TEXT as u64 => return Ok(BINARY),
+                Ok(m) if m.len() > max as u64 => return Ok(large(m.len())),
                 Ok(_) => std::fs::read(&p).ok(),
                 Err(_) => None,
             }
         }
-        "INDEX" => git_bytes(&repo, &["cat-file", "blob", &format!(":{path}")], None).ok(),
-        r => git_bytes(&repo, &["cat-file", "blob", &format!("{}:{path}", not_option(r)?)], None).ok(),
+        "INDEX" => return git_blob(&repo, &format!(":{path}"), max),
+        r => return git_blob(&repo, &format!("{}:{path}", not_option(r)?), max),
     };
-    Ok(bytes.map_or(Blob { text: String::new(), exists: false, binary: false }, blob_of))
+    Ok(bytes.map_or(MISSING, blob_of))
 }
 
 #[tauri::command(async)]

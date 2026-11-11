@@ -3,7 +3,7 @@ import type * as Monaco from "monaco-editor/esm/vs/editor/edcore.main";
 import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import { applyChanges, allLines, pickLines, parseConflicts, mergeSides, pickedLines, parseBlame, toggleSide, toggleLine, hasSide, pickedOf } from "./core.js";
 import { Blob, Change, Commit, active, dropEdits, fakeCommit, gitOp, headHash, opInfo, recordUndo, refresh, run, status, tabs } from "./repo";
-import { $, COLORS, MenuItem, ask, avatar, avatarSvg, basename, colorIndex, copy, cssVar, dateFmt, dayFmt, esc, h, hideBanner, input, plural, popup, say, short, showBanner, store, toast } from "./ui";
+import { $, COLORS, ICONS, MenuItem, ask, avatar, avatarSvg, basename, colorIndex, copy, cssVar, dateFmt, dayFmt, esc, h, hideBanner, input, megabytes, plural, popup, say, short, showBanner, store, svg, toast, whileLoading } from "./ui";
 import { isConflict, markOpenFile, wipFiles } from "./panel";
 
 export type DiffSource = "unstaged" | "staged" | "commit";
@@ -69,7 +69,8 @@ export const loadMonaco = () =>
     },
   });
   }));
-export let diffFile: { kind: DiffSource; f: Change; c?: Commit; orig: Blob; mod: Blob; dirty: boolean } | null = null;
+// full: loaded past the size a diff loads unasked
+export let diffFile: { kind: DiffSource; f: Change; c?: Commit; orig: Blob; mod: Blob; dirty: boolean; full: boolean } | null = null;
 export let diffEditor: Monaco.editor.IStandaloneDiffEditor | null = null;
 // hunk header bars, as view zone ids per side
 let hunkZones: { mod: string[]; orig: string[]; nodes: HTMLElement[] } = { mod: [], orig: [], nodes: [] };
@@ -93,6 +94,8 @@ export function editor() {
     renderMarginRevertIcon: false,
     renderGutterMenu: false,
     useInlineViewWhenSpaceIsLimited: false,
+    // the size cap is ours: past it a file loads only when asked
+    maxFileSize: 0,
   });
   const me = diffEditor.getModifiedEditor();
   lineActions(me, false);
@@ -121,7 +124,7 @@ export function editor() {
   me.onMouseLeave(() => hoverButton());
   me.onMouseDown((e) => barButton(e)?.click());
   me.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => save().then(refresh));
-  setMode((store("diff-mode") as Mode) || "hunk");
+  applyMode();
   return diffEditor;
 }
 
@@ -203,15 +206,30 @@ function removedLineActions(ed: Monaco.editor.ICodeEditor, staging: () => boolea
 function setOptions(o: Monaco.editor.IDiffEditorOptions) {
   editor().updateOptions(o);
   // the diff editor forces its sub-editors' minimap off on every update; hunk view hides too much for one
-  const minimap = { enabled: store("diff-mode") !== "hunk", renderCharacters: false, showSlider: "always" as const };
+  const minimap = { enabled: viewMode() !== "hunk", renderCharacters: false, showSlider: "always" as const };
   editor().getModifiedEditor().updateOptions({ minimap });
 }
 
 export function setMode(m: Mode) {
   store("diff-mode", m);
+  applyMode();
+}
+
+/** The view shown: Monaco cannot fold a file loaded on request, so Inline stands in for Hunk there. */
+const viewMode = (): Mode => {
+  const m = (store("diff-mode") as Mode) || "hunk";
+  return m === "hunk" && diffFile?.full ? "inline" : m;
+};
+
+function applyMode() {
+  const m = viewMode(), full = !!diffFile?.full;
   setOptions({ renderSideBySide: m === "split", hideUnchangedRegions: { enabled: m === "hunk" } });
   updateHunkBars();
   document.querySelectorAll<HTMLElement>("[data-mode]").forEach((b) => b.classList.toggle("on", b.dataset.mode === m));
+  const hunk = document.querySelector<HTMLElement>('[data-mode="hunk"]')!;
+  hunk.classList.toggle("off", full);
+  // Monaco cannot fold a file that big
+  hunk.title = full ? "Can't show hunks for files over 10 MB" : "Changed hunks only";
 }
 
 const lineChanges = (): LineChange[] =>
@@ -237,7 +255,7 @@ async function revertHunk(c: LineChange) {
 
 /** A header bar above each hunk with its stage / unstage / discard / revert buttons. */
 function updateHunkBars() {
-  const ed = editor(), split = store("diff-mode") === "split";
+  const ed = editor(), split = viewMode() === "split";
   const acts: [string, string][] =
     !diffFile ? []
     : diffFile.kind === "unstaged" ? [["discard", "Discard hunk"], ["stage", "Stage hunk"]]
@@ -246,7 +264,7 @@ function updateHunkBars() {
     : [];
   hunks = diffFile ? lineChanges() : [];
   // bars head the hunks between folds; in the whole file the line numbers say where a change is
-  const shown = store("diff-mode") === "hunk" ? hunks : [];
+  const shown = viewMode() === "hunk" ? hunks : [];
   const bar = (c: LineChange, buttons: boolean) => {
     const count = (s: number, e: number) => (e ? e - s + 1 : 0);
     const el = h("div", { className: "hunk-bar" }, h("span", { textContent: `@@ -${c.os},${count(c.os, c.oe)} +${c.ms},${count(c.ms, c.me)} @@` }));
@@ -277,9 +295,9 @@ function fitHunkBars() {
   editor().getContainerDomNode().querySelectorAll<HTMLElement>(".hunk-bar").forEach((b) => (b.style.width = `${lay.contentWidth - lay.verticalScrollbarWidth}px`));
 }
 
-async function fetchSides(kind: DiffSource, f: Change, c?: Commit): Promise<[Blob, Blob]> {
-  const none: Blob = { text: "", exists: false, binary: false };
-  const blob = (at: string, path: string) => (at ? run<Blob>("blob", { at, path }) : Promise.resolve(none));
+async function fetchSides(kind: DiffSource, f: Change, c?: Commit, full = false): Promise<[Blob, Blob]> {
+  const none: Blob = { text: "", exists: false, binary: false, large: null };
+  const blob = (at: string, path: string) => (at ? run<Blob>("blob", { at, path, full }) : Promise.resolve(none));
   const old = f.old ?? f.path;
   if (kind === "unstaged") return Promise.all([blob("INDEX", f.path), blob("WORKTREE", f.path)]);
   if (kind === "staged") return Promise.all([blob("HEAD", old), blob("INDEX", f.path)]);
@@ -300,7 +318,7 @@ export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistor
   } catch (e) {
     return say(String(e), true);
   }
-  diffFile = { kind, f, c, orig, mod, dirty: false };
+  diffFile = { kind, f, c, orig, mod, dirty: false, full: false };
   $("diff").hidden = false;
   document.body.classList.add("diffing");
   const range = c ? `  ·  ${c.parents[0] ? short(c.parents[0]) : "root"}..${short(c.hash)}` : "";
@@ -311,15 +329,48 @@ export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistor
   const eol = (t: string) => (t.includes("\r\n") ? "CRLF" : t.includes("\n") ? "LF" : "");
   if (eol(orig.text) && eol(mod.text) && eol(orig.text) !== eol(mod.text))
     say(`${f.path}: line endings changed ${eol(orig.text)} → ${eol(mod.text)}, not shown in the diff`, true);
-  const binary = orig.binary || mod.binary;
-  $("diff-editor").hidden = binary;
-  $("diff-binary").hidden = !binary;
+  paintSides(inHistory);
+}
+
+// lib.rs MAX_ASKED: past it a file does not load even when asked
+const MAX_ASKED = 200 << 20;
+
+/** The open diff's sides in the editor, or why not: binary, or too big to load unasked. */
+function paintSides(inHistory: boolean) {
+  const { f, orig, mod } = diffFile!;
+  const binary = orig.binary || mod.binary, large = Math.max(orig.large ?? 0, mod.large ?? 0);
+  $("diff-editor").hidden = binary || !!large;
+  $("diff-binary").hidden = !binary && !large;
+  $("diff-binary").replaceChildren(
+    ...(binary ? ["Binary or non-UTF-8 file: whole-file actions only."] : [`${basename(f.path)} is ${megabytes(large)}: too big to show, whole-file actions only.`, forceLoadButton(large)]),
+  );
   $("diff-save").hidden = true;
-  if (binary) return;
+  applyMode();
+  if (binary || large) return Promise.resolve();
   // the folds land a moment after the text: the bare file would flash in between
   if (!inHistory) $("diff").classList.add("blank");
+  // Monaco gives up on a diff after 5 s and marks the whole file changed: a file loaded on request gets the time it takes
+  setOptions({ maxComputationTime: diffFile!.full ? 0 : 5000 });
   setModels(false);
-  diffDrawn().then(() => requestAnimationFrame(() => $("diff").classList.remove("blank")));
+  return diffDrawn(diffFile!.full ? 300_000 : 500).then(() => requestAnimationFrame(() => $("diff").classList.remove("blank")));
+}
+
+function forceLoadButton(bytes: number) {
+  const b = h("button", { className: "force-load", innerHTML: `${svg(ICONS.load)}Force load`, onclick: loadFull });
+  b.dataset.tip = bytes > MAX_ASKED ? `Can't load files over ${megabytes(MAX_ASKED)}` : "Force loading will block the interface for up to 30 sec";
+  b.classList.toggle("off", bytes > MAX_ASKED);
+  return b;
+}
+
+/** Load the open diff's big file in full, the window waiting under a spinner. */
+async function loadFull() {
+  const d = diffFile!;
+  await whileLoading(`Loading ${basename(d.f.path)}…`, async (gaveUp) => {
+    const [orig, mod] = await fetchSides(d.kind, d.f, d.c, true);
+    if (diffFile !== d || gaveUp()) return;
+    Object.assign(d, { orig, mod, full: true });
+    await paintSides(!!hist);
+  });
 }
 
 function paintOpenEditor() {
@@ -358,7 +409,7 @@ export async function reloadDiff() {
   if (diffFile.kind !== "commit") diffFile.f = status[diffFile.kind].find((x) => x.path === diffFile!.f.path) ?? diffFile.f;
   // a commit's sides never change, the uncommitted row of a file history aside
   else if (diffFile.c?.hash !== "WORKTREE") return paintOpenEditor();
-  const [orig, mod] = await fetchSides(diffFile.kind, diffFile.f, diffFile.c);
+  const [orig, mod] = await fetchSides(diffFile.kind, diffFile.f, diffFile.c, diffFile.full);
   if (!diffFile || diffFile.dirty) return;
   paintOpenEditor();
   if (orig.text === diffFile.orig.text && mod.text === diffFile.mod.text && orig.binary === diffFile.orig.binary) return;
@@ -390,7 +441,7 @@ export async function save() {
 
 /** Changed lines under the selection of the side that had focus last. */
 function selectedLines(): Lines {
-  const fromOrig = lastSide === "orig" && store("diff-mode") === "split";
+  const fromOrig = lastSide === "orig" && viewMode() === "split";
   const side = fromOrig ? editor().getOriginalEditor() : editor().getModifiedEditor();
   const sel = new Set<number>();
   for (const s of side.getSelections() ?? []) {
@@ -432,7 +483,7 @@ export async function discard(path: string, untracked: boolean, text?: string) {
   const t = tabs[active];
   const read = async () => {
     const b = await run<Blob>("blob", { at: "WORKTREE", path });
-    return b.binary ? undefined : b.exists ? b.text : null;
+    return b.binary || b.large ? undefined : b.exists ? b.text : null;
   };
   const before = await read().catch(() => undefined);
   if (text === undefined) await gitOp(untracked ? "clean" : "discard", path);
@@ -813,7 +864,7 @@ export async function showRev(i: number) {
   if (hist !== m || m.at !== i || !blob) return;
   m.blame = [];
   const ed = historyEditor(), view = ed.saveViewState(), old = ed.getModel();
-  const text = blob.binary ? "Binary, non-UTF-8 or over 10 MB" : blob.exists ? blob.text : `Deleted in ${short(c.hash)}`;
+  const text = blob.binary ? "Binary or non-UTF-8 file" : blob.large ? `${megabytes(blob.large)}: too big to show here, the Diff view can load it` : blob.exists ? blob.text : `Deleted in ${short(c.hash)}`;
   ed.setModel(newModel(text, `h/${f.path}`));
   old?.dispose();
   // another version of the same file: stay around the same lines
@@ -844,11 +895,11 @@ const dimDiffOpts = (dim: boolean) =>
 export const reveal = (drawn?: Promise<unknown>) => (drawn ?? Promise.resolve()).then(() => requestAnimationFrame(() => $("hist-main").classList.remove("blank")));
 
 // a diff's hunks and folds land a moment after its text
-const diffDrawn = () =>
+const diffDrawn = (ms = 500) =>
   new Promise((done) => {
     // the first update only drops the old diff: wait for one with changes computed
     const d = editor().onDidUpdateDiff(() => editor().getLineChanges() && (d.dispose(), done(0)));
-    setTimeout(() => (d.dispose(), done(0)), 500);
+    setTimeout(() => (d.dispose(), done(0)), ms);
   });
 
 function historyEditor() {

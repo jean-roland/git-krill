@@ -17,7 +17,8 @@ type Ref = { name: string; hash: string; upstream: string; track: string };
 export type Stash = { name: string; hash: string; parents: string[]; subject: string };
 export type Worktree = { path: string; head: string; branch: string; locked: boolean; prunable: boolean };
 type Refs = { refs: Ref[]; stashes: Stash[]; remotes: string[]; worktrees: Worktree[] };
-export type Blob = { text: string; exists: boolean; binary: boolean };
+// large: too big to load unasked, its size in bytes
+export type Blob = { text: string; exists: boolean; binary: boolean; large: number | null };
 // file: a discard, the work tree text before and after (null: no file)
 type UndoStep = { op: string; branch: [string, string]; head: [string, string]; file?: [string, string | null, string | null] };
 export type Tab = { repo: string; selected: string[]; msg: string; scroll: number; undo: UndoStep[]; redo: UndoStep[]; worktree: boolean };
