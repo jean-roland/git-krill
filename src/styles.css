@@ -64,8 +64,8 @@ button.bad { color: var(--del); }
 .busy header [data-op], .busy #undo, .busy #redo { pointer-events: none; opacity: 0.5; }
 /* on/off buttons: Amend, View all files, Blame, Sync scrolling */
 .toggle.on { background: var(--sel); border-color: var(--accent); }
-/* line icons: stroked, the lanes' stash glyph aside; no weight, so the rules below can set their stroke */
-:where(svg[viewBox="0 0 24 24"]:not(.stash)) { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+/* line icons, stroked; no weight, so the rules below can set their stroke */
+:where(svg[viewBox="0 0 24 24"]) { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 /* an icon before a button's text */
 .toggle svg, #diff-history svg, #open-editor svg, #m-reset svg, #m-save svg, .force-load svg { width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; }
 
@@ -335,8 +335,8 @@ body.home main { grid-template-columns: 1fr; }
 .lanes path.link { stroke-width: 1; }
 .lanes circle { stroke: var(--bg); stroke-width: 1.5; }
 .lanes circle.wip { fill: none; stroke-width: 2; stroke-dasharray: 3 3; }
-.lanes rect.stash { fill: var(--bg); stroke: var(--dim); stroke-width: 1.5; stroke-dasharray: 2 2; }
-.lanes svg.stash path { stroke: var(--text); }
+/* a dash on each corner: a 20 px side holds four 5 px periods, the offset centres one on the corner */
+.lanes rect.stash { fill: var(--bg); stroke-width: 2; stroke-dasharray: 2.5 2.5; stroke-dashoffset: 1.25; }
 .lanes circle.av { fill: none; stroke-width: 2; }
 .row {
   display: flex;

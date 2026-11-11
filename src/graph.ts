@@ -310,10 +310,11 @@ function lanesSvg(from: number, to: number) {
     const c = list[i], l = graphLayout.nodes[i], at = `cx="${X(l)}" cy="${Y(i)}"`;
     // the size of an author's ring, dashed in its lane's colour like the line it starts
     if (c.hash === "WIP") svg += `<circle ${at} r="9" style="stroke:${color(l)}" class="wip"/>`;
+    // a stash: the same ring squared, its icon in the lane's colour too
     else if (stashOf(c.hash))
       svg +=
-        `<rect x="${X(l) - 9}" y="${Y(i) - 9}" width="18" height="18" rx="3" class="stash"/>` +
-        `<svg x="${X(l) - 6}" y="${Y(i) - 6}" width="12" height="12" viewBox="0 0 24 24" class="stash"><path d="${ICONS.stash}"/></svg>`;
+        `<rect x="${X(l) - 10}" y="${Y(i) - 10}" width="20" height="20" style="stroke:${color(l)}" class="stash"/>` +
+        `<svg x="${X(l) - 6}" y="${Y(i) - 6}" width="12" height="12" viewBox="0 0 24 24" style="color:${color(l)}"><path d="${ICONS.stash}"/></svg>`;
     else if (c.parents.length > 1) svg += `<circle ${at} r="4" fill="${color(l)}"/>`;
     else
       svg +=
