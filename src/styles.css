@@ -517,6 +517,7 @@ textarea.msg-in { height: 104px; resize: vertical; }
 .hunk-bar button { padding: 1px 10px; font: 12px system-ui, sans-serif; }
 .hunk-stage { color: var(--add); border-color: color-mix(in srgb, var(--add) 55%, transparent); }
 .hunk-unstage, .hunk-discard { color: var(--del); border-color: color-mix(in srgb, var(--del) 55%, transparent); }
+.hunk-revert { color: var(--mod); border-color: color-mix(in srgb, var(--mod) 55%, transparent); }
 
 footer {
   grid-row: 4;

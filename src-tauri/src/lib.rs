@@ -608,6 +608,29 @@ fn in_worktree(repo: String, path: String) -> Result<bool, String> {
     Ok(work_path(&repo, &path)?.exists())
 }
 
+/// \brief Undo the hunk of `commit`'s change to `path` whose new side starts at `line`, in the working tree.
+#[tauri::command(async)]
+fn revert_hunk(repo: String, commit: String, parent: String, path: String, line: u32) -> Result<(), String> {
+    // a root commit is a change from the empty tree
+    let parent = if parent.is_empty() { "4b825dc642cb6eb9a060e54bf8d69288fbee4904".to_string() } else { parent };
+    // no context: the hunks match the diff view's, and apply still finds them if later commits moved them
+    let diff = git(&repo, &["diff", "-U0", "--no-color", "--no-ext-diff", rev(&parent)?, rev(&commit)?, "--", &path])?;
+    let at = diff.find("\n@@").ok_or("nothing to revert")? + 1;
+    let (head, body) = diff.split_at(at);
+    let mut hunks: Vec<String> = Vec::new();
+    for l in body.split_inclusive('\n') {
+        if l.starts_with("@@") {
+            hunks.push(String::new());
+        }
+        hunks.last_mut().ok_or("bad diff")?.push_str(l);
+    }
+    // "@@ -a,b +c,d @@": c is where the new side starts, or the line before a pure deletion
+    let start = |h: &str| h.split(" +").nth(1).and_then(|s| s.split([',', ' ']).next()).and_then(|n| n.parse::<u32>().ok());
+    let hunk = hunks.iter().find(|h| start(h) == Some(line)).ok_or_else(|| format!("no hunk at line {line} of {path}"))?;
+    git_in(&repo, &["apply", "-R", "--unidiff-zero", "-"], Some(format!("{head}{hunk}").as_bytes()))?;
+    Ok(())
+}
+
 /// \brief Whether `git branch -d` takes `branch`: merged into its upstream, or into HEAD without one.
 #[tauri::command(async)]
 fn is_merged(repo: String, branch: String) -> Result<bool, String> {
@@ -685,10 +708,11 @@ fn git_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
     let args: Vec<&str> = match op.as_str() {
         "fetch" => vec!["fetch", "--all", "--prune"],
         "pull" => match arg.as_str() {
-            "ff-only" => vec!["pull", "--ff-only"],
-            "rebase" => vec!["pull", "--rebase"],
+            // local changes are stashed around it, and come back after
+            "ff-only" => vec!["pull", "--autostash", "--ff-only"],
+            "rebase" => vec!["pull", "--autostash", "--rebase"],
             // fast-forward when possible, else a merge commit
-            _ => vec!["pull", "--no-rebase"],
+            _ => vec!["pull", "--autostash", "--no-rebase"],
         },
         "push" => vec!["push"],
         "stash" => vec!["stash", "push", "-u"],
@@ -726,8 +750,8 @@ fn git_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         // worktree only: the restored file shows up unstaged, for review
         "restore-file" => vec!["restore", "--source", rev(&arg)?, "--", &arg2],
         "checkout" => vec!["checkout", rev(&arg)?],
-        "merge" => vec!["merge", rev(&arg)?],
-        "rebase" => vec!["rebase", rev(&arg)?],
+        "merge" => vec!["merge", "--autostash", rev(&arg)?],
+        "rebase" => vec!["rebase", "--autostash", rev(&arg)?],
         "cherry-pick" => vec!["cherry-pick", rev(&arg)?],
         "delete-branch" => vec!["branch", "-d", rev(&arg)?],
         "force-delete-branch" => vec!["branch", "-D", rev(&arg)?],
@@ -898,7 +922,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, write_file, stage_text, git_op, files, open_in_editor, in_worktree, is_file, is_merged,
+            initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, write_file, stage_text, git_op, files, open_in_editor, in_worktree, is_file, is_merged, revert_hunk,
             remote_url, open_default, delete_file, open_url, remote_urls, edit_remote,
             pty_spawn, pty_write, pty_resize, pty_kill, askpass_reply
         ])

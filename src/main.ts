@@ -2034,17 +2034,34 @@ const lineChanges = (): C4[] =>
   }));
 
 /** A header bar above each hunk with its stage / unstage / discard buttons. */
+/** Undo hunk `c` of the shown commit in the working tree, where it shows up unstaged for review. */
+async function revertHunk(c: C4) {
+  if (!cur?.c) return;
+  const { f } = cur, at = cur.c;
+  try {
+    await run("revert_hunk", { commit: at.hash, parent: at.parents[0] ?? "", path: f.path, line: c.ms });
+    toast(`Reverted a hunk of ${basename(f.path)}`, `From ${short(at.hash)}: the change is in the working tree, unstaged.`, "info");
+  } catch (e) {
+    say(String(e), true);
+  }
+  refresh();
+}
+
 function updateHunkBars() {
   const ed = editor(), split = store("mode") === "split";
   const acts: [string, string][] =
-    !cur ? [] : cur.kind === "unstaged" ? [["discard", "Discard hunk"], ["stage", "Stage hunk"]] : cur.kind === "staged" ? [["unstage", "Unstage hunk"]] : [];
+    !cur ? []
+    : cur.kind === "unstaged" ? [["discard", "Discard hunk"], ["stage", "Stage hunk"]]
+    : cur.kind === "staged" ? [["unstage", "Unstage hunk"]]
+    : cur.c?.hash !== "WORKTREE" ? [["revert", "Revert hunk"]]
+    : [];
   hunks = cur ? lineChanges() : [];
   const bar = (c: C4, buttons: boolean) => {
     const count = (s: number, e: number) => (e ? e - s + 1 : 0);
     const el = h("div", { className: "hunk-bar" }, h("span", { textContent: `@@ -${c.os},${count(c.os, c.oe)} +${c.ms},${count(c.ms, c.me)} @@` }));
     if (buttons)
       for (const [act, label] of acts) {
-        el.append(h("button", { className: `hunk-${act}`, textContent: label, onclick: () => applyLines(allLines([c]), act as "stage" | "unstage" | "discard") }));
+        el.append(h("button", { className: `hunk-${act}`, textContent: label, onclick: () => (act === "revert" ? revertHunk(c) : applyLines(allLines([c]), act as "stage" | "unstage" | "discard")) }));
       }
     // as wide as the visible text area, not the longest line, so the buttons stay in view
     const lay = ed.getModifiedEditor().getLayoutInfo();
