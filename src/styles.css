@@ -595,6 +595,8 @@ textarea.msg-in { height: 104px; resize: vertical; }
 .monaco-editor.on-button * { cursor: pointer !important; }
 /* Monaco's deleted-lines menu: the line − / + replaces it */
 .monaco-editor .inline-deleted-margin-view-zone .lightbulb-glyph { display: none; }
+/* the filler lining the old side up with added lines: no deleted line there */
+.monaco-editor .margin-view-zones .gutter-delete { background: none; }
 
 /* file history: the file's commits on the left, the file or the diff of the one picked */
 #hist { position: absolute; inset: 0; z-index: 10; display: grid; grid-template: auto 1fr / var(--hist-list-w, 360px) 1fr; background: var(--bg); }
