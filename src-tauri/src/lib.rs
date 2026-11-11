@@ -756,9 +756,13 @@ fn git_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
             git(&repo, &["reset", "-q", "--hard"])?;
             return git_with_stderr(&repo, &["clean", "-fd"]);
         }
-        // a reworded rebase step: commit it here, the rebase then moves on from it
-        "continue" if state == "rebase" && !arg.is_empty() && git(&repo, &["diff", "--cached", "--quiet"]).is_err() => {
+        // a reworded step: commit it here, the sequence then moves on from it
+        "continue" if state != "merge" && !arg.is_empty() && git(&repo, &["diff", "--cached", "--quiet"]).is_err() => {
             git(&repo, &["commit", "-q", "-m", &arg])?;
+            // a lone cherry-pick or revert ends with its commit
+            if state != "rebase" && !git_dir(&repo)?.join("sequencer").exists() {
+                return Ok(String::new());
+            }
         }
         _ => {}
     }
