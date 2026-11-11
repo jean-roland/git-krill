@@ -7,7 +7,7 @@ import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import { applyChanges, allLines, pickLines, layoutGraph, parseConflicts, mergeSides, pickedLines, parseBlame, sprite, toggleSide, toggleLine, hasSide, repoName } from "./core.js";
+import { applyChanges, allLines, pickLines, layoutGraph, parseConflicts, mergeSides, pickedLines, parseBlame, sprite, toggleSide, toggleLine, hasSide, pickedOf, repoName } from "./core.js";
 
 type Change = { path: string; old: string | null; code: string; conflict?: string };
 type OpInfo = { state: string; current: string; incoming: string; currentCommit: string; incomingCommit: string; step: string; message: string };
@@ -136,7 +136,7 @@ let stashView: Stash | null = null;
 // the merge, rebase... in progress, and the step whose message the commit box holds
 let opInfo: OpInfo | null = null;
 let opStep = "";
-let logKey = "", refsKey = "";
+let logKey = "", refsKey = "", panelKey = "";
 let panelSeq = 0;
 let cur: { kind: Kind; f: Change; c?: Commit; orig: Blob; mod: Blob; dirty: boolean } | null = null;
 let diffEditor: Monaco.editor.IStandaloneDiffEditor | null = null;
@@ -218,6 +218,18 @@ const headHash = () => commits.find(isHead)?.hash ?? "";
 
 const run = <T>(cmd: string, args: Record<string, unknown> = {}) => invoke<T>(cmd, { repo, ...args });
 
+// a commit never changes: the last answer per command about one is kept
+const fixed = new Map<string, { key: string; data: Promise<unknown> }>();
+function runFixed<T>(cmd: string, args: Record<string, unknown>) {
+  const key = JSON.stringify([repo, args]);
+  const known = fixed.get(cmd);
+  if (known?.key === key) return known.data as Promise<T>;
+  const data = run<T>(cmd, args);
+  fixed.set(cmd, { key, data });
+  data.catch(() => fixed.get(cmd)?.data === data && fixed.delete(cmd));
+  return data;
+}
+
 /** Run git op `name`; a pair passes a second argument (new name, start point, remote branch). */
 async function op(name: string, arg: string | [string, string] = "", record = true) {
   const [arg1, arg2] = Array.isArray(arg) ? arg : [arg, ""];
@@ -268,13 +280,17 @@ async function op(name: string, arg: string | [string, string] = "", record = tr
   await refresh();
   if (ok && record && UNDOABLE.has(name) && tab === tabs[active]) {
     const step: Step = { op: name, branch: [branch, st?.branch ?? ""], head: [head, headHash()] };
-    if (step.head.every(Boolean) && (step.head[0] !== step.head[1] || step.branch[0] !== step.branch[1])) {
-      tab.undo.push(step);
-      tab.redo = [];
-      renderToolbar();
-    }
+    if (step.head.every(Boolean) && (step.head[0] !== step.head[1] || step.branch[0] !== step.branch[1])) recordUndo(tab, step);
   }
   return ok;
+}
+
+/** A step for Undo; the oldest go past 50, a discard's holding its file twice. */
+function recordUndo(t: Tab, step: Step) {
+  t.undo.push(step);
+  if (t.undo.length > 50) t.undo.shift();
+  t.redo = [];
+  renderToolbar();
 }
 
 /** A next step for the failures with a known cause. */
@@ -411,9 +427,10 @@ async function reload() {
       if (opStep || step) setMsg(opInfo?.message ?? "");
       opStep = step;
     }
-    // per list: staging a file moves it, and a resolved conflict changes the WIP row
-    const key = JSON.stringify([log.map((c) => [c.hash, c.refs]), s.staged.length, s.unstaged.length, conflictCount(), rf.stashes.map((x) => x.hash)]);
-    if (key !== logKey) {
+    // the WIP row comes and goes with changes or an operation; its counts alone repaint just that row
+    const key = JSON.stringify([log.map((c) => [c.hash, c.refs]), !!(s.staged.length || s.unstaged.length || opInfo), rf.stashes.map((x) => x.hash)]);
+    if (key === logKey) paintWipRow();
+    else {
       logKey = key;
       commits = log;
       selected = selected.filter((x) => x === "WIP" || commits.some((c) => c.hash === x));
@@ -429,7 +446,12 @@ async function reload() {
       renderSide();
     }
     renderToolbar();
-    await renderPanel();
+    // a picked commit's panel changes only with the pick, or with HEAD for its Edit button
+    const panel = JSON.stringify([selected, stashView?.hash, headHash()]);
+    if ((selected[0] === "WIP" && !stashView) || panel !== panelKey) {
+      panelKey = panel;
+      await renderPanel();
+    }
     if (cur) await reloadDiff();
   } catch (e) {
     if (r !== repo) return;
@@ -558,7 +580,7 @@ async function switchTab(i: number, save = true) {
   commits = [];
   st = null;
   opInfo = null;
-  logKey = refsKey = opStep = "";
+  logKey = refsKey = panelKey = opStep = "";
   shown = [];
   chunks = [];
   $("rows").replaceChildren();
@@ -1199,6 +1221,11 @@ function lanesSvg(from: number, to: number) {
 // rows per chunk; the chunks within two of the view are drawn, a fast scroll fills one at a time
 const CHUNK = 40;
 
+/** Redraw the WIP row alone, if drawn: its counts change far more often than the graph. */
+function paintWipRow() {
+  const row = $("rows").querySelector(".row.wip");
+  if (row && shown[0]?.hash === "WIP") row.replaceWith(graphRow(shown[0], rowColors[0], laneX(laid.nodes[0])));
+}
 function fillChunk(k: number) {
   const from = k * CHUNK, to = Math.min(shown.length, from + CHUNK);
   chunks[k].innerHTML = lanesSvg(from, to);
@@ -1825,9 +1852,9 @@ async function renderPanel() {
   const view = panelCommit();
   if (!view) return;
   try {
-    const info = await run<{ message: string; files: Change[] }>("commit_info", { hash: view.c.hash, parent: view.c.parents[0] ?? "" });
+    const info = await runFixed<{ message: string; files: Change[] }>("commit_info", { hash: view.c.hash, parent: view.c.parents[0] ?? "" });
     if (n !== panelSeq) return;
-    const all = $("all-files").classList.contains("on") ? await run<string[]>("files", { at: view.c.hash }) : [];
+    const all = $("all-files").classList.contains("on") ? await runFixed<string[]>("files", { at: view.c.hash }) : [];
     if (n !== panelSeq) return;
     const msg = view.message ?? info.message;
     $("c-head").replaceChildren(...view.head);
@@ -1997,7 +2024,7 @@ function editor() {
   me.onDidFocusEditorText(() => (lastSide = "mod"));
   diffEditor.getOriginalEditor().onDidFocusEditorText(() => (lastSide = "orig"));
   diffEditor.onDidUpdateDiff(updateHunkBars);
-  me.onDidLayoutChange(updateHunkBars);
+  me.onDidLayoutChange(fitHunkBars);
   // the text layer covers view zones and Monaco hit-tests itself: match the mouse to a bar button by position
   const barButton = (e: Monaco.editor.IEditorMouseEvent) => {
     if (e.target.type !== monaco.editor.MouseTargetType.CONTENT_VIEW_ZONE) return undefined;
@@ -2028,16 +2055,20 @@ function lineActions(ed: Monaco.editor.ICodeEditor, orig: boolean) {
   const staging = () => !!cur && cur.kind !== "commit";
   const changed = (l: number) => hunks.some((c) => (orig ? c.oe && l >= c.os && l <= c.oe : c.me && l >= c.ms && l <= c.me));
   const act = () => (cur?.kind === "staged" ? "unstage" : "stage");
+  let at = -1;
   ed.onMouseMove((e) => {
     // a view zone reports the line next to it
     const zone = [monaco.editor.MouseTargetType.CONTENT_VIEW_ZONE, monaco.editor.MouseTargetType.GUTTER_VIEW_ZONE].includes(e.target.type);
     const l = zone ? 0 : (e.target.position?.lineNumber ?? 0);
+    if (l === at) return;
+    at = l;
     const on = staging() && changed(l);
     const cls = `line-act ${act()}`;
     hover.set(on ? [{ range: new monaco.Range(l, 1, l, 1), options: { glyphMarginClassName: cls, glyphMarginHoverMessage: { value: `${act() === "stage" ? "Stage" : "Unstage"} this line` } } }] : []);
   });
-  ed.onMouseLeave(() => hover.clear());
+  ed.onMouseLeave(() => ((at = -1), hover.clear()));
   ed.onMouseDown((e) => {
+    at = -1;
     const l = e.target.position?.lineNumber ?? 0;
     // the + spills from the glyph margin into the line decorations column
     const gutter = [monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN, monaco.editor.MouseTargetType.GUTTER_LINE_DECORATIONS];
@@ -2147,9 +2178,6 @@ function updateHunkBars() {
       for (const [act, label] of acts) {
         el.append(h("button", { className: `hunk-${act}`, textContent: label, onclick: () => (act === "revert" ? revertHunk(c) : applyLines(allLines([c]), act as "stage" | "unstage" | "discard")) }));
       }
-    // as wide as the visible text area, not the longest line, so the buttons stay in view
-    const lay = ed.getModifiedEditor().getLayoutInfo();
-    el.style.width = `${lay.contentWidth - lay.verticalScrollbarWidth}px`;
     // Monaco sets display on the zone node itself: the flex bar goes inside it
     return h("div", {}, el);
   };
@@ -2164,6 +2192,13 @@ function updateHunkBars() {
     bars.orig.forEach((id) => z.removeZone(id));
     bars.orig = split ? shown.map((c) => z.addZone({ afterLineNumber: c.oe ? c.os - 1 : c.os, heightInPx: 30, domNode: bar(c, false) })) : [];
   });
+  fitHunkBars();
+}
+
+/** Hunk bars as wide as the visible text area, not the longest line, so the buttons stay in view. */
+function fitHunkBars() {
+  const lay = editor().getModifiedEditor().getLayoutInfo();
+  editor().getContainerDomNode().querySelectorAll<HTMLElement>(".hunk-bar").forEach((b) => (b.style.width = `${lay.contentWidth - lay.verticalScrollbarWidth}px`));
 }
 
 async function fetchSides(kind: Kind, f: Change, c?: Commit): Promise<[Blob, Blob]> {
@@ -2247,6 +2282,8 @@ async function reloadDiff() {
   if (!cur || cur.dirty || !st) return;
   // the file may have moved between lists or changed status code
   if (cur.kind !== "commit") cur.f = st[cur.kind].find((x) => x.path === cur!.f.path) ?? cur.f;
+  // a commit's sides never change, the uncommitted row of a file history aside
+  else if (cur.c?.hash !== "WORKTREE") return paintOpenEditor();
   const [orig, mod] = await fetchSides(cur.kind, cur.f, cur.c);
   if (!cur || cur.dirty) return;
   paintOpenEditor();
@@ -2329,9 +2366,7 @@ async function discard(path: string, untracked: boolean, text?: string) {
   // a binary file has no text to put back
   if (before === undefined || after === undefined || before === after) return;
   const head = headHash(), branch = st?.branch ?? "";
-  t.undo.push({ op: "discard", branch: [branch, branch], head: [head, head], file: [path, before, after] });
-  t.redo = [];
-  renderToolbar();
+  recordUndo(t, { op: "discard", branch: [branch, branch], head: [head, head], file: [path, before, after] });
 }
 
 /* merge tool */
@@ -2540,10 +2575,10 @@ function paintMerge() {
     const ed = eds[side];
     eds.marks.get(ed)!.set(
       m.spans.flatMap((s, k) => {
-        const on = hasSide(conflicts[k], m.picks[k], side), [first, n] = s[side];
+        const on = hasSide(conflicts[k], m.picks[k], side), picked = pickedOf(m.picks[k], side), [first, n] = s[side];
         // each line: tinted once picked, a check on it, + or − under the mouse
         const lines = Array.from({ length: n }, (_, i) => {
-          const taken = m.picks[k].some(([x, j]) => x === side && j === i), hovered = m.hover === `${side}:${first + i}`;
+          const taken = picked.has(i), hovered = m.hover === `${side}:${first + i}`;
           const button = hovered ? (taken ? "m-line drop" : "m-line add") : taken ? "m-line on" : "";
           return line(first + i, { ...reg(side, taken), linesDecorationsClassName: button || undefined });
         });
@@ -2621,7 +2656,7 @@ function conflictBanner(f: Change) {
             ? [`${f.path} was added on ${cur} only.`, [["Keep the file", "take-current"], ["Delete the file", "take-incoming"]]]
             : f.conflict === "UA"
               ? [`${f.path} was added on ${inc} only.`, [["Keep the file", "take-incoming"], ["Delete the file", "take-current"]]]
-              : [`${f.path} cannot be merged line by line (binary or not UTF-8).`, [[`Take current (${cur})`, "take-current"], [`Take incoming (${inc})`, "take-incoming"]]];
+              : [`${f.path} cannot be merged line by line (binary, not UTF-8 or over 10 MB).`, [[`Take current (${cur})`, "take-current"], [`Take incoming (${inc})`, "take-incoming"]]];
   const close = () => ($("banner").hidden = true);
   $("banner").replaceChildren(
     h("span", { textContent: text }),
@@ -2700,23 +2735,26 @@ async function showRev(i: number) {
   await closeDiff(true);
   histPane(true);
   $("d-path").textContent = `${f.path} · ${short(c.hash)}`;
-  const [blob, blame] = await Promise.all([
-    run<Blob>("blob", { at: c.hash, path: f.path }),
-    run<string>("blame", { at: c.hash, path: f.path }).catch(() => ""),
-  ]).catch((e) => (say(String(e), true), [null, ""] as const));
+  // the file shows first, its blame (slower) fills the gutter when it comes
+  const blame = run<string>("blame", { at: c.hash, path: f.path }).catch(() => "");
+  const blob = await run<Blob>("blob", { at: c.hash, path: f.path }).catch((e) => (say(String(e), true), null));
   if (hist !== m || m.at !== i || !blob) return;
-  m.blame = parseBlame(blame) as Blamed[];
-  // git's zero hash for uncommitted lines: the WIP row
-  const wip = m.blame.find((b) => b && /^0+$/.test(b.hash));
-  if (wip) Object.assign(wip, { hash: "WORKTREE", summary: "Uncommitted changes" });
+  m.blame = [];
   const ed = historyEditor(), view = ed.saveViewState(), old = ed.getModel();
-  const text = blob.binary ? "Binary or non-UTF-8 file" : blob.exists ? blob.text : `Deleted in ${short(c.hash)}`;
+  const text = blob.binary ? "Binary, non-UTF-8 or over 10 MB" : blob.exists ? blob.text : `Deleted in ${short(c.hash)}`;
   ed.setModel(monaco.editor.createModel(text, undefined, monaco.Uri.from({ scheme: "krill", path: `/${++seq}/h/${f.path}` })));
   old?.dispose();
   // another version of the same file: stay around the same lines
   if (view) ed.restoreViewState(view);
   paintBlame();
   reveal();
+  const blamed = parseBlame(await blame) as Blamed[];
+  if (hist !== m || m.at !== i) return;
+  // git's zero hash for uncommitted lines: the WIP row
+  const wip = blamed.find((b) => b && /^0+$/.test(b.hash));
+  if (wip) Object.assign(wip, { hash: "WORKTREE", summary: "Uncommitted changes" });
+  m.blame = blamed;
+  paintBlame();
 }
 
 /** The diff's pane holds the file view too: the bar stays, with the diff options dimmed. */
@@ -3043,10 +3081,15 @@ $("dialog").onclick = (e) => {
 $("tab-q").onkeydown = (e) => {
   if (e.key === "Enter") $("tab-hits").querySelector<HTMLElement>(".tab-hit")?.click();
 };
+let findIdle = 0;
 $("find-q").oninput = () => {
-  hit = -1;
-  markHits();
-  findStep(1);
+  clearTimeout(findIdle);
+  // a jump runs git: wait for a pause in the typing
+  findIdle = setTimeout(() => {
+    hit = -1;
+    markHits();
+    findStep(1);
+  }, 150);
 };
 $("find-q").onkeydown = (e) => {
   if (e.key === "Enter") findStep(e.shiftKey ? -1 : 1);

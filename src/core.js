@@ -79,17 +79,23 @@ export const pickedLines = (c, pick) => (pick.length ? pick.flatMap(([s, i]) => 
 
 // a side's line indexes, -1 alone for an empty side
 const sideLines = (c, side) => ((side === "a" ? c.cur : c.inc).length ? (side === "a" ? c.cur : c.inc).map((_, i) => i) : [-1]);
-const picked = (pick, side, i) => pick.some(([s, j]) => s === side && j === i);
+/** The line indexes of `side` in `pick`, as a set: a big conflict asks about each of its lines. */
+export const pickedOf = (pick, side) => new Set(pick.flatMap(([s, j]) => (s === side ? [j] : [])));
 
 /** Whether every line of `side` is in `pick`. */
-export const hasSide = (c, pick, side) => sideLines(c, side).every((i) => picked(pick, side, i));
+export const hasSide = (c, pick, side) => {
+  const on = pickedOf(pick, side);
+  return sideLines(c, side).every((i) => on.has(i));
+};
 
 /** `pick` with `side`'s missing lines appended, or without any of its lines when all were in. */
-export const toggleSide = (c, pick, side) =>
-  hasSide(c, pick, side) ? pick.filter(([s]) => s !== side) : [...pick, ...sideLines(c, side).filter((i) => !picked(pick, side, i)).map((i) => [side, i])];
+export function toggleSide(c, pick, side) {
+  const on = pickedOf(pick, side);
+  return hasSide(c, pick, side) ? pick.filter(([s]) => s !== side) : [...pick, ...sideLines(c, side).filter((i) => !on.has(i)).map((i) => [side, i])];
+}
 
 /** `pick` with line `i` of `side` appended, or dropped when it was in. */
-export const toggleLine = (pick, side, i) => (picked(pick, side, i) ? pick.filter(([s, j]) => s !== side || j !== i) : [...pick, [side, i]]);
+export const toggleLine = (pick, side, i) => (pickedOf(pick, side).has(i) ? pick.filter(([s, j]) => s !== side || j !== i) : [...pick, [side, i]]);
 
 /** The current (a) and incoming (b) texts, the output for `picks`, and each conflict's [first line, count] in all three. */
 export function mergeSides(chunks, picks) {

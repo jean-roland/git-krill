@@ -493,7 +493,9 @@ fn blame(repo: String, at: String, path: String) -> Result<String, String> {
     git(&repo, &["blame", "--porcelain", rev(&at)?, "--", &path])
 }
 
-/// \brief File content `at` a commit, "INDEX" or "WORKTREE".
+const MAX_TEXT: usize = 10 << 20;
+
+/// \brief File content `at` a commit, "INDEX" or "WORKTREE"; past MAX_TEXT bytes it counts as binary.
 #[tauri::command(async)]
 fn blob(repo: String, at: String, path: String) -> Result<Blob, String> {
     let bytes = match at.as_str() {
@@ -502,6 +504,7 @@ fn blob(repo: String, at: String, path: String) -> Result<Blob, String> {
             match std::fs::symlink_metadata(&p) {
                 // git stores the link target, not what it points to
                 Ok(m) if m.file_type().is_symlink() => std::fs::read_link(&p).ok().map(|t| t.to_string_lossy().into_owned().into_bytes()),
+                Ok(m) if m.len() > MAX_TEXT as u64 => return Ok(Blob { text: String::new(), exists: true, binary: true }),
                 Ok(_) => std::fs::read(&p).ok(),
                 Err(_) => None,
             }
@@ -512,6 +515,10 @@ fn blob(repo: String, at: String, path: String) -> Result<Blob, String> {
     let Some(bytes) = bytes else {
         return Ok(Blob { text: String::new(), exists: false, binary: false });
     };
+    // too big to read in a diff, and each copy on the way to the window costs as much
+    if bytes.len() > MAX_TEXT {
+        return Ok(Blob { text: String::new(), exists: true, binary: true });
+    }
     // non-UTF-8 counts as binary: a lossy round trip would corrupt it on save/stage
     match String::from_utf8(bytes) {
         Ok(text) if !text.contains('\0') => Ok(Blob { text, exists: true, binary: false }),
