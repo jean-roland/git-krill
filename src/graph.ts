@@ -238,11 +238,11 @@ const stashOf = (hash: string) => refs.stashes.find((s) => s.hash === hash);
 function stashMenu(s: Stash): MenuItem[] {
   return [
     { title: s.subject, icon: ICONS.stash },
-    ["Apply stash", () => gitOp("stash-apply", s.name)],
-    ["Pop stash", () => gitOp("stash-pop", s.name)],
-    ["Drop stash", () => ask(`Drop stash "${s.subject}"? It cannot be undone.`, "Drop").then((ok) => ok && gitOp("stash-drop", s.name))],
+    ["Apply", () => gitOp("stash-apply", s.name)],
+    ["Pop", () => gitOp("stash-pop", s.name)],
+    ["Drop", () => ask(`Drop stash "${s.subject}"? It cannot be undone.`, "Drop").then((ok) => ok && gitOp("stash-drop", s.name))],
     null,
-    ["Edit stash message", () => dialog("Edit stash message", [["Message", s.subject]], "Save", ([m]) => m && gitOp("stash-message", [s.name, m]))],
+    ["Edit message", () => dialog("Edit stash message", [["Message", s.subject]], "Save", ([m]) => m && gitOp("stash-message", [s.name, m]))],
     hideItem(s.hash),
   ];
 }

@@ -69,11 +69,13 @@ function fileMenu(f: Change, kind: DiffSource, c?: Commit): MenuItem[] {
             () => ask(`Overwrite ${f.path} in the working tree with its version at ${short(c.hash)}?`, "Overwrite").then((ok) => ok && gitOp("restore-file", [c.hash, f.path])),
           ],
         ] as MenuItem[])
-      : []),
-    [
-      "Delete file",
-      () => ask(`Delete ${f.path} from the working tree?`, "Delete").then((ok) => (ok ? run("delete_file", { path: f.path }).then(refresh, (e) => say(String(e), true)) : undefined)),
-    ],
+      : // only for work in progress: from a commit's list it would delete today's file, not that commit's
+        ([
+          [
+            "Delete file",
+            () => ask(`Delete ${f.path} from the working tree?`, "Delete").then((ok) => (ok ? run("delete_file", { path: f.path }).then(refresh, (e) => say(String(e), true)) : undefined)),
+          ],
+        ] as MenuItem[])),
   ];
 }
 
