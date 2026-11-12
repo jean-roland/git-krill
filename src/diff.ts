@@ -412,6 +412,12 @@ function paintOpenEditor() {
   });
 }
 
+/** A first diff of two tiny models, owned like any other so the next one frees it. */
+export function warmDiff() {
+  diffView = editor().createViewModel({ original: newModel("a", "a"), modified: newModel("b", "b") });
+  editor().setModel(diffView);
+}
+
 function setModels(keepView: boolean) {
   if (!diffFile) return;
   const ed = editor();

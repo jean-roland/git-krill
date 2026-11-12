@@ -1,6 +1,7 @@
 // The commit graph, the sidebar of refs, their menus and the find bar.
 import { invoke } from "@tauri-apps/api/core";
 import { layoutGraph } from "./core.js";
+import { closeRebase, ontoRange, openRebase, rebaseRange } from "./rebase";
 import { Commit, LOG_LIMIT, Stash, Status, Worktree, active, commits, dropEdits, fakeCommit, findRef, gitOp, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, newTab, opInfo, openRepo, paintRepoName, pull, push, redraw, refs, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
 import { $, COLORS, ICONS, MenuItem, ask, askName, basename, copy, dateFmt, dialog, h, ico, input, popup, say, short, spriteId, store, svg } from "./ui";
 import { dropTerm } from "./terminal";
@@ -248,6 +249,7 @@ function stashMenu(s: Stash): MenuItem[] {
 
 /** Empty the graph, for another tab. */
 export function resetGraph() {
+  closeRebase();
   shown = [];
   chunks = [];
   $("rows").replaceChildren();
@@ -504,12 +506,13 @@ function checkoutBranch(name: string, remote: boolean) {
 
 /** Checkout, merge and rebase for branch `name` (a remote one as "remote/branch"); none for the checked out one. */
 function refMenu(name: string, remote: boolean): MenuItem[] {
-  const branch = status?.branch || "HEAD";
+  const branch = status?.branch || "HEAD", sha = findRef(remote ? `refs/remotes/${name}` : `refs/heads/${name}`)?.hash ?? "";
   if (!remote && name === status?.branch) return [];
   return [
     ["Checkout", () => checkoutBranch(name, remote)],
     [`Merge into ${branch}`, () => gitOp("merge", name)],
     [`Rebase ${branch} onto this branch`, () => gitOp("rebase", name)],
+    [`Interactive rebase ${branch} onto this branch`, () => openRebase(sha, ontoRange(sha))],
   ];
 }
 
@@ -520,13 +523,20 @@ function commitMenu(e: MouseEvent, c: Commit) {
   const mine = inHistory(c.hash, commits.find(isHead)?.hash ?? "");
   // a reset undoes the branch's own commits or catches up with its remote one, nothing else
   const up = findRef(`refs/heads/${status?.branch}`)?.upstream, upHash = up ? (findRef(`refs/remotes/${up}`)?.hash ?? "") : "";
-  const resettable = mine || (!!upHash && inHistory(c.hash, upHash));
+  const resettable = mine || (!!upHash && inHistory(c.hash, upHash)), range = mine && !isHead(c) ? rebaseRange(c) : null;
   const [newBranch, newTag] = createItems(c.hash);
   popup(e, [
     { title: `${short(c.hash)} ${c.subject}`, icon: ICONS.commit },
     ["Checkout (detached)", () => gitOp("checkout", c.hash)],
-    ...(mine ? [] : ([[`Rebase ${branch} onto this commit`, () => gitOp("rebase", c.hash)], ["Cherry-pick", () => gitOp("cherry-pick", c.hash)]] as MenuItem[])),
+    ...(mine
+      ? []
+      : ([
+          [`Rebase ${branch} onto this commit`, () => gitOp("rebase", c.hash)],
+          [`Interactive rebase ${branch} onto this commit`, () => openRebase(c.hash, ontoRange(c.hash))],
+          ["Cherry-pick", () => gitOp("cherry-pick", c.hash)],
+        ] as MenuItem[])),
     ...(resettable ? ([[`Reset ${branch} to this commit`, resetItems(c.hash)]] as MenuItem[]) : []),
+    ...(mine && !isHead(c) ? ([[range ? `Interactive rebase of the ${range.length} commits above` : "Interactive rebase from here", () => openRebase(c.hash, range)]] as MenuItem[]) : []),
     null,
     newBranch,
     ["Revert commit", () => gitOp("revert", c.hash)],

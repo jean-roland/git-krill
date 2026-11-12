@@ -68,6 +68,14 @@
             <div id="cols"><span class="refs">Branch / Tag</span><span class="g-col">Graph</span><span class="subject">Commit message</span></div>
             <div id="rows"></div>
           </div>
+          <div id="rebase" hidden>
+            <div class="bar"><b>Interactive rebase</b><span id="rebase-what"></span><button class="icon" id="rebase-close" title="Close (Esc)"><svg data-icon="close"></svg></button></div>
+            <div id="rebase-rows"></div>
+            <div class="foot">
+              <small><b>P</b> pick · <b>R</b> reword · <b>S</b> squash · <b>D</b> drop · <b>Ctrl+↑ ↓</b> move</small>
+              <button id="rebase-reset">Reset</button><button id="rebase-cancel" class="bad">Cancel</button><button id="rebase-start" class="primary">Start rebase</button>
+            </div>
+          </div>
           <div id="diff" hidden>
             <div class="bar">
               <span id="diff-path"></span>

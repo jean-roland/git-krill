@@ -3,6 +3,7 @@ import { Change, Commit, commits, fakeCommit, gitOp, headHash, isHead, opInfo, r
 import { $, ICONS, MenuItem, ask, avatar, basename, copy, dateFmt, h, ico, input, onCtrlEnter, plural, popup, say, shaLink, short, store, svg } from "./ui";
 import { DiffSource, confirmDiscard, diffFile, merging, openDiff, openHistory } from "./diff";
 import { jumpTo, linkRemote, webUrl } from "./graph";
+import { planOpen } from "./rebase";
 
 type Dir = { dirs: Map<string, Dir>; files: Change[] };
 export const SORTS: Record<string, string> = { "": "A–Z", desc: "Z–A", status: "Status" };
@@ -15,9 +16,9 @@ const foldersFlipped = new Set<string>();
 // each file list's files in display order, folded ones included, and how to unfold one
 export const fileLists = new Map<HTMLElement, { order: Change[]; reveal: (path: string) => void }>();
 
-const joinMsg = (summary: string, desc: string) => (desc.trim() ? `${summary.trim()}\n\n${desc.trim()}` : summary.trim());
+export const joinMsg = (summary: string, desc: string) => (desc.trim() ? `${summary.trim()}\n\n${desc.trim()}` : summary.trim());
 
-function splitMsg(msg: string) {
+export function splitMsg(msg: string) {
   const nl = msg.indexOf("\n");
   return nl < 0 ? [msg, ""] : [msg.slice(0, nl), msg.slice(nl).trim()];
 }
@@ -30,7 +31,7 @@ export function setMsg(msg: string) {
 }
 
 /** Characters left before the 72 column summary limit. */
-function countLeft(summary: HTMLInputElement, out: HTMLElement) {
+export function countLeft(summary: HTMLInputElement, out: HTMLElement) {
   const left = 72 - summary.value.length;
   out.textContent = String(left);
   out.classList.toggle("over", left < 0);
@@ -308,7 +309,7 @@ function editMessage(c: Commit, msg: string) {
   $("commit-msg").replaceChildren(
     h("div", { className: "summary" }, summary, left),
     desc,
-    h("div", { className: "edit-btns" }, h("button", { className: "good", textContent: "Update Message", onclick: update }), h("button", { className: "bad", textContent: "Cancel Amend", onclick: cancel })),
+    h("div", { className: "edit-btns" }, h("button", { textContent: "Cancel", onclick: cancel }), h("button", { className: "primary", textContent: "Update message", onclick: update })),
   );
   summary.focus();
 }
@@ -357,14 +358,15 @@ async function renderCommitDetails(n: number) {
     if (rewording !== view.c.hash) {
       rewording = "";
       const [summary, desc] = splitMsg(msg);
-      const reword = view.author && isHead(view.c) ? () => editMessage(view.c, msg) : null;
+      // the open rebase plan owns the messages until it runs: Edit stays, greyed
+      const locked = planOpen(), reword = view.author && isHead(view.c) ? () => editMessage(view.c, msg) : null;
       $("commit-msg").classList.remove("editing");
       $("commit-msg").replaceChildren(
         h("div", { id: "commit-summary", textContent: summary }),
         h("div", { id: "commit-desc", textContent: desc }),
-        ...(reword ? [h("button", { className: "edit", textContent: "Edit", title: "Reword (double-click)", onclick: reword })] : []),
+        ...(reword ? [h("button", { className: `edit${locked ? " off" : ""}`, textContent: "Edit", title: locked ? "Close the interactive rebase to edit here" : "Reword (double-click)", onclick: reword })] : []),
       );
-      $("commit-msg").ondblclick = reword;
+      $("commit-msg").ondblclick = locked ? null : reword;
     }
     $("commit-author").replaceChildren(...(view.author ? authorBlock(view.author, info.email, info.sign) : []));
     $("commit-stats").replaceChildren(...fileStats(info.files));

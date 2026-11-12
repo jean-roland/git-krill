@@ -774,6 +774,47 @@ fn stash_restore(repo: &str, verb: &str, name: &str) -> Result<String, String> {
     }
 }
 
+/// \brief A shell word: `s` in single quotes.
+fn sh_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', r"'\''"))
+}
+
+/// \brief `git rebase -i` onto `base` following krill's plan: `steps` is JSON [verb, hash, message?] oldest first,
+/// the verb pick, fixup or drop; a message rewrites the commit made by that step and the ones before it since the last pick.
+fn rebase_interactive(repo: &str, base: &str, steps: &str) -> Result<String, String> {
+    let steps: Vec<Vec<String>> = serde_json::from_str(steps).map_err(|e| e.to_string())?;
+    // the messages are read as the rebase goes, after a conflict too: they stay until the next plan
+    let dir = git_dir(repo)?.join("krill-rebase");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let mut todo = String::new();
+    for (i, step) in steps.iter().enumerate() {
+        let [verb, hash, msg @ ..] = &step[..] else { return Err("bad rebase step".into()) };
+        if !matches!(verb.as_str(), "pick" | "fixup" | "drop") {
+            return Err(format!("bad rebase step {verb}"));
+        }
+        todo += &format!("{verb} {}\n", not_option(hash)?);
+        if let [msg] = msg {
+            let file = dir.join(format!("{i}.msg"));
+            std::fs::write(&file, msg).map_err(|e| e.to_string())?;
+            todo += &format!("exec git commit --amend --only -q -F {}\n", sh_quote(&file.to_string_lossy()));
+        }
+    }
+    let plan = dir.join("todo");
+    std::fs::write(&plan, todo).map_err(|e| e.to_string())?;
+    let mut git = git_command(repo, &["rebase", "-i", "--autostash", not_option(base)?], true);
+    // git hands its own todo to this "editor": ours replaces it
+    git.env("GIT_SEQUENCE_EDITOR", format!("cp {}", sh_quote(&plan.to_string_lossy())));
+    git.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let child = git.spawn().map_err(|e| e.to_string())?;
+    let out = report(tokio::task::block_in_place(|| child.wait_with_output()).map_err(|e| e.to_string())?);
+    // done in one go: nothing will read the messages
+    if out.is_ok() && !git_dir(repo)?.join("rebase-merge").exists() {
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    out
+}
+
 /// \brief Mark every conflicted file resolved, as the work tree has it.
 fn resolve_all(repo: &str) -> Result<String, String> {
     let files = git(repo, &["diff", "--name-only", "--diff-filter=U", "-z"])?;
@@ -794,6 +835,7 @@ fn git_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         "take-current" => return take_side(&repo, "2", &arg),
         "take-incoming" => return take_side(&repo, "3", &arg),
         "resolve-all" => return resolve_all(&repo),
+        "rebase-interactive" => return rebase_interactive(&repo, &arg, &arg2),
         "stash-apply" => return stash_restore(&repo, "apply", &arg),
         "stash-pop" => return stash_restore(&repo, "pop", &arg),
         // in the background: a key that needs its passphrase fails quietly instead of asking

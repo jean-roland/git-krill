@@ -1,7 +1,8 @@
 // Entry: wires the buttons and keys to the features, then reopens the tabs.
 import { invoke } from "@tauri-apps/api/core";
 import "@xterm/xterm/css/xterm.css";
-import { Mode, closeDiff, closeHistory, closeMerge, diffEditor, diffFile, editor, goConflict, hist, histEd, histView, loadMerge, loadMonaco, merging, monaco, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setMode, showRev } from "./diff";
+import { Mode, closeDiff, closeHistory, closeMerge, diffEditor, diffFile, editor, goConflict, hist, histEd, histView, loadMerge, loadMonaco, merging, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setMode, showRev, warmDiff } from "./diff";
+import { rebaseKey } from "./rebase";
 import { SORTS, amending, commit, conflictCount, emptyStep, fileLists, filterFiles, foldAll, getMsg, openFile, paintFileOpts, renderCommitBtn, renderPanel, setMsg } from "./panel";
 import { $, ask, closeDialog, hideBanner, input, onCtrlEnter, pickDir, say, store } from "./ui";
 import { closeFind, drawRows, findStep, findTyped, openFind, paintSelection, showRow, shown } from "./graph";
@@ -208,6 +209,8 @@ addEventListener("keydown", (e) => {
   else if (e.ctrlKey && e.code === "Tab") (e.preventDefault(), switchTab((active + (e.shiftKey ? tabs.length - 1 : 1)) % tabs.length));
   // the shell owns every other key
   else if ((e.target as HTMLElement).closest?.("#term")) return;
+  // the rebase plan's keys, unless a dialog, a menu, a diff over it or a field has them
+  else if ($("dialog").hidden && $("menu").hidden && $("diff").hidden && !(e.target as HTMLElement).closest?.("select, input, textarea") && rebaseKey(e)) e.preventDefault();
   else if (e.key === "F5") (e.preventDefault(), refresh());
   else if (e.ctrlKey && e.shiftKey && key === "t") (e.preventDefault(), reopenTab());
   else if (e.ctrlKey && key === "t") (e.preventDefault(), addTab());
@@ -232,7 +235,7 @@ addEventListener("keydown", (e) => {
 // warm Monaco and its diff worker up front: a cold first diff took ~0.5 s
 setTimeout(async () => {
   await loadMonaco();
-  if (!diffEditor) editor().setModel({ original: monaco.editor.createModel("a"), modified: monaco.editor.createModel("b") });
+  if (!diffEditor) warmDiff();
 }, 1000);
 
 restoreTabs();

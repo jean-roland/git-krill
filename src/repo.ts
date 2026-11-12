@@ -26,7 +26,7 @@ export type Tab = { repo: string; selected: string[]; msg: string; scroll: numbe
 export const LOG_LIMIT = 3000;
 // ops that move HEAD, walked back with a reset or a checkout
 const UNDOABLE = new Set([
-  "commit", "amend", "reword", "checkout", "merge", "rebase", "cherry-pick", "pull",
+  "commit", "amend", "reword", "checkout", "merge", "rebase", "rebase-interactive", "cherry-pick", "pull",
   "branch-create", "reset-soft", "reset-mixed", "reset-hard", "revert",
 ]);
 const KEEP_INDEX = new Set(["commit", "amend", "reword", "reset-soft", "reset-mixed"]);
@@ -96,7 +96,7 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
     else if (remote.length) toast("Message from the remote", remote.join("\n"), "info");
   } catch (e) {
     const msg = String(e);
-    const what = name === "push-upstream" ? "Push" : name[0].toUpperCase() + name.slice(1).replace(/-/g, " ");
+    const what = name === "push-upstream" ? "Push" : name === "rebase-interactive" ? "Interactive rebase" : name[0].toUpperCase() + name.slice(1).replace(/-/g, " ");
     const onBranch = /^(push|pull)/.test(name) && branch ? `: ${branch}` : "";
     // stopping on conflicts is no failure: the WIP panel takes over
     const conflicts = msg.split("\n").filter((l) => l.startsWith("CONFLICT"));

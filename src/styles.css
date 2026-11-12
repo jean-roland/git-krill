@@ -506,8 +506,6 @@ textarea.msg-in { height: 104px; resize: vertical; }
 #commit-msg:hover .edit { visibility: visible; }
 .edit-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .edit-btns button { padding: 6px; }
-.edit-btns .good { background: color-mix(in srgb, var(--add) 22%, transparent); border-color: var(--add); color: var(--text); }
-.edit-btns .bad { background: color-mix(in srgb, var(--del) 22%, transparent); border-color: var(--del); color: var(--text); }
 /* brighter than the text around it: it can be clicked */
 .sha { cursor: pointer; color: var(--text); }
 .sha:hover { color: var(--accent); text-decoration: underline; }
@@ -535,9 +533,33 @@ textarea.msg-in { height: 104px; resize: vertical; }
 /* diff */
 /* above the graph's sticky column titles */
 #diff { position: absolute; inset: 0; z-index: 10; display: flex; flex-direction: column; background: var(--bg); }
+/* the interactive rebase plan, over the graph; a diff opened from the panel goes over it */
+#rebase { position: absolute; inset: 0; z-index: 10; display: flex; flex-direction: column; background: var(--bg); }
+#rebase-what { margin-right: auto; color: var(--dim); font-size: 13px; }
+#rebase-rows { flex: 1; overflow: auto; padding: 8px 10px; }
+.rb-row { display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 8px; border-radius: 6px; cursor: pointer; user-select: none; }
+.rb-row.drag { cursor: grabbing; outline: 1px dashed var(--accent); }
+.rb-row:hover { background: var(--hover); }
+.rb-row.sel { background: var(--sel); }
+.rb-act { width: 96px; display: flex; align-items: center; justify-content: space-between; padding: 2px 6px 2px 10px; font-size: 13px; }
+.rb-act svg { width: 14px; height: 14px; }
+.rb-row.pick .rb-act { border-color: var(--add); }
+.rb-row.reword .rb-act { border-color: var(--mod); }
+/* violet: the selected row is already teal */
+.rb-row.squash .rb-act { border-color: #b18cff; }
+/* the arrow into the commit below, the avatar shifted as it folds in */
+.rb-into { flex: none; display: inline-flex; color: #b18cff; }
+.rb-into svg { width: 19px; height: 19px; stroke-width: 2.6; }
+.rb-row.drop .rb-act { border-color: var(--del); }
+.rb-subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rb-row.squash .rb-subject, .rb-row.drop .rb-subject { color: var(--dim); }
+.rb-row.drop .rb-subject { text-decoration: line-through; }
+.rb-row small { color: var(--dim); }
+#rebase > .foot { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--border); }
+#rebase > .foot small { margin-right: auto; color: var(--dim); }
 .bar .icon { padding: 2px 5px; line-height: 0; }
 .bar .icon svg { width: 15px; height: 15px; }
-#diff-close { border: none; background: none; }
+#diff-close, #rebase-close { border: none; background: none; }
 .bar {
   display: flex;
   align-items: center;

@@ -35,6 +35,8 @@ export const ICONS: Record<string, string> = {
   up: "M12 19V5m-6 6 6-6 6 6",
   down: "M12 5v14m-6-6 6 6 6-6",
   caret: "m6 9 6 6 6-6",
+  // in from the right, then down into the commit below
+  into: "M20 6H9v13m-4-4 4 4 4-4",
   load: "M12 3v12m-5-5 5 5 5-5M5 21h14",
   eyeOff: "M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.1 4M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a10 10 0 0 0 5.4-1.6",
 };
