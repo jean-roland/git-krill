@@ -296,7 +296,7 @@ function renderWip() {
   renderCommitBtn();
   fileList($("unstaged"), [...conflicts, ...status.unstaged.filter(clean)], (f) => openDiff("unstaged", f), [
     ["Mark resolved", (f) => gitOp("stage", f.path), isConflict],
-    ["Discard", confirmDiscard, clean],
+    // no Discard here: a slip next to Stage would cost work; it stays in the menu
     ["Stage", (f) => gitOp("stage", f.path), clean],
   ], (f) => fileMenu(f, "unstaged"));
   fileList($("staged"), status.staged, (f) => openDiff("staged", f), [["Unstage", (f) => gitOp("unstage", f.path)]], (f) => fileMenu(f, "staged"));

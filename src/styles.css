@@ -438,6 +438,7 @@ body.home main { grid-template-columns: 1fr; }
   height: 28px;
   cursor: pointer;
   white-space: nowrap;
+  position: relative;
 }
 .file:hover { background-color: var(--hover); }
 .file.sel { background-color: var(--sel); }
@@ -446,7 +447,11 @@ body.home main { grid-template-columns: 1fr; }
 .file .dir { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--dim); }
 .file .name { flex: none; }
 .file.same .name { color: var(--dim); }
-.file button { display: none; padding: 0 8px; font-size: 13px; }
+/* floats over the row's end: showing it does not squeeze the path */
+.file button { display: none; position: absolute; right: 10px; padding: 0 8px; font-size: 13px; font-weight: 600; }
+/* coloured like the list's own "all" button */
+#unstaged .file button { color: var(--add); }
+#staged .file button { color: var(--del); }
 .file:hover button { display: inline-block; }
 .code { flex: none; width: 16px; height: 16px; }
 .code svg, #commit-stats svg { width: 16px; height: 16px; stroke-width: 2.2; vertical-align: -2px; }
