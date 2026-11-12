@@ -105,10 +105,10 @@ export function renderSide() {
   $("sidebar").replaceChildren(
     section("local", "Local", local, true, "local"),
     section("remote", "Remote", [...remotes].map(([name, items]) => remoteSection(section(`remote/${name}`, name, items, false, "globe"), name)), true, "remote"),
-    // the checkout alone is no list of worktrees
-    section("worktrees", "Worktrees", worktrees.length > 1 ? worktrees : [], false, "worktree"),
     section("tags", "Tags", tags, false, "tag"),
     section("stashes", "Stashes", stashes, false, "stash"),
+    // optional sections, last and only when there is something: the checkout alone is no list of worktrees
+    ...(worktrees.length > 1 ? [section("worktrees", "Worktrees", worktrees, false, "worktree")] : []),
   );
 }
 
