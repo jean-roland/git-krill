@@ -111,6 +111,8 @@ header {
 .tool.caret { min-width: 0; align-self: stretch; justify-content: center; margin-left: -2px; padding: 0 2px; }
 .tool.caret svg { width: 12px; height: 12px; }
 /* ahead/behind count as a badge on the icon */
+/* an empty one stays out of the column too, else its gap makes the toolbar 3px taller */
+.tool small:empty { display: none; }
 .tool small:not(:empty) {
   position: absolute;
   top: 1px;
