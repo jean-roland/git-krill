@@ -520,6 +520,9 @@ textarea.msg-in { height: 104px; resize: vertical; }
 #commit-author .sig { display: inline-block; margin-left: 8px; padding: 0 7px; border: 1px solid color-mix(in srgb, currentColor 55%, transparent); border-radius: 10px; font-size: 12px; line-height: 17px; }
 #commit-author .sig.good { color: var(--add); }
 #commit-author .sig.warn { color: color-mix(in srgb, var(--mod) 60%, var(--del)); }
+/* a pink red as bright as Unverified's amber: bad too, but not the same */
+#commit-author .sig.unsigned { color: #ff7eb6; }
+#commit-author .sig.unknown { border-style: dashed; }
 .avatar { flex: none; width: 36px; height: 36px; border-radius: 50%; }
 .avatar svg { display: block; width: 100%; height: 100%; }
 #sprites { position: absolute; }

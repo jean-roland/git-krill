@@ -244,7 +244,7 @@ function authorBlock(c: Commit, email: string, sign: string) {
   return [avatar(c.author), h("div", {}, c.author, mail, h("small", {}, `authored ${dateFmt.format(c.time * 1000)}`, ...signBadge(c.hash, sign)))];
 }
 
-// git's %G? letter of an unsigned commit: unverified without asking, like a forge in vigilant mode
+// git's %G? letter of an unsigned commit: said without asking the server
 const UNSIGNED = "N";
 // the host's verdicts by commit, asked once: "<host> true valid", or "" when gh cannot ask
 const verdicts = new Map<string, Promise<string>>();
@@ -266,14 +266,14 @@ function verdict(hash: string) {
 /** A pill for the commit's signature: grey while the remote server is asked, then what it says. */
 function signBadge(hash: string, sign: string) {
   if (!sign) return [];
-  if (sign === UNSIGNED) return [h("span", { className: "sig warn", textContent: "Unverified", title: "Commit isn't signed" })];
-  const b = h("span", { className: "sig", textContent: "Verifying", title: "Asking the remote server about the commit signature" });
+  if (sign === UNSIGNED) return [h("span", { className: "sig unsigned", textContent: "Unsigned", title: "Commit isn't signed" })];
+  const b = h("span", { className: "sig unknown", textContent: "Verifying", title: "Asking the remote server about the commit signature" });
   verdict(hash).then((v) => {
     const ok = v.split(" ")[1];
     const [cls, text, title] =
       ok === "true" ? ["good", "Verified", "Remote server verified the commit signature"]
       : ok === "false" ? ["warn", "Unverified", "Remote server couldn't verify the commit signature"]
-      : ["", "Not checked", "Remote server couldn't be asked about the commit signature"];
+      : ["unknown", "Not checked", "Remote server couldn't be asked about the commit signature"];
     Object.assign(b, { className: `sig ${cls}`, textContent: text, title });
   });
   return [b];
