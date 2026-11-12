@@ -38,6 +38,8 @@ export const ICONS: Record<string, string> = {
   // in from the right, then down into the commit below
   into: "M20 6H9v13m-4-4 4 4 4-4",
   load: "M12 3v12m-5-5 5 5 5-5M5 21h14",
+  skip: "M5 5l10 7-10 7zM19 5v14",
+  save: "M5 3h11l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM7 3v5h8V3M7 21v-7h10v7",
   eyeOff: "M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.1 4M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a10 10 0 0 0 5.4-1.6",
 };
 export const colorIndex = (s: string) => [...s].reduce((a, ch) => a + ch.charCodeAt(0), 0) % COLORS.length;
@@ -140,6 +142,8 @@ export function say(msg: string, err = false) {
 }
 
 export const svg = (d: string) => `<svg viewBox="0 0 24 24"><path d="${d}"/></svg>`;
+/** Set a button's icon and text. */
+export const label = (b: HTMLElement, d: string, text: string) => ((b.innerHTML = svg(d)), b.append(text));
 
 /** A next step for the failures with a known cause. */
 export function hint(msg: string) {

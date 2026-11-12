@@ -68,7 +68,7 @@ button.bad { color: var(--del); }
 /* line icons, stroked; no weight, so the rules below can set their stroke */
 :where(svg[viewBox="0 0 24 24"]) { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 /* an icon before a button's text */
-.toggle svg, #diff-history svg, #open-editor svg, #m-reset svg, #m-save svg, .force-load svg { width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; }
+.toggle svg, #diff-history svg, #open-editor svg, #m-reset svg, #m-save svg, .force-load svg, .foot svg, #diff-save svg, #commit-btn svg, #op-btns svg, .edit-btns svg, #commit-msg .edit svg, .load-more svg { width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; }
 
 /* header: repository, branch, toolbar */
 header {
@@ -91,7 +91,8 @@ header {
 #repo-ico { margin-right: -2px; color: var(--dim); }
 #branch-ico { margin: 0 -2px 0 4px; padding: 2px 0 2px 12px; border-left: 1px solid color-mix(in srgb, var(--dim) 50%, transparent); color: var(--accent); }
 #branch { min-width: 0; max-width: 340px; overflow: hidden; text-overflow: ellipsis; font-weight: 600; font-size: 14px; color: var(--accent); }
-#opstate { color: var(--mod); cursor: pointer; }
+#opstate { color: var(--mod); cursor: pointer; font-size: 15px; }
+#opstate.bad { color: var(--del); }
 .tool {
   position: relative;
   display: flex;
@@ -534,8 +535,6 @@ textarea.msg-in { height: 104px; resize: vertical; }
 #sprites { position: absolute; }
 #commit-head { user-select: text; font-family: var(--mono); }
 #commit-stats { border-top: 1px solid var(--border); }
-.op-head { display: inline-flex; flex-direction: column; gap: 2px; }
-.op-bad { color: var(--mod); font-weight: 600; }
 #op-btns { display: flex; gap: 8px; }
 #op-btns button { flex: 1; padding: 7px; }
 
@@ -564,8 +563,10 @@ textarea.msg-in { height: 104px; resize: vertical; }
 .rb-row.squash .rb-subject, .rb-row.drop .rb-subject { color: var(--dim); }
 .rb-row.drop .rb-subject { text-decoration: line-through; }
 .rb-row small { color: var(--dim); }
-#rebase > .foot { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--border); }
-#rebase > .foot small { margin-right: auto; color: var(--dim); }
+/* the actions under the rebase plan and the merge view */
+.foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--border); font-size: 14px; }
+.foot small { margin-right: auto; color: var(--dim); font-size: inherit; }
+.foot button { padding: 6px 18px; }
 .bar .icon { padding: 2px 5px; line-height: 0; }
 .bar .icon svg { width: 15px; height: 15px; }
 #diff-close, #rebase-close { border: none; background: none; }

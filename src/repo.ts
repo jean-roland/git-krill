@@ -5,7 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { repoName } from "./core.js";
 import { $, COLORS, ICONS, MenuItem, basename, colorIndex, dialog, h, hideBanner, hideDialog, hint, ico, input, pickDir, popup, say, showBanner, showDialog, showMenu, store, svg, toast } from "./ui";
 import { closeHistory, closeMerge, closeResolvedMerge, confirmDrop, diffFile, openRow, reloadDiff } from "./diff";
-import { getMsg, renderPanel, setMsg } from "./panel";
+import { conflictCount, getMsg, renderPanel, setMsg } from "./panel";
 import { paintWipRow, renderGraph, renderSide, resetGraph } from "./graph";
 import { dropTerm, showTerm } from "./terminal";
 
@@ -294,7 +294,9 @@ function renderToolbar() {
   $("behind").textContent = status.behind ? String(status.behind) : "";
   $("ahead").textContent = status.ahead ? String(status.ahead) : "";
   $("opstate").hidden = !status.state;
-  $("opname").textContent = status.state;
+  const conflicts = conflictCount() > 0;
+  $("opstate").classList.toggle("bad", conflicts);
+  $("opstate").replaceChildren(h("b", { textContent: status.state }), ` in progress${conflicts ? " (conflicts detected)" : ""}`);
   const { undo, redo } = tabs[active];
   const u = $("undo") as HTMLButtonElement, r = $("redo") as HTMLButtonElement;
   u.disabled = !undo.length;

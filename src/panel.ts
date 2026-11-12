@@ -1,6 +1,6 @@
 // The right panel: work in progress or a commit's details, the file lists, the commit box.
 import { Change, Commit, commits, fakeCommit, gitOp, headHash, isHead, opInfo, refresh, repo, run, runFixed, selection, status } from "./repo";
-import { $, ICONS, MenuItem, ask, avatar, basename, copy, dateFmt, h, ico, input, onCtrlEnter, plural, popup, say, shaLink, short, store, svg } from "./ui";
+import { $, ICONS, MenuItem, ask, avatar, basename, copy, dateFmt, h, ico, input, onCtrlEnter, label, plural, popup, say, shaLink, short, store, svg } from "./ui";
 import { DiffSource, confirmDiscard, diffFile, merging, openDiff, openHistory } from "./diff";
 import { jumpTo, linkRemote, webUrl } from "./graph";
 import { planOpen } from "./rebase";
@@ -309,7 +309,7 @@ function editMessage(c: Commit, msg: string) {
   $("commit-msg").replaceChildren(
     h("div", { className: "summary" }, summary, left),
     desc,
-    h("div", { className: "edit-btns" }, h("button", { textContent: "Cancel", onclick: cancel }), h("button", { className: "primary", textContent: "Update message", onclick: update })),
+    h("div", { className: "edit-btns" }, h("button", { innerHTML: svg(ICONS.close), onclick: cancel }, "Cancel"), h("button", { className: "primary", innerHTML: svg(ICONS.check), onclick: update }, "Update message")),
   );
   summary.focus();
 }
@@ -328,7 +328,7 @@ function renderWip() {
   if (!status) return;
   const n = new Set([...status.unstaged, ...status.staged].map((f) => f.path)).size;
   const conflicts = status.unstaged.filter(isConflict), clean = (f: Change) => !isConflict(f);
-  $("wip-title").replaceChildren(...(opInfo ? [opTitle(conflicts.length)] : [`${plural(n, "file change")} on `, h("b", { textContent: status.branch || "detached HEAD" })]));
+  $("wip-title").replaceChildren(...(opInfo ? opTitle() : [`${plural(n, "file change")} on `, h("b", { textContent: status.branch || "detached HEAD" })]));
   $("unstaged-label").textContent = conflicts.length ? "Conflicted Files" : "Unstaged Files";
   $("staged-label").textContent = opInfo ? "Resolved Files" : "Staged Files";
   $("stage-all").textContent = conflicts.length ? "Mark all resolved" : "Stage all changes";
@@ -364,7 +364,7 @@ async function renderCommitDetails(n: number) {
       $("commit-msg").replaceChildren(
         h("div", { id: "commit-summary", textContent: summary }),
         h("div", { id: "commit-desc", textContent: desc }),
-        ...(reword ? [h("button", { className: `edit${locked ? " off" : ""}`, textContent: "Edit", title: locked ? "Close the interactive rebase to edit here" : "Reword (double-click)", onclick: reword })] : []),
+        ...(reword ? [h("button", { className: `edit${locked ? " off" : ""}`, innerHTML: svg(ICONS.m), title: locked ? "Close the interactive rebase to edit here" : "Reword (double-click)", onclick: reword }, "Edit")] : []),
       );
       $("commit-msg").ondblclick = locked ? null : reword;
     }
@@ -402,15 +402,7 @@ export function opLine(): (Node | string)[] {
   return [`${verb} `, h("b", { textContent: o.incoming }), ` ${o.state === "merge" ? "into" : "onto"} `, h("b", { textContent: o.current })];
 }
 
-function opTitle(conflicts: number) {
-  const o = opInfo!, what = o.state[0].toUpperCase() + o.state.slice(1);
-  return h(
-    "span",
-    { className: "op-head" },
-    h("span", { className: conflicts ? "op-bad" : "", textContent: conflicts ? `${what} conflicts detected` : `${what} in progress` }),
-    h("span", {}, ...opLine(), ...(o.step ? [` · commit ${o.step.replace("/", " of ")}`] : [])),
-  );
-}
+const opTitle = () => [...opLine(), ...(opInfo!.step ? [` · commit ${opInfo!.step.replace("/", " of ")}`] : [])];
 
 /** The WIP row while files are in conflict: an orange bar. */
 export function conflictLine(): (Node | string)[] {
@@ -428,22 +420,18 @@ export function renderCommitBtn() {
   b.hidden = $("amend").hidden = !!opInfo;
   $("op-btns").hidden = !opInfo;
   if (opInfo) {
-    // a non-breaking hyphen: a narrow button wraps before "cherry-pick", not inside it
-    const left = conflictCount(), c = $("op-continue"), op = opInfo.state.replace("-", "\u2011");
-    c.textContent = opInfo.state === "merge" ? "Commit and merge" : `Continue ${op}`;
+    const left = conflictCount(), c = $("op-continue");
+    label(c, ICONS.check, opInfo.state === "merge" ? "Commit and merge" : "Continue");
     c.classList.toggle("off", left > 0);
     c.title = left ? `Resolve the ${plural(left, "conflicted file")} first` : emptyStep() ? "Nothing left to commit in this step: Continue skips it" : "";
     $("op-skip").hidden = opInfo.state === "merge";
-    $("op-abort").textContent = `Abort ${op}`;
   }
   b.disabled = !input("summary").value.trim() || (!staged && !amend);
-  b.textContent = amend
-    ? "Amend previous commit"
-    : !staged
-      ? "Stage files to commit"
-      : b.disabled
-        ? "Type a summary to commit"
-        : `Commit changes to ${plural(staged, "file")}`;
+  label(
+    b,
+    amend ? ICONS.m : ICONS.commit,
+    amend ? "Amend previous commit" : !staged ? "Stage files to commit" : b.disabled ? "Type a summary to commit" : `Commit changes to ${plural(staged, "file")}`,
+  );
 }
 
 export async function commit() {

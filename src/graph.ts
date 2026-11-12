@@ -279,7 +279,7 @@ export function renderGraph(scroll?: number) {
     h("div", { className: "chunk", style: `height: ${Math.min(CHUNK, list.length - k * CHUNK) * ROW}px` }),
   );
   const tab = tabs[active], more = commits.length >= tab.limit;
-  const loadMore = h("button", { className: "load-more", textContent: "Load more commits", onclick: () => ((tab.limit += LOG_LIMIT), (loadMore.disabled = true), redraw()) });
+  const loadMore = h("button", { className: "load-more", innerHTML: svg(ICONS.down), onclick: () => ((tab.limit += LOG_LIMIT), (loadMore.disabled = true), redraw()) }, "Load more commits");
   $("rows").replaceChildren(...chunks, ...(more ? [loadMore] : []));
   if (scroll !== undefined) $("graph").scrollTop = scroll;
   drawRows();

@@ -36,7 +36,7 @@
         <button class="tool" id="term-btn" title="Terminal (Ctrl+`)"><svg viewBox="0 0 24 24"><path d="M4 17l6-6-6-6M12 19h8"/></svg>Terminal</button>
       </div>
       <div class="top-side right">
-        <span id="opstate" hidden title="Show the work in progress"><b id="opname"></b> in progress</span>
+        <span id="opstate" hidden title="Show the work in progress"></span>
       </div>
     </header>
     <main>
@@ -73,7 +73,7 @@
             <div id="rebase-rows"></div>
             <div class="foot">
               <small><b>P</b> pick · <b>R</b> reword · <b>S</b> squash · <b>D</b> drop · <b>Ctrl+↑ ↓</b> move</small>
-              <button id="rebase-reset">Reset</button><button id="rebase-cancel" class="bad">Cancel</button><button id="rebase-start" class="primary">Start rebase</button>
+              <button id="rebase-reset" title="Pick every commit back in its place"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8M3 3v5h5"/></svg>Reset</button><button id="rebase-cancel" class="bad"><svg data-icon="close"></svg>Cancel</button><button id="rebase-start" class="primary"><svg data-icon="check"></svg>Start rebase</button>
             </div>
           </div>
           <div id="diff" hidden>
@@ -84,7 +84,7 @@
               <span class="seg">
                 <button data-mode="hunk" title="Changed hunks only"><svg viewBox="0 0 24 24"><path d="M4 5h16M4 9h11M4 15h16M4 19h11"/></svg>Hunk</button><button data-mode="inline" title="Whole file, one column"><svg viewBox="0 0 24 24"><path d="M4 5h16M4 10h16M4 15h16M4 20h16"/></svg>Inline</button><button data-mode="split" title="Whole file, side by side"><svg viewBox="0 0 24 24"><path d="M3 4h18v16H3zM12 4v16"/></svg>Split</button>
               </span>
-              <button id="diff-save" class="primary" hidden>Save</button>
+              <button id="diff-save" class="primary" hidden><svg data-icon="save"></svg>Save</button>
               <button id="diff-history" title="The commits that touched this file"><svg viewBox="0 0 24 24"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2"/></svg>File history</button>
               <button id="open-editor" title="Open the working tree file in VS Code"><svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>Open in editor</button>
               <button class="icon" id="diff-close" title="Close (Esc)"><svg data-icon="close"></svg></button>
@@ -113,8 +113,6 @@
               <span id="m-path"></span>
               <span id="m-count"></span>
               <button id="m-sync" class="toggle" title="Scroll the three panes together"><svg viewBox="0 0 24 24"><path d="M8 3v18M16 3v18M4 17l4 4 4-4M12 17l4 4 4-4"/></svg>Sync scrolling</button>
-              <button id="m-reset" title="Drop the picks and edits"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8M3 3v5h5"/></svg>Reset</button>
-              <button id="m-save" class="primary" title="Write the output and mark the file resolved (Ctrl+S)"><svg viewBox="0 0 24 24"><path d="M5 3h11l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM7 3v5h8V3M7 21v-7h10v7"/></svg>Save</button>
               <button class="icon" id="m-close" title="Close (Esc)"><svg data-icon="close"></svg></button>
             </div>
             <div class="m-sides">
@@ -130,6 +128,10 @@
               </span>
             </div>
             <div id="m-out" class="m-ed"></div>
+            <div class="foot">
+              <button id="m-reset" title="Drop the picks and edits"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8M3 3v5h5"/></svg>Reset</button>
+              <button id="m-save" class="primary" title="Write the output and mark the file resolved (Ctrl+S)"><svg data-icon="save"></svg>Save</button>
+            </div>
           </div>
         </div>
         <div id="term" hidden>
@@ -153,7 +155,7 @@
             <div class="summary"><input id="summary" class="msg-in" placeholder="Summary" spellcheck="false" /><small id="summary-n"></small></div>
             <textarea id="desc" class="msg-in" placeholder="Description" spellcheck="false"></textarea>
             <button id="commit-btn" class="primary"></button>
-            <div id="op-btns" hidden><button id="op-continue" class="primary"></button><button id="op-skip">Skip commit</button><button id="op-abort" class="bad"></button></div>
+            <div id="op-btns" hidden><button id="op-continue" class="primary"></button><button id="op-skip"><svg data-icon="skip"></svg>Skip</button><button id="op-abort" class="bad"><svg data-icon="close"></svg>Abort</button></div>
           </div>
         </div>
         <div id="commit" hidden>
