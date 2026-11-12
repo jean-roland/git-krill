@@ -5,7 +5,7 @@ import { Mode, closeDiff, closeHistory, closeMerge, diffEditor, diffFile, editor
 import { rebaseKey } from "./rebase";
 import { SORTS, amending, commit, conflictCount, emptyStep, fileLists, filterFiles, foldAll, getMsg, openFile, paintFileOpts, renderCommitBtn, renderPanel, setMsg } from "./panel";
 import { $, ask, closeDialog, hideBanner, input, onCtrlEnter, pickDir, say, store } from "./ui";
-import { closeFind, drawRows, findStep, findTyped, leaveSubmodule, openFind, paintSelection, showRow, shown } from "./graph";
+import { closeFind, drawRows, findStep, findTyped, stepBack, openFind, paintSelection, showRow, shown } from "./graph";
 import { Change, active, addTab, autoFetch, cloneDialog, closeTab, gitOp, opInfo, openPicked, openRepo, paintPull, pull, pullMenu, push, refresh, renderTabHits, reopenTab, repo, restoreTabs, run, selection, switchTab, tabs, undoRedo } from "./repo";
 import { terms, toggleTerm } from "./terminal";
 
@@ -209,8 +209,8 @@ addEventListener("keydown", (e) => {
   else if (e.ctrlKey && e.code === "Tab") (e.preventDefault(), switchTab((active + (e.shiftKey ? tabs.length - 1 : 1)) % tabs.length));
   // the shell owns every other key
   else if ((e.target as HTMLElement).closest?.("#term")) return;
-  // back from a submodule opened in this tab, from anywhere but the shell
-  else if (e.altKey && e.key === "ArrowLeft" && tabs[active].parent) (e.preventDefault(), leaveSubmodule());
+  // back from a worktree or a submodule to its repository, from anywhere but the shell
+  else if (e.altKey && e.key === "ArrowLeft" && tabs[active].parent) (e.preventDefault(), stepBack());
   // the rebase plan's keys, unless a dialog, a menu, a diff over it or a field has them
   else if ($("dialog").hidden && $("menu").hidden && $("diff").hidden && !(e.target as HTMLElement).closest?.("select, input, textarea") && rebaseKey(e)) e.preventDefault();
   else if (e.key === "F5") (e.preventDefault(), refresh());
@@ -227,8 +227,8 @@ addEventListener("keydown", (e) => {
     else if (hist) closeHistory();
     else if (!$("diff").hidden) closeDiff();
     else if (merging) closeMerge();
-    // nothing left open: the graph itself steps back out of a submodule
-    else if (tabs[active].parent && !(e.target as HTMLElement).closest?.("input, textarea")) leaveSubmodule();
+    // nothing left open: the graph itself steps back out of a worktree or a submodule
+    else if (tabs[active].parent && !(e.target as HTMLElement).closest?.("input, textarea")) stepBack();
   } else if ((e.target as HTMLElement).closest?.("input:not([type=checkbox]), textarea, #diff-editor, #merge, #hist-file") || !repo) return;
   else if (e.ctrlKey && key === "f") (e.preventDefault(), openFind());
   else if (e.ctrlKey && key === "z") (e.preventDefault(), undoRedo(!e.shiftKey));

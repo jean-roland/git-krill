@@ -2,7 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { layoutGraph } from "./core.js";
 import { closeRebase, ontoRange, openRebase, rebaseRange } from "./rebase";
-import { Commit, LOG_LIMIT, Stash, Status, Submodule, Worktree, active, commits, dropEdits, fakeCommit, findRef, gitOp, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, newTab, opInfo, openRepo, paintRepoName, pull, push, redraw, refs, remoteTags, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
+import { Commit, LOG_LIMIT, Stash, Status, Submodule, Worktree, active, commits, dropEdits, fakeCommit, findRef, foldsKey, gitOp, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, newTab, opInfo, openRepo, paintRepoName, pull, push, redraw, refs, remoteTags, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
 import { $, COLORS, ICONS, MenuItem, ask, askName, basename, copy, dateFmt, dialog, h, ico, input, popup, say, short, spriteId, store, svg } from "./ui";
 import { dropTerm } from "./terminal";
 import { conflictCount, conflictLine, fileCounts, opLine, renderPanel, wipFiles } from "./panel";
@@ -30,7 +30,6 @@ function tagCloud(name: string) {
 }
 
 function trackLabel(track: string) {
-  if (track === "[gone]") return "gone";
   const ahead = track.match(/ahead (\d+)/)?.[1], behind = track.match(/behind (\d+)/)?.[1];
   return [ahead && `↑${ahead}`, behind && `↓${behind}`].filter(Boolean).join(" ");
 }
@@ -71,7 +70,7 @@ export function renderSide() {
     let filled = false;
     const fill = () => !filled && d.open && ((filled = true), d.append(...rows()));
     fill();
-    d.ontoggle = () => (fill(), r === repo && store(`sidebar-folds:${r}`, JSON.stringify({ ...sideFolds(), [key]: d.open })));
+    d.ontoggle = () => (fill(), r === repo && store(foldsKey(), JSON.stringify({ ...sideFolds(), [key]: d.open })));
     d.dataset.key = key;
     return d;
   };
@@ -86,7 +85,10 @@ export function renderSide() {
   }
   const localRow = ([name, hash, track, ref]: string[]) => {
     const current = name === status?.branch;
-    return sideItem(name, "branch", hash, trackLabel(track), current ? "current" : "", () => branchMenu(name, false), () => current || checkoutBranch(name, false), current ? undefined : ref);
+    const row = sideItem(name, "branch", hash, trackLabel(track), current ? "current" : "", () => branchMenu(name, false), () => current || checkoutBranch(name, false), current ? undefined : ref);
+    // its upstream was deleted on the remote, like a merged pull request's branch
+    if (track === "[gone]") row.append(ico(ICONS.gone, `${findRef(ref)?.upstream || "Its upstream"} was deleted on the remote`));
+    return row;
   };
   const remoteRow = ([full, hash, ref]: string[]) => sideItem(full.slice(full.indexOf("/") + 1), "branch", hash, "", "", () => branchMenu(full, true), () => checkoutBranch(full, true), ref);
   const tagRow = ([name, hash, ref]: string[]) => {
@@ -111,10 +113,13 @@ export function renderSide() {
     );
   const worktreeRow = (w: Worktree, k: number) => {
     const here = w === thisWorktree();
-    const extra = w.prunable ? "gone" : w.locked ? "locked" : k ? "" : "main";
+    const extra = w.locked && !w.prunable ? "locked" : "";
     const open = () => (w.prunable ? prune(w) : openWorktree(w.path));
     const el = sideItem(w.branch || `detached at ${short(w.head)}`, "worktree", w.head, extra, here ? "current" : "", () => worktreeMenu(w, k === 0), () => here || open());
     el.title = w.path;
+    // the main checkout: a house, not a word that reads like its branch
+    if (!k) el.append(ico(ICONS.home, "Main checkout"));
+    if (w.prunable) el.append(ico(ICONS.folderGone, `${w.path} is gone: double-click to prune it from the list`));
     return el;
   };
   // the folder every submodule shares, like submodules/, says nothing on each row
@@ -195,7 +200,7 @@ function worktreeMenu(w: Worktree, main: boolean): MenuItem[] {
   const here = w.path === repo;
   return [
     { title: w.branch || basename(w.path), icon: ICONS.worktree },
-    ...(here || w.prunable ? [] : ([["Open worktree", () => openWorktree(w.path)], ["Open in a new tab", () => openRepo(w.path)]] as MenuItem[])),
+    ...(here || w.prunable ? [] : ([["Open worktree", () => openWorktree(w.path)]] as MenuItem[])),
     ["Copy path", () => copy(w.path)],
     ...(w.prunable
       ? ([["Prune: its folder is gone", () => prune(w)]] as MenuItem[])
@@ -207,7 +212,7 @@ function worktreeMenu(w: Worktree, main: boolean): MenuItem[] {
 
 /** Show worktree `path` in this tab, or switch to the tab that has it; a submodule opened from `parent` too. */
 async function openWorktree(path: string, parent = "") {
-  const i = tabs.findIndex((t) => t.repo === path && t.parent === parent);
+  const i = tabs.findIndex((t) => t.repo === path);
   if (i >= 0) return switchTab(i);
   if (!(await isRepo(path))) return say(`${path} no longer exists`, true);
   if (!(await dropEdits())) return;
@@ -217,8 +222,20 @@ async function openWorktree(path: string, parent = "") {
   await switchTab(active, false);
 }
 
-/** Back from a submodule opened in this tab to its repository. */
-export async function leaveSubmodule() {
+/** `git worktree add` of `branch`, or of a new branch from commit `from`, by default in a folder beside the repository's; this tab stays, the worktree joins the sidebar. */
+function createWorktree(branch: string, from = "", busy = "") {
+  // a repo tool checkout keeps them out of its tree, where its build would find them: <top>/../wt
+  const main = refs.worktrees[0]?.path ?? repo, top = refs.repoTop;
+  const beside = (b: string) => `${top ? `${top.slice(0, top.lastIndexOf("/"))}/wt/${basename(main)}` : main}-${b.replace(/\//g, "-")}`;
+  if (!from) return dialog(`Create a worktree from ${branch}`, [["Folder", beside(branch)]], "Create", ([path]) => path && gitOp("worktree-add", [path, branch]));
+  const name = busy ? `New branch name (${busy} is checked out already, a branch goes in one worktree only)` : "New branch name";
+  dialog(`Create a worktree from ${busy || short(from)}`, [[name, ""], ["Folder (empty: beside the repository, named after the branch)", ""]], "Create", ([b, path]) =>
+    b && gitOp("worktree-add-new", [path || beside(b), JSON.stringify([b, from])]),
+  );
+}
+
+/** Back from a worktree or a submodule to its repository, in this tab. */
+export async function stepBack() {
   const parent = tabs[active].parent;
   if (!parent || !(await dropEdits())) return;
   dropTerm(tabs[active]);
@@ -620,6 +637,7 @@ function commitMenu(e: MouseEvent, c: Commit) {
     ...(mine && !isHead(c) ? ([[range ? `Interactive rebase of the ${range.length} commits above` : "Interactive rebase from here", () => openRebase(c.hash, range)]] as MenuItem[]) : []),
     null,
     newBranch,
+    ["Create worktree from this commit", () => createWorktree("", c.hash)],
     ["Revert commit", () => gitOp("revert", c.hash)],
     newTag,
     null,
@@ -650,13 +668,18 @@ function branchMenu(name: string, remote: boolean): MenuItem[] {
   const up = ref?.upstream ?? "";
   const onRemote = remote ? name : refs.refs.some((r) => r.name === `refs/remotes/${up}`) ? up : "";
   const slash = onRemote.indexOf("/"), rem = onRemote.slice(0, slash), remBranch = onRemote.slice(slash + 1);
+  // a remote branch checks out as the local one of the same name
+  const local = remote ? remBranch : name, [newBranch, newTag] = createItems(sha);
   return [
     { title: name, icon: ICONS.branch },
     ...refMenu(name, remote),
     null,
     ...(current ? ([["Pull", pull], ["Push", push], null] as MenuItem[]) : []),
     // the commit's own actions (reset, revert) are on its row
-    ...createItems(sha),
+    newBranch,
+    // git checks a branch out in one worktree only: a busy one starts a new branch from its tip
+    ["Create worktree from this branch", () => (local === status?.branch || worktreeOf(local) ? createWorktree("", sha, local) : createWorktree(local))],
+    newTag,
     null,
     ...(remote ? [] : ([["Rename", () => askName("New branch name", name, (n) => gitOp("branch-rename", [name, n]))]] as MenuItem[])),
     ...(remote || current ? [] : ([["Delete", () => deleteBranch(name, onRemote)]] as MenuItem[])),

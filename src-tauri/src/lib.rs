@@ -108,6 +108,7 @@ struct Worktree {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct Refs {
     refs: Vec<Ref>,
     stashes: Vec<Stash>,
@@ -117,6 +118,8 @@ struct Refs {
     submodules: Vec<Submodule>,
     // the repository this one is a submodule of, empty when none
     superproject: String,
+    // the repo tool's top folder when this is one of its checkouts, else empty
+    repo_top: String,
 }
 
 #[derive(Serialize)]
@@ -303,7 +306,7 @@ fn refs(repo: String) -> Result<Refs, String> {
             })
         })
         .collect();
-    let worktrees = git(&repo, &["worktree", "list", "--porcelain"])?
+    let mut worktrees: Vec<Worktree> = git(&repo, &["worktree", "list", "--porcelain"])?
         .split("\n\n")
         .filter_map(|block| {
             let mut w = Worktree { path: String::new(), head: String::new(), branch: String::new(), locked: false, prunable: false };
@@ -321,8 +324,24 @@ fn refs(repo: String) -> Result<Refs, String> {
             (!w.path.is_empty()).then_some(w)
         })
         .collect();
+    let mut repo_top = String::new();
+    if let Some(main) = worktrees.first_mut() {
+        (main.path, repo_top) = main_folder(&main.path);
+    }
     let superproject = git(&repo, &["rev-parse", "--show-superproject-working-tree"])?.trim().to_string();
-    Ok(Refs { refs, stashes, remotes, worktrees, submodules: submodules(&repo)?, superproject })
+    Ok(Refs { refs, stashes, remotes, worktrees, submodules: submodules(&repo)?, superproject, repo_top })
+}
+
+/// \brief The main worktree's folder from what `git worktree list` names, and the repo tool's top folder when it is one of its checkouts.
+fn main_folder(listed: &str) -> (String, String) {
+    // the repo tool's checkouts name their git dir <top>/.repo/projects/<path>.git: their folder is <top>/<path>
+    if let Some((top, rest)) = listed.split_once("/.repo/projects/") {
+        let folder = format!("{top}/{}", rest.trim_end_matches(".git"));
+        if Path::new(&folder).join(".git").exists() {
+            return (folder, top.to_string());
+        }
+    }
+    (listed.to_string(), String::new())
 }
 
 /// \brief The submodules `.gitmodules` lists, with their state; git is asked again only about the ones that changed.
@@ -775,11 +794,15 @@ fn delete_file(repo: String, path: String) -> Result<(), String> {
     std::fs::remove_file(work_path(&repo, &path)?).map_err(|e| e.to_string())
 }
 
-/// \brief Whether `repo` is a linked worktree: its `.git` is a file.
-#[tauri::command]
-fn is_linked_worktree(repo: String) -> bool {
+/// \brief The main worktree's folder when `repo` is a linked worktree, else empty.
+#[tauri::command(async)]
+fn worktree_main(repo: String) -> String {
     // a submodule's .git is a file too, pointing into its parent's .git/modules
-    std::fs::read_to_string(Path::new(&repo).join(".git")).is_ok_and(|g| g.contains("/worktrees/"))
+    if !std::fs::read_to_string(Path::new(&repo).join(".git")).is_ok_and(|g| g.contains("/worktrees/")) {
+        return String::new();
+    }
+    let listed = git(&repo, &["worktree", "list", "--porcelain"]).unwrap_or_default();
+    listed.lines().next().and_then(|l| l.strip_prefix("worktree ")).map_or(String::new(), |p| main_folder(p).0)
 }
 
 /// \brief Whether `path` exists in the work tree.
@@ -1099,6 +1122,11 @@ fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         "rebase-interactive" => return rebase_interactive(&repo, &arg, &arg2),
         "tag-rename" => return tag_rename(&repo, &arg, &arg2),
         "submodule-discard" => return submodule_discard(&repo, &arg),
+        // arg2: JSON [new branch, commit it starts from]
+        "worktree-add-new" => {
+            let [branch, from]: [String; 2] = serde_json::from_str(&arg2).map_err(|e| e.to_string())?;
+            return git_with_stderr(&repo, &["worktree", "add", "-b", not_option(&branch)?, not_option(&arg)?, not_option(&from)?]);
+        }
         "submodule-delete" => return submodule_delete(&repo, &arg, &arg2),
         "stash-apply" => return stash_restore(&repo, "apply", &arg),
         "stash-pop" => return stash_restore(&repo, "pop", &arg),
@@ -1169,6 +1197,8 @@ fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         "worktree-remove" => vec!["worktree", "remove", not_option(&arg)?],
         "worktree-force-remove" => vec!["worktree", "remove", "--force", not_option(&arg)?],
         "worktree-prune" => vec!["worktree", "prune"],
+        // a branch only on a remote gets its local tracking one
+        "worktree-add" => vec!["worktree", "add", not_option(&arg)?, not_option(&arg2)?],
         "submodule-update" => vec!["submodule", "update", "--init", "--", not_option(&arg)?],
         "submodule-set-url" => vec!["submodule", "set-url", "--", not_option(&arg)?, not_option(&arg2)?],
         "stash-drop" => vec!["stash", "drop", not_option(&arg)?],
@@ -1207,7 +1237,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, gh_verified, remote_tags, submodule_change, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, is_linked_worktree,
+            initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, gh_verified, remote_tags, submodule_change, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, worktree_main,
             is_merged, revert_hunk, open_default, delete_file, open_url, remote_urls, edit_remote,
             pty::pty_spawn, pty::pty_write, pty::pty_resize, pty::pty_kill, askpass::askpass_reply
         ])

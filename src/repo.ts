@@ -6,7 +6,7 @@ import { repoName } from "./core.js";
 import { $, COLORS, ICONS, MenuItem, basename, colorIndex, dialog, h, hideBanner, hideDialog, hint, ico, input, pickDir, popup, say, showBanner, showDialog, showMenu, store, svg, toast } from "./ui";
 import { closeHistory, closeMerge, closeResolvedMerge, confirmDrop, diffFile, openRow, reloadDiff } from "./diff";
 import { conflictCount, getMsg, renderPanel, setMsg } from "./panel";
-import { leaveSubmodule, paintWipRow, renderGraph, renderSide, resetGraph } from "./graph";
+import { stepBack, paintWipRow, renderGraph, renderSide, resetGraph } from "./graph";
 import { dropTerm, showTerm } from "./terminal";
 
 export type Change = { path: string; old: string | null; code: string; conflict?: string };
@@ -18,13 +18,13 @@ export type Stash = { name: string; hash: string; parents: string[]; subject: st
 export type Worktree = { path: string; head: string; branch: string; locked: boolean; prunable: boolean };
 // head: the commit checked out in it, empty when not initialized
 export type Submodule = { name: string; path: string; url: string; recorded: string; head: string; modified: boolean; untracked: boolean; ahead: number | null; behind: number | null };
-type Refs = { refs: Ref[]; stashes: Stash[]; remotes: string[]; worktrees: Worktree[]; submodules: Submodule[]; superproject: string };
+type Refs = { refs: Ref[]; stashes: Stash[]; remotes: string[]; worktrees: Worktree[]; submodules: Submodule[]; superproject: string; repoTop: string };
 // large: too big to load unasked, its size in bytes
 export type Blob = { text: string; exists: boolean; binary: boolean; large: number | null };
 // file: a discard, the work tree text before and after (null: no file)
 type UndoStep = { op: string; branch: [string, string]; head: [string, string]; file?: [string, string | null, string | null] };
 // limit: how many commits the graph loads, raised by "Load more"
-// parent: the repository a submodule was opened from, in this tab; one level only
+// parent: what this tab steps back to, the main checkout of a worktree or the repository a submodule was opened from in it; one level only
 export type Tab = { repo: string; parent: string; selected: string[]; msg: string; scroll: number; undo: UndoStep[]; redo: UndoStep[]; worktree: boolean; limit: number };
 export const LOG_LIMIT = 3000;
 // ops that move HEAD, walked back with a reset or a checkout
@@ -43,6 +43,8 @@ const DONE: Record<string, (arg: string, arg2: string, branch: string, upstream:
   "tag-rename": (name, to) => `Renamed tag ${name} to ${JSON.parse(to)[0]}`,
   "branch-delete": (name) => `Deleted branch ${name}`,
   "branch-force-delete": (name) => `Deleted branch ${name}`,
+  "worktree-add": (path, branch) => `Created worktree ${basename(path)} on ${branch}`,
+  "worktree-add-new": (path, spec) => `Created worktree ${basename(path)} on the new branch ${JSON.parse(spec)[0]}`,
   "worktree-remove": (path) => `Removed worktree ${basename(path)}`,
   "worktree-force-remove": (path) => `Removed worktree ${basename(path)}`,
   "worktree-prune": () => "Pruned the worktrees whose folder is gone",
@@ -57,7 +59,7 @@ export let active = 0;
 export let repo = "";
 export let commits: Commit[] = [];
 export let status: Status | null = null;
-export let refs: Refs = { refs: [], stashes: [], remotes: [], worktrees: [], submodules: [], superproject: "" };
+export let refs: Refs = { refs: [], stashes: [], remotes: [], worktrees: [], submodules: [], superproject: "", repoTop: "" };
 // the picked graph rows ("WIP" or hashes), where a Shift range starts, whether it is one, or the stash shown instead
 export const selection = { hashes: ["WIP"], anchor: "", isRange: false, stash: null as Stash | null };
 // the merge, rebase... in progress, and the step whose message the commit box holds
@@ -251,7 +253,8 @@ async function reload() {
       opStep = step;
     }
     // the WIP row comes and goes with changes or an operation; its counts alone repaint just that row
-    const key = JSON.stringify([log.map((c) => [c.hash, c.refs]), !!(s.staged.length || s.unstaged.length || opInfo), rf.stashes.map((x) => x.hash)]);
+    // the worktrees too: a branch label shows whether one has it checked out
+    const key = JSON.stringify([log.map((c) => [c.hash, c.refs]), !!(s.staged.length || s.unstaged.length || opInfo), rf.stashes.map((x) => x.hash), rf.worktrees.map((w) => [w.branch, w.prunable])]);
     if (key === graphKey) paintWipRow();
     else {
       graphKey = key;
@@ -319,21 +322,26 @@ const aliases = (): Record<string, string> => JSON.parse(store("aliases") ?? "{}
 export function paintRepoName() {
   const t = tabs[active], name = tabName(t), main = refs.worktrees[0];
   $("repo-name").title = repo;
-  // a submodule opened in this tab: its parent's name leads back, so does the ×
+  // a worktree or a submodule: its repository's name leads back, so does the ×
   if (t.parent) {
     const back = `Back to ${repoLabel(t.parent)} (Esc, Alt+←)`;
     $("repo-name").replaceChildren(
       // in the colour of its tab badge: the repository this tab belongs to
-      h("span", { className: "back", textContent: repoLabel(t.parent), title: back, onclick: leaveSubmodule, style: `color: ${COLORS[colorIndex(t.parent)]}` }),
-      ` › ${repoLabel(t.repo)}`,
-      h("button", { className: "icon sub-close", title: back, innerHTML: svg(ICONS.close), onclick: leaveSubmodule }),
+      h("span", { className: "back", textContent: repoLabel(t.parent), title: back, onclick: stepBack, style: `color: ${COLORS[colorIndex(t.parent)]}` }),
+      ` › ${childLabel(t)}`,
+      h("button", { className: "icon sub-close", title: back, innerHTML: svg(ICONS.close), onclick: stepBack }),
     );
   } else $("repo-name").textContent = !main || main === thisWorktree() ? name : `${basename(main.path)} › ${name}`;
   getCurrentWindow().setTitle(repo ? `Git Krill · ${name}` : "Git Krill");
 }
 
 const repoLabel = (path: string) => aliases()[path] ?? basename(path);
-export const tabName = (t: Tab) => (!t.repo ? "Home" : t.parent ? `${repoLabel(t.parent)} › ${repoLabel(t.repo)}` : repoLabel(t.repo));
+/** "beetle › logger"; a worktree folder named after its repository, like harma-belukha-fix, shows as fix. */
+function childLabel(t: Tab) {
+  const name = repoLabel(t.repo), lead = `${repoLabel(t.parent)}-`;
+  return name.startsWith(lead) && name.length > lead.length ? name.slice(lead.length) : name;
+}
+export const tabName = (t: Tab) => (!t.repo ? "Home" : t.parent ? `${repoLabel(t.parent)} › ${childLabel(t)}` : repoLabel(t.repo));
 // closed this session, for Ctrl+Shift+T
 const closedTabs: string[] = [];
 
@@ -362,8 +370,14 @@ function saveTabs() {
 
 export function newTab(repo: string, parent = ""): Tab {
   const t: Tab = { repo, parent, selected: ["WIP"], msg: "", scroll: 0, undo: [], redo: [], worktree: false, limit: LOG_LIMIT };
-  // a linked worktree's .git is a file
-  if (repo) invoke<boolean>("is_linked_worktree", { repo }).then((w) => w && ((t.worktree = true), renderTabs()));
+  // a linked worktree leads back to its main checkout, however it was opened
+  if (repo)
+    invoke<string>("worktree_main", { repo }).then((main) => {
+      if (!main) return;
+      Object.assign(t, { worktree: true, parent: main });
+      renderTabs();
+      if (t === tabs[active]) paintRepoName();
+    });
   return t;
 }
 const recentRepos = (): string[] => JSON.parse(store("recent") ?? "[]");
@@ -383,10 +397,10 @@ function renderTabs() {
           oncontextmenu: (e: MouseEvent) => popup(e, tabMenu(i)),
         },
         // a repo's initial on a colour of its own, so tabs tell apart at a glance
-        // a submodule opened in its parent's tab wears the parent's badge
-        t.repo && !t.worktree
+        // a worktree or a submodule wears its repository's badge
+        t.repo
           ? h("span", { className: "tab-badge", textContent: tabName(t)[0]?.toUpperCase() ?? "", style: `--c: ${COLORS[colorIndex(t.parent || t.repo)]}` })
-          : ico(t.repo ? ICONS.worktree : ICONS.home),
+          : ico(ICONS.home),
         h("span", { className: "tab-name", textContent: tabName(t) }),
         h("button", { className: "x", textContent: "×", title: "Close (Ctrl+W)", onclick: (e: Event) => (e.stopPropagation(), closeTab(i)) }),
       ),
@@ -678,7 +692,9 @@ listen<string>("askpass", ({ payload: prompt }) => {
 export const hiddenRemotes = (): string[] => JSON.parse(store(`hidden-remotes:${repo}`) ?? "[]");
 // refs and stash hashes flipped one by one: hidden, or for a hidden remote's branch, shown again
 const flippedRefs = (): string[] => JSON.parse(store(`hidden-refs:${repo}`) ?? "[]");
-export const sideFolds = (): Record<string, boolean> => JSON.parse(store(`sidebar-folds:${repo}`) ?? "{}");
+// one per repository: its worktrees share the main checkout's
+export const foldsKey = () => `sidebar-folds:${refs.worktrees[0]?.path ?? repo}`;
+export const sideFolds = (): Record<string, boolean> => JSON.parse(store(foldsKey()) ?? "{}");
 const remoteOf = (ref: string) => (ref.startsWith("refs/remotes/") ? ref.slice("refs/remotes/".length).split("/")[0] : "");
 
 // what the graph leaves out, as of its last paint: refs, stash hashes and hidden remotes' names
