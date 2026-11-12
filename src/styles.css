@@ -512,6 +512,8 @@ textarea.msg-in { height: 104px; resize: vertical; }
 #commit-author { display: flex; align-items: center; gap: 10px; padding: 4px 10px 10px; }
 #commit-author:empty { display: none; }
 #commit-author small { display: block; color: var(--dim); font-size: 13px; }
+#commit-author .email { cursor: pointer; }
+#commit-author .email:hover { color: var(--accent); text-decoration: underline; }
 .avatar { flex: none; width: 36px; height: 36px; border-radius: 50%; }
 .avatar svg { display: block; width: 100%; height: 100%; }
 #sprites { position: absolute; }

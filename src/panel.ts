@@ -234,8 +234,9 @@ function panelCommit(): { c: Commit; message?: string; head: (Node | string)[]; 
   };
 }
 
-function authorBlock(c: Commit) {
-  return [avatar(c.author), h("div", {}, c.author, h("small", { textContent: `authored ${dateFmt.format(c.time * 1000)}` }))];
+function authorBlock(c: Commit, email: string) {
+  const mail = h("small", { className: "email", textContent: email, title: `Copy ${email}`, onclick: () => copy(email) });
+  return [avatar(c.author), h("div", {}, c.author, mail, h("small", { textContent: `authored ${dateFmt.format(c.time * 1000)}` }))];
 }
 
 function fileStats(files: Change[]) {
@@ -308,7 +309,7 @@ async function renderCommitDetails(n: number) {
   const view = panelCommit();
   if (!view) return;
   try {
-    const info = await runFixed<{ message: string; files: Change[] }>("commit_info", { hash: view.c.hash, parent: view.c.parents[0] ?? "" });
+    const info = await runFixed<{ message: string; email: string; files: Change[] }>("commit_info", { hash: view.c.hash, parent: view.c.parents[0] ?? "" });
     if (n !== panelSeq) return;
     const all = $("all-files").classList.contains("on") ? await runFixed<string[]>("tree_files", { at: view.c.hash }) : [];
     if (n !== panelSeq) return;
@@ -326,7 +327,7 @@ async function renderCommitDetails(n: number) {
       );
       $("commit-msg").ondblclick = reword;
     }
-    $("commit-author").replaceChildren(...(view.author ? authorBlock(view.author) : []));
+    $("commit-author").replaceChildren(...(view.author ? authorBlock(view.author, info.email) : []));
     $("commit-stats").replaceChildren(...fileStats(info.files));
     // all files: the commit's tree, with the changed ones marked
     const changed = new Map(info.files.map((f) => [f.path, f]));

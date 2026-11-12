@@ -56,6 +56,7 @@ struct Status {
 #[derive(Serialize)]
 struct CommitInfo {
     message: String,
+    email: String,
     files: Vec<Change>,
 }
 
@@ -439,7 +440,8 @@ fn conflict_text(repo: String, path: String) -> Result<Blob, String> {
 
 #[tauri::command(async)]
 fn commit_info(repo: String, hash: String, parent: String) -> Result<CommitInfo, String> {
-    let message = git(&repo, &["show", "-s", "--format=%B", not_option(&hash)?])?;
+    let shown = git(&repo, &["show", "-s", "--format=%ae%x00%B", not_option(&hash)?])?;
+    let (email, message) = shown.split_once('\0').unwrap_or(("", &shown));
     let out = if parent.is_empty() {
         // one commit: diff-tree prints its id first unless told not to
         git(&repo, &["diff-tree", "-r", "-M", "-z", "--name-status", "--no-commit-id", "--root", not_option(&hash)?])?
@@ -458,7 +460,7 @@ fn commit_info(repo: String, hash: String, parent: String) -> Result<CommitInfo,
             files.push(Change { path: first, old: None, code: code.into(), conflict: None });
         }
     }
-    Ok(CommitInfo { message: message.trim_end().to_string(), files })
+    Ok(CommitInfo { message: message.trim_end().to_string(), email: email.to_string(), files })
 }
 
 /// \brief The commits that touched `path` from `revs`, across renames, each with the file's name there.
