@@ -331,6 +331,7 @@ body.home main { grid-template-columns: 1fr; }
 /* the titles take the row's height, so their separators run top to bottom */
 #cols > span { align-self: stretch; line-height: 21px; }
 .chunk { position: relative; }
+.load-more { display: block; margin: 12px auto 16px; }
 .lanes { position: absolute; top: 0; left: var(--refs-w); pointer-events: none; }
 .lanes path { fill: none; stroke-width: 2; }
 .lanes path.link { stroke-width: 1; }

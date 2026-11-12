@@ -213,7 +213,7 @@ function linkRemote() {
 }
 
 export function jumpTo(hash: string) {
-  if (!commits.some((c) => c.hash === hash)) return say(`${short(hash)} is older than the last ${LOG_LIMIT} commits`, true);
+  if (!commits.some((c) => c.hash === hash)) return say(`${short(hash)} is older than the last ${tabs[active].limit} commits`, true);
   selection.stash = null;
   selection.hashes = [hash];
   selection.anchor = hash;
@@ -276,7 +276,9 @@ export function renderGraph(scroll?: number) {
   chunks = Array.from({ length: Math.ceil(list.length / CHUNK) }, (_, k) =>
     h("div", { className: "chunk", style: `height: ${Math.min(CHUNK, list.length - k * CHUNK) * ROW}px` }),
   );
-  $("rows").replaceChildren(...chunks);
+  const tab = tabs[active], more = commits.length >= tab.limit;
+  const loadMore = h("button", { className: "load-more", textContent: "Load more commits", onclick: () => ((tab.limit += LOG_LIMIT), (loadMore.disabled = true), redraw()) });
+  $("rows").replaceChildren(...chunks, ...(more ? [loadMore] : []));
   if (scroll !== undefined) $("graph").scrollTop = scroll;
   drawRows();
   if (!$("find").hidden) markHits();

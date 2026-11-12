@@ -21,7 +21,8 @@ type Refs = { refs: Ref[]; stashes: Stash[]; remotes: string[]; worktrees: Workt
 export type Blob = { text: string; exists: boolean; binary: boolean; large: number | null };
 // file: a discard, the work tree text before and after (null: no file)
 type UndoStep = { op: string; branch: [string, string]; head: [string, string]; file?: [string, string | null, string | null] };
-export type Tab = { repo: string; selected: string[]; msg: string; scroll: number; undo: UndoStep[]; redo: UndoStep[]; worktree: boolean };
+// limit: how many commits the graph loads, raised by "Load more"
+export type Tab = { repo: string; selected: string[]; msg: string; scroll: number; undo: UndoStep[]; redo: UndoStep[]; worktree: boolean; limit: number };
 export const LOG_LIMIT = 3000;
 // ops that move HEAD, walked back with a reset or a checkout
 const UNDOABLE = new Set([
@@ -228,7 +229,7 @@ async function reload() {
   const r = repo;
   if (!r) return;
   try {
-    const [s, log, rf] = await Promise.all([run<Status>("status"), run<Commit[]>("log", { limit: LOG_LIMIT, ...graphFilter() }), run<Refs>("refs")]);
+    const [s, log, rf] = await Promise.all([run<Status>("status"), run<Commit[]>("log", { limit: tabs[active].limit, ...graphFilter() }), run<Refs>("refs")]);
     const info = s.state ? await run<OpInfo>("op_info").catch(() => null) : null;
     if (r !== repo) return;
     status = s;
@@ -340,7 +341,7 @@ function saveTabs() {
 }
 
 export function newTab(repo: string): Tab {
-  const t: Tab = { repo, selected: ["WIP"], msg: "", scroll: 0, undo: [], redo: [], worktree: false };
+  const t: Tab = { repo, selected: ["WIP"], msg: "", scroll: 0, undo: [], redo: [], worktree: false, limit: LOG_LIMIT };
   // a linked worktree's .git is a file
   if (repo) invoke<boolean>("is_linked_worktree", { repo }).then((w) => w && ((t.worktree = true), renderTabs()));
   return t;

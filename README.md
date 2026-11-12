@@ -56,6 +56,14 @@ npm test
 | Arrows | Move through commits and files, open and close diffs |
 | Escape | Close the open view or dialog |
 
+## Big repositories
+
+The graph loads 3000 commits at a time, with "Load more commits" at its bottom. On tens of thousands of commits, git's commit-graph file halves the time it takes to read the history. `git gc` writes it; to have every fetch keep it current:
+
+```sh
+git config --global fetch.writeCommitGraph true
+```
+
 ## Licence
 
 [MIT](LICENSE)
