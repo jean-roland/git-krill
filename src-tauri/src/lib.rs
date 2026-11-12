@@ -6,6 +6,7 @@ use std::io::{Read, Write};
 use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::Mutex;
 
 #[derive(Serialize)]
 struct Commit {
@@ -497,13 +498,39 @@ fn file_log(repo: String, revs: Vec<String>, path: String) -> Result<Vec<(Commit
         .collect())
 }
 
-/// \brief `git blame --porcelain` of `path` at commit `at`, or of the working tree file.
+// the running blame's process group: a long history can keep git busy for minutes
+static BLAME: Mutex<Option<u32>> = Mutex::new(None);
+
+/// \brief `git blame --porcelain` of `path` at commit `at`, or of the working tree file; ends the one still running.
 #[tauri::command(async)]
 fn blame(repo: String, at: String, path: String) -> Result<String, String> {
-    if at == "WORKTREE" {
-        return git(&repo, &["blame", "--porcelain", "--", &path]);
+    stop_blame();
+    let mut args = vec!["blame", "--porcelain"];
+    if at != "WORKTREE" {
+        args.push(not_option(&at)?);
     }
-    git(&repo, &["blame", "--porcelain", not_option(&at)?, "--", &path])
+    args.extend(["--", &path]);
+    let mut git = git_command(&repo, &args, true);
+    git.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let child = git.spawn().map_err(|e| e.to_string())?;
+    let id = child.id();
+    *BLAME.lock().unwrap() = Some(id);
+    let out = tokio::task::block_in_place(|| child.wait_with_output()).map_err(|e| e.to_string());
+    let mut running = BLAME.lock().unwrap();
+    if *running == Some(id) {
+        *running = None;
+    }
+    let out = out?;
+    if out.status.success() { Ok(String::from_utf8_lossy(&out.stdout).into_owned()) } else { Err(output_text(&out)) }
+}
+
+/// \brief End the running blame, if any.
+#[tauri::command]
+fn stop_blame() {
+    // git runs in its own session: the group is git and whatever it started
+    if let Some(id) = BLAME.lock().unwrap().take() {
+        unsafe { libc::kill(-(id as i32), libc::SIGTERM) };
+    }
 }
 
 // past this a file loads only when asked: each copy on its way to the editor costs as much
@@ -856,7 +883,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, is_linked_worktree,
+            initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, is_linked_worktree,
             is_merged, revert_hunk, open_default, delete_file, open_url, remote_urls, edit_remote,
             pty::pty_spawn, pty::pty_write, pty::pty_resize, pty::pty_kill, askpass::askpass_reply
         ])

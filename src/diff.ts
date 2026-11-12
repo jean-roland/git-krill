@@ -1021,6 +1021,7 @@ export function histView(v: string) {
 }
 
 export async function closeHistory() {
+  run("stop_blame");
   await closeDiff(true);
   $("hist-file").hidden = true;
   dimDiffOpts(false);
