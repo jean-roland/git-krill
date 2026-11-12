@@ -203,8 +203,10 @@ async function start() {
   }
   // commits newest first, as the graph has them, when nothing moved
   const inPlace = rows.every((r, i) => !i || commits.indexOf(rows[i - 1].c) < commits.indexOf(r.c));
-  if (inPlace && rows.every((r) => r.action === "pick")) return say("Nothing to change: every commit is picked as it is, in place", true);
+  // an untouched plan onto another base is still a plain rebase
+  const onBase = rows[rows.length - 1].c.parents[0] === p.base;
   closeRebase();
+  if (inPlace && onBase && rows.every((r) => r.action === "pick")) return;
   if (await gitOp("rebase-interactive", [p.base, JSON.stringify(steps)])) jumpTo(headHash());
 }
 
