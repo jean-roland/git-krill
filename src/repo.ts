@@ -4,7 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { repoName } from "./core.js";
 import { $, COLORS, ICONS, MenuItem, basename, colorIndex, dialog, h, hideBanner, hideDialog, hint, ico, input, pickDir, popup, say, showBanner, showDialog, showMenu, store, svg, toast } from "./ui";
-import { closeHistory, closeMerge, closeResolvedMerge, confirmDrop, diffFile, reloadDiff } from "./diff";
+import { closeHistory, closeMerge, closeResolvedMerge, confirmDrop, diffFile, openRow, reloadDiff } from "./diff";
 import { getMsg, renderPanel, setMsg } from "./panel";
 import { paintWipRow, renderGraph, renderSide, resetGraph } from "./graph";
 import { dropTerm, showTerm } from "./terminal";
@@ -262,12 +262,12 @@ async function reload() {
     }
     renderToolbar();
     // a picked commit's panel changes only with the pick, or with HEAD for its Edit button
-    const panel = JSON.stringify([selection.hashes, selection.stash?.hash, headHash()]);
+    const panel = JSON.stringify([selection.hashes, selection.stash?.hash, headHash()]), row = openRow();
     if ((selection.hashes[0] === "WIP" && !selection.stash) || panel !== panelKey) {
       panelKey = panel;
       await renderPanel();
     }
-    if (diffFile) await reloadDiff();
+    if (diffFile) await reloadDiff(row);
   } catch (e) {
     if (r !== repo) return;
     // the folder went away under the tab, like a removed worktree: close it rather than fail on every refresh

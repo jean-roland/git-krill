@@ -4,7 +4,7 @@ import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import { applyChanges, allLines, pickLines, parseConflicts, mergeSides, pickedLines, parseBlame, toggleSide, toggleLine, hasSide, pickedOf } from "./core.js";
 import { Blob, Change, Commit, active, fakeCommit, gitOp, headHash, opInfo, recordUndo, refresh, run, status, tabs } from "./repo";
 import { $, COLORS, ICONS, MenuItem, ask, avatar, avatarSvg, basename, colorIndex, copy, cssVar, dateFmt, dayFmt, esc, h, hideBanner, input, megabytes, plural, popup, say, short, showBanner, store, svg, toast, whileLoading } from "./ui";
-import { isConflict, markOpenFile, wipFiles } from "./panel";
+import { fileLists, isConflict, markOpenFile, wipFiles } from "./panel";
 
 export type DiffSource = "unstaged" | "staged" | "commit";
 export type Mode = "hunk" | "inline" | "split";
@@ -428,10 +428,24 @@ function setModels(keepView: boolean) {
   if (view) ed.restoreViewState(view);
 }
 
-export async function reloadDiff() {
+/** The open WIP file's row in its list, for the file after it to take over if it leaves. */
+export const openRow = () => (diffFile && diffFile.kind !== "commit" ? (fileLists.get($(diffFile.kind))?.order.findIndex((x) => x.path === diffFile!.f.path) ?? -1) : -1);
+
+/** The open file left its list: the file now in its `row`, else the file's other side, else nothing. */
+function moveOn(kind: "staged" | "unstaged", f: Change, row: number) {
+  const order = fileLists.get($(kind))?.order ?? status![kind];
+  const next = order[Math.min(Math.max(row, 0), order.length - 1)];
+  const other = kind === "staged" ? "unstaged" : "staged", same = status![other].find((x) => x.path === f.path);
+  return next ? openDiff(kind, next) : same ? openDiff(other, same) : closeDiff();
+}
+
+/** Refresh the open diff; `row` is where its WIP file was before the lists changed. */
+export async function reloadDiff(row = -1) {
   if (!diffFile || diffFile.dirty || !status) return;
-  // the file may have moved between lists or changed status code
-  if (diffFile.kind !== "commit") diffFile.f = status[diffFile.kind].find((x) => x.path === diffFile!.f.path) ?? diffFile.f;
+  const { kind, f } = diffFile;
+  if (kind !== "commit" && !status[kind].some((x) => x.path === f.path)) return moveOn(kind, f, row);
+  // the file may have changed status code
+  if (kind !== "commit") diffFile.f = status[kind].find((x) => x.path === f.path)!;
   // a commit's sides never change, the uncommitted row of a file history aside
   else if (diffFile.c?.hash !== "WORKTREE") return paintOpenEditor();
   const [orig, mod] = await fetchSides(diffFile.kind, diffFile.f, diffFile.c, diffFile.full);
@@ -439,7 +453,13 @@ export async function reloadDiff() {
   paintOpenEditor();
   if (orig.text === diffFile.orig.text && mod.text === diffFile.mod.text && orig.binary === diffFile.orig.binary) return;
   Object.assign(diffFile, { orig, mod });
-  if (!orig.binary && !mod.binary) setModels(true);
+  if (orig.binary || mod.binary) return;
+  // the old diff stays on screen until the new one is drawn
+  const gen = opening, copy = $("diff-editor").hidden ? null : still($("diff-editor"));
+  setModels(true);
+  await diffDrawn();
+  // a file opened meanwhile took the copy over
+  requestAnimationFrame(() => gen === opening && copy?.remove());
 }
 
 export async function closeDiff(force = false) {

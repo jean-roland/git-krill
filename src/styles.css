@@ -61,7 +61,8 @@ button.primary:hover:not(:disabled, .off) { background: color-mix(in srgb, var(-
 button.primary:disabled { background: color-mix(in srgb, var(--accent) 30%, var(--bg)); border-color: color-mix(in srgb, var(--accent) 45%, var(--bg)); color: color-mix(in srgb, var(--text) 65%, var(--bg)); cursor: default; opacity: 1; }
 button.good { color: var(--add); }
 button.bad { color: var(--del); }
-.busy header [data-op], .busy #undo, .busy #redo { pointer-events: none; opacity: 0.5; }
+/* dimmed only past 300 ms: a quick stage does not blink the toolbar */
+.busy header [data-op], .busy #undo, .busy #redo { pointer-events: none; opacity: 0.5; transition: opacity 0s 0.3s; }
 /* on/off buttons: Amend, View all files, Blame, Sync scrolling */
 .toggle.on { background: var(--sel); border-color: var(--accent); }
 /* line icons, stroked; no weight, so the rules below can set their stroke */
