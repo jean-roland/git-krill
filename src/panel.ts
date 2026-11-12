@@ -2,7 +2,7 @@
 import { Change, Commit, commits, fakeCommit, gitOp, headHash, isHead, opInfo, refresh, repo, run, runFixed, selection, status } from "./repo";
 import { $, ICONS, MenuItem, ask, avatar, basename, copy, dateFmt, h, ico, input, onCtrlEnter, plural, popup, say, shaLink, short, store, svg } from "./ui";
 import { DiffSource, confirmDiscard, diffFile, merging, openDiff, openHistory } from "./diff";
-import { jumpTo } from "./graph";
+import { jumpTo, linkRemote, webUrl } from "./graph";
 
 type Dir = { dirs: Map<string, Dir>; files: Change[] };
 export const SORTS: Record<string, string> = { "": "A–Z", desc: "Z–A", status: "Status" };
@@ -238,9 +238,44 @@ function panelCommit(): { c: Commit; message?: string; head: (Node | string)[]; 
   };
 }
 
-function authorBlock(c: Commit, email: string) {
+function authorBlock(c: Commit, email: string, sign: string) {
   const mail = h("small", { className: "email", textContent: email, title: `Copy ${email}`, onclick: () => copy(email) });
-  return [avatar(c.author), h("div", {}, c.author, mail, h("small", { textContent: `authored ${dateFmt.format(c.time * 1000)}` }))];
+  return [avatar(c.author), h("div", {}, c.author, mail, h("small", {}, `authored ${dateFmt.format(c.time * 1000)}`, ...signBadge(c.hash, sign)))];
+}
+
+// git's %G? letter of an unsigned commit: unverified without asking, like a forge in vigilant mode
+const UNSIGNED = "N";
+// the host's verdicts by commit, asked once: "<host> true valid", or "" when gh cannot ask
+const verdicts = new Map<string, Promise<string>>();
+
+/** What the remote's host says of signed commit `hash`, through gh. */
+function verdict(hash: string) {
+  if (!verdicts.has(hash))
+    verdicts.set(
+      hash,
+      (async () => {
+        const remote = linkRemote(), m = remote ? (await webUrl(remote)).match(/^https:\/\/([^/]+)\/(.+)$/) : null;
+        if (!m) return "";
+        return run<string>("gh_verified", { host: m[1], slug: m[2], hash }).then((v) => `${m[1]} ${v}`, () => "");
+      })(),
+    );
+  return verdicts.get(hash)!;
+}
+
+/** A pill for the commit's signature: grey while the remote server is asked, then what it says. */
+function signBadge(hash: string, sign: string) {
+  if (!sign) return [];
+  if (sign === UNSIGNED) return [h("span", { className: "sig warn", textContent: "Unverified", title: "Commit isn't signed" })];
+  const b = h("span", { className: "sig", textContent: "Verifying", title: "Asking the remote server about the commit signature" });
+  verdict(hash).then((v) => {
+    const ok = v.split(" ")[1];
+    const [cls, text, title] =
+      ok === "true" ? ["good", "Verified", "Remote server verified the commit signature"]
+      : ok === "false" ? ["warn", "Unverified", "Remote server couldn't verify the commit signature"]
+      : ["", "Not checked", "Remote server couldn't be asked about the commit signature"];
+    Object.assign(b, { className: `sig ${cls}`, textContent: text, title });
+  });
+  return [b];
 }
 
 function fileStats(files: Change[]) {
@@ -313,7 +348,7 @@ async function renderCommitDetails(n: number) {
   const view = panelCommit();
   if (!view) return;
   try {
-    const info = await runFixed<{ message: string; email: string; files: Change[] }>("commit_info", { hash: view.c.hash, parent: view.c.parents[0] ?? "" });
+    const info = await runFixed<{ message: string; email: string; sign: string; files: Change[] }>("commit_info", { hash: view.c.hash, parent: view.c.parents[0] ?? "" });
     if (n !== panelSeq) return;
     const all = $("all-files").classList.contains("on") ? await runFixed<string[]>("tree_files", { at: view.c.hash }) : [];
     if (n !== panelSeq) return;
@@ -331,7 +366,7 @@ async function renderCommitDetails(n: number) {
       );
       $("commit-msg").ondblclick = reword;
     }
-    $("commit-author").replaceChildren(...(view.author ? authorBlock(view.author, info.email) : []));
+    $("commit-author").replaceChildren(...(view.author ? authorBlock(view.author, info.email, info.sign) : []));
     $("commit-stats").replaceChildren(...fileStats(info.files));
     // all files: the commit's tree, with the changed ones marked
     const changed = new Map(info.files.map((f) => [f.path, f]));

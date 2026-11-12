@@ -58,6 +58,8 @@ struct Status {
 struct CommitInfo {
     message: String,
     email: String,
+    // git's %G?: G good, U good from an untrusted key, E no key here to check, B bad, X/Y expired, R revoked, N unsigned
+    sign: String,
     files: Vec<Change>,
 }
 
@@ -441,8 +443,9 @@ fn conflict_text(repo: String, path: String) -> Result<Blob, String> {
 
 #[tauri::command(async)]
 fn commit_info(repo: String, hash: String, parent: String) -> Result<CommitInfo, String> {
-    let shown = git(&repo, &["show", "-s", "--format=%ae%x00%B", not_option(&hash)?])?;
-    let (email, message) = shown.split_once('\0').unwrap_or(("", &shown));
+    let shown = git(&repo, &["show", "-s", "--format=%ae%x00%G?%x00%B", not_option(&hash)?])?;
+    let f: Vec<&str> = shown.splitn(3, '\0').collect();
+    let [email, sign, message] = f[..] else { return Err(format!("{hash}: no commit")) };
     let out = if parent.is_empty() {
         // one commit: diff-tree prints its id first unless told not to
         git(&repo, &["diff-tree", "-r", "-M", "-z", "--name-status", "--no-commit-id", "--root", not_option(&hash)?])?
@@ -461,7 +464,7 @@ fn commit_info(repo: String, hash: String, parent: String) -> Result<CommitInfo,
             files.push(Change { path: first, old: None, code: code.into(), conflict: None });
         }
     }
-    Ok(CommitInfo { message: message.trim_end().to_string(), email: email.to_string(), files })
+    Ok(CommitInfo { message: message.trim_end().to_string(), email: email.to_string(), sign: sign.to_string(), files })
 }
 
 /// \brief The commits that touched `path` from `revs`, across renames, each with the file's name there.
@@ -522,6 +525,20 @@ fn blame(repo: String, at: String, path: String) -> Result<String, String> {
     }
     let out = out?;
     if out.status.success() { Ok(String::from_utf8_lossy(&out.stdout).into_owned()) } else { Err(output_text(&out)) }
+}
+
+/// \brief What `host` says of commit `hash`'s signature in repo `slug` ("owner/name"), through gh: "true valid", "false unknown_key"...
+#[tauri::command(async)]
+fn gh_verified(host: String, slug: String, hash: String) -> Result<String, String> {
+    let path = format!("repos/{}/commits/{}", not_option(&slug)?, not_option(&hash)?);
+    let mut gh = Command::new("gh");
+    gh.args(["api", "--hostname", not_option(&host)?, &path, "--jq", r#".commit.verification | "\(.verified) \(.reason)""#])
+        .env("GH_PROMPT_DISABLED", "1")
+        .env("GH_NO_UPDATE_NOTIFIER", "1")
+        .stdin(Stdio::null());
+    // off the async pool while the network answers
+    let out = tokio::task::block_in_place(|| gh.output()).map_err(|e| e.to_string())?;
+    if out.status.success() { Ok(String::from_utf8_lossy(&out.stdout).trim().to_string()) } else { Err(output_text(&out)) }
 }
 
 /// \brief End the running blame, if any.
@@ -883,7 +900,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, is_linked_worktree,
+            initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, gh_verified, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, is_linked_worktree,
             is_merged, revert_hunk, open_default, delete_file, open_url, remote_urls, edit_remote,
             pty::pty_spawn, pty::pty_write, pty::pty_resize, pty::pty_kill, askpass::askpass_reply
         ])

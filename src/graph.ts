@@ -199,14 +199,14 @@ async function editRemote(name: string) {
 }
 
 /** Browser URL of a remote: git@host:org/repo.git, ssh://git@host:22/org/repo, https://user@host/org/repo.git. */
-async function webUrl(remote: string) {
+export async function webUrl(remote: string) {
   const url = (await run<{ fetch: string }>("remote_urls", { name: remote })).fetch;
   const m = url.match(/^(?:\w+:\/\/)?(?:[^@/]+@)?([^:/]+)(?::\d+)?[:/](.+?)(?:\.git)?\/?$/);
   return m ? `https://${m[1]}/${m[2]}` : url;
 }
 
 /** The remote links point at: the current branch's upstream, else the first remote. */
-function linkRemote() {
+export function linkRemote() {
   const up = findRef(`refs/heads/${status?.branch}`)?.upstream;
   const names = refs.refs.filter((r) => r.name.startsWith("refs/remotes/")).map((r) => r.name.slice("refs/remotes/".length).split("/")[0]);
   return up ? up.split("/")[0] : (names[0] ?? "");
