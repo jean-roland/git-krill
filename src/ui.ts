@@ -273,7 +273,8 @@ function fillMenu(m: HTMLElement, items: MenuItem[]) {
       if (!it) return h("hr");
       if (!Array.isArray(it)) return h("div", { className: "menu-title", title: it.title }, ico(it.icon), h("span", { textContent: it.title }));
       const [label, act] = it;
-      const b = h("button", { textContent: label });
+      // a very long name (a branch, a remote) is cut in its middle: the action around it stays readable
+      const b = h("button", { textContent: label.replace(/\S{33,}/g, (w) => `${w.slice(0, 16)}…${w.slice(-12)}`) });
       if (typeof act === "function") {
         b.onclick = act;
         // leaving for another row of the main menu closes the side one

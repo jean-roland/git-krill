@@ -73,7 +73,9 @@ button.bad { color: var(--del); }
 /* header: repository, branch, toolbar */
 header {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  /* the sides may shrink: a long branch name ends in an ellipsis before the toolbar */
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  column-gap: 32px;
   align-items: center;
   padding: 4px 10px;
   background: var(--panel);
@@ -88,7 +90,7 @@ header {
 .top-side .ico svg { width: 15px; height: 15px; }
 #repo-ico { margin-right: -2px; color: var(--dim); }
 #branch-ico { margin: 0 -2px 0 4px; padding: 2px 0 2px 12px; border-left: 1px solid color-mix(in srgb, var(--dim) 50%, transparent); color: var(--accent); }
-#branch { font-weight: 600; font-size: 14px; color: var(--accent); }
+#branch { min-width: 0; max-width: 340px; overflow: hidden; text-overflow: ellipsis; font-weight: 600; font-size: 14px; color: var(--accent); }
 #opstate { color: var(--mod); cursor: pointer; }
 .tool {
   position: relative;
@@ -366,19 +368,21 @@ body.home main { grid-template-columns: 1fr; }
 .refs { position: relative; flex: none; width: var(--refs-w); height: 100%; }
 /* the line from the label to the commit dot, the svg carries it on */
 .row .refs.has::before { content: ""; position: absolute; left: 6px; right: 0; top: 50%; height: 1px; background: var(--lane); }
-.refs-in { position: absolute; top: 3px; bottom: 3px; left: 6px; right: 8px; display: flex; align-items: center; gap: 4px; overflow: hidden; }
+.refs-in { position: absolute; top: 2px; bottom: 2px; left: 6px; right: 8px; display: flex; align-items: center; gap: 4px; overflow: hidden; }
 .refs-in .ref:not(:first-child) { display: none; }
-/* hover shows every label, spilling over the graph */
-.row .refs:hover .refs-in { right: auto; z-index: 4; overflow: visible; }
+/* hover shows a lone label's whole name; several drop down, one a line, over the rows under them */
+/* capped: a very long name ends in an ellipsis, its tooltip has it whole */
+.row .refs:hover .refs-in { right: auto; max-width: max(360px, calc(100% - 14px)); z-index: 4; overflow: visible; }
+.row .refs.multi:hover .refs-in { bottom: auto; min-width: calc(100% - 14px); flex-direction: column; align-items: stretch; gap: 2px; background: var(--bg); border-radius: 5px; }
+.row .refs.multi:hover .ref:hover { background: color-mix(in srgb, var(--lane) 55%, var(--bg)); cursor: pointer; }
 .row .refs:hover .ref { display: inline-flex; }
-.row .refs:hover .ref-name { overflow: visible; }
 .row .refs:hover .more { display: none; }
 .ref {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   min-width: 0;
-  height: 20px;
+  height: 22px;
   padding: 0 6px;
   font-size: 12px;
   border: 1px solid var(--lane);
@@ -735,7 +739,7 @@ svg.blame-av { cursor: pointer; }
   border-radius: 8px;
   box-shadow: 0 6px 24px #0006;
 }
-.menu button { padding: 6px 14px; font-size: 13.5px; border: none; background: none; text-align: left; border-radius: 4px; }
+.menu button { max-width: 460px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 6px 14px; font-size: 13.5px; border: none; background: none; text-align: left; border-radius: 4px; }
 .menu hr { width: 100%; margin: 4px 0; border: none; border-top: 1px solid var(--border); }
 .menu small { padding: 2px 4px 4px; color: var(--dim); }
 .menu .ask { width: 260px; font: 12px var(--mono); color: var(--text); background: var(--bg); border: 1px solid var(--accent); border-radius: 4px; padding: 4px 6px; }
@@ -771,7 +775,7 @@ svg.blame-av { cursor: pointer; }
 #banner input:focus, #banner select:focus { outline: 1px solid var(--accent); }
 #banner button { white-space: nowrap; }
 #dialog { position: fixed; inset: 0; z-index: 26; display: flex; align-items: flex-start; justify-content: center; padding-top: 12vh; background: #0008; }
-.dlg { display: flex; flex-direction: column; gap: 6px; width: max-content; min-width: 520px; max-width: 80vw; box-sizing: content-box; padding: 16px 20px 20px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 16px 40px #000c; animation: drop-in 0.18s ease-out; }
+.dlg { display: flex; flex-direction: column; gap: 6px; width: max-content; min-width: 520px; max-width: 80vw; overflow-wrap: anywhere; box-sizing: content-box; padding: 16px 20px 20px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 16px 40px #000c; animation: drop-in 0.18s ease-out; }
 @keyframes drop-in { from { opacity: 0; transform: translateY(-16px); } }
 .dlg-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 16px; }
 /* the buttons size the dialog, the question wraps to them */

@@ -288,7 +288,7 @@ export const isRepo = (path: string) => invoke("repo_root", { path }).then(() =>
 
 function renderToolbar() {
   if (!status) return;
-  $("branch").textContent = status.branch || "detached HEAD";
+  $("branch").textContent = $("branch").title = status.branch || "detached HEAD";
   $("repo-ico").innerHTML = svg(tabs[active].worktree ? ICONS.worktree : ICONS.repo);
   $("branch-ico").innerHTML = svg(ICONS.branch);
   $("behind").textContent = status.behind ? String(status.behind) : "";

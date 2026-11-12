@@ -398,7 +398,9 @@ function chip(l: Label) {
     "span",
     {
       className: `ref${l.head ? " is-head" : ""}${l.tag ? " tag" : ""}`,
-      title: l.tag ? `${l.name} (tag)` : "Double-click to checkout",
+      title: l.tag ? `${l.name} (tag)` : l.head ? l.name : `${l.name}: double-click to checkout`,
+      // in a dropped-down list a click picks nothing: the panel stays where it is
+      onclick: (e: MouseEvent) => (e.currentTarget as HTMLElement).closest(".multi") && e.stopPropagation(),
       ondblclick: (e: MouseEvent) => (e.stopPropagation(), !l.tag && !l.head && checkoutBranch(labelRef(l), !l.local)),
       oncontextmenu: (e: MouseEvent) => (e.stopPropagation(), popup(e, l.tag ? tagMenu(l.name) : branchMenu(labelRef(l), !l.local))),
     },
@@ -424,7 +426,7 @@ function graphRow(c: Commit, lane: string, nodeX: number) {
     },
     h(
       "div",
-      { className: `refs${ls.length ? " has" : ""}` },
+      { className: `refs${ls.length ? " has" : ""}${ls.length > 1 ? " multi" : ""}` },
       h("div", { className: "refs-in" }, ...ls.map(chip), ...(ls.length > 1 ? [h("span", { className: "more", textContent: `+${ls.length - 1}` })] : [])),
     ),
     c.hash === "WIP"
