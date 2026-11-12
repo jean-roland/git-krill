@@ -1017,7 +1017,7 @@ fn rebase_interactive(repo: &str, base: &str, steps: &str) -> Result<String, Str
     }
     let plan = dir.join("todo");
     std::fs::write(&plan, todo).map_err(|e| e.to_string())?;
-    let mut git = git_command(repo, &["rebase", "-i", "--autostash", not_option(base)?], true);
+    let mut git = git_command(repo, &["rebase", "-i", not_option(base)?], true);
     // git hands its own todo to this "editor": ours replaces it
     git.env("GIT_SEQUENCE_EDITOR", format!("cp {}", sh_quote(&plan.to_string_lossy())));
     git.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -1038,8 +1038,54 @@ fn resolve_all(repo: &str) -> Result<String, String> {
     git_with_stderr(repo, &args)
 }
 
+// ops that need a clean tree: the local changes are kept aside around them
+const AUTOSTASH_OPS: [&str; 4] = ["pull", "merge", "rebase", "rebase-interactive"];
+const AUTOSTASH: &str = "krill autostash";
+
+/// \brief Keep the tracked changes aside in a stash, its hash in .git/krill-autostash; git's own --autostash brings them back all unstaged.
+fn autostash(repo: &str) -> Result<(), String> {
+    if git(repo, &["status", "--porcelain", "--untracked-files=no"])?.trim().is_empty() {
+        return Ok(());
+    }
+    let top = || git(repo, &["rev-parse", "-q", "--verify", "stash@{0}"]).unwrap_or_default();
+    let before = top();
+    git(repo, &["stash", "push", "-q", "-m", AUTOSTASH])?;
+    // nothing git would stash (changes inside submodules only): the top stash is an older one, not ours
+    let sha = top();
+    if sha == before {
+        return Ok(());
+    }
+    std::fs::write(git_dir(repo)?.join("krill-autostash"), sha.trim()).map_err(|e| e.to_string())
+}
+
+/// \brief Once nothing is in progress, pop the kept changes back, staged as they were; None when there is nothing to bring back yet.
+fn restore_autostash(repo: &str) -> Option<Result<String, String>> {
+    let marker = git_dir(repo).ok()?.join("krill-autostash");
+    let sha = std::fs::read_to_string(&marker).ok()?;
+    if !op_state(repo).ok()?.is_empty() {
+        return None;
+    }
+    let _ = std::fs::remove_file(&marker);
+    // popped by hand meanwhile: nothing left to do
+    let i = git(repo, &["stash", "list", "--format=%H"]).ok()?.lines().position(|h| h == sha.trim())?;
+    Some(stash_restore(repo, "pop", &format!("stash@{{{i}}}")).map_err(|e| format!("{e}\nYour changes are kept in the stash \"{AUTOSTASH}\".")))
+}
+
 #[tauri::command(async)]
 fn git_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result<String, String> {
+    if AUTOSTASH_OPS.contains(&op.as_str()) && op_state(&repo)?.is_empty() {
+        autostash(&repo)?;
+    }
+    let out = run_op(repo.clone(), op, arg, arg2);
+    // after this op or a later one (continue, abort): the changes come back when the tree is free again
+    match (out, restore_autostash(&repo)) {
+        (Ok(o), Some(Ok(back))) => Ok(format!("{o}\n{back}").trim().to_string()),
+        (Ok(_), Some(Err(e))) => Err(e),
+        (out, _) => out,
+    }
+}
+
+fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result<String, String> {
     let state = op_state(&repo)?;
     let arg2 = arg2.unwrap_or_default();
     let upstream = format!("HEAD:refs/heads/{arg2}");
@@ -1075,11 +1121,10 @@ fn git_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
     let args: Vec<&str> = match op.as_str() {
         "fetch" => vec!["fetch", "--all", "--prune"],
         "pull" => match arg.as_str() {
-            // local changes are stashed around it, and come back after
-            "ff-only" => vec!["pull", "--autostash", "--ff-only"],
-            "rebase" => vec!["pull", "--autostash", "--rebase"],
+            "ff-only" => vec!["pull", "--ff-only"],
+            "rebase" => vec!["pull", "--rebase"],
             // fast-forward when possible, else a merge commit
-            _ => vec!["pull", "--autostash", "--no-rebase"],
+            _ => vec!["pull", "--no-rebase"],
         },
         "push" => vec!["push"],
         "stash-push" => vec!["stash", "push", "-u"],
@@ -1116,8 +1161,8 @@ fn git_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         // worktree only: the restored file shows up unstaged, for review
         "restore-file" => vec!["restore", "--source", not_option(&arg)?, "--", &arg2],
         "checkout" => vec!["checkout", not_option(&arg)?],
-        "merge" => vec!["merge", "--autostash", not_option(&arg)?],
-        "rebase" => vec!["rebase", "--autostash", not_option(&arg)?],
+        "merge" => vec!["merge", not_option(&arg)?],
+        "rebase" => vec!["rebase", not_option(&arg)?],
         "cherry-pick" => vec!["cherry-pick", not_option(&arg)?],
         "branch-delete" => vec!["branch", "-d", not_option(&arg)?],
         "branch-force-delete" => vec!["branch", "-D", not_option(&arg)?],
