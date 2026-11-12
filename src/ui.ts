@@ -273,8 +273,8 @@ export function showMenu(items: MenuItem[], x: number, y: number) {
 
 /** The rows of a menu; an entry with items shows them beside it on hover. */
 function fillMenu(m: HTMLElement, items: MenuItem[]) {
-  // separators only between two groups
-  const kept = items.filter((it, i) => it || (items.slice(0, i).some(Boolean) && items.slice(i + 1).some(Boolean)));
+  // separators only between two groups of actions: none under the title
+  const kept = items.filter((it, i) => it || (items.slice(0, i).some(Array.isArray) && items.slice(i + 1).some(Array.isArray)));
   const rows = kept.filter((it, i) => it || kept[i - 1]);
   const sub = $("submenu");
   m.replaceChildren(
