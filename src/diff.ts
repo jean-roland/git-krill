@@ -4,7 +4,8 @@ import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import { applyChanges, allLines, pickLines, parseConflicts, mergeSides, pickedLines, parseBlame, toggleSide, toggleLine, hasSide, pickedOf } from "./core.js";
 import { Blob, Change, Commit, active, fakeCommit, gitOp, headHash, opInfo, recordUndo, refresh, run, status, tabs } from "./repo";
 import { $, COLORS, ICONS, MenuItem, ask, avatar, avatarSvg, basename, colorIndex, copy, cssVar, dateFmt, dayFmt, esc, h, hideBanner, input, megabytes, plural, popup, say, short, showBanner, store, svg, toast, whileLoading } from "./ui";
-import { fileLists, isConflict, markOpenFile, wipFiles } from "./panel";
+import { fileLists, isConflict, isSubmodule, markOpenFile, wipFiles } from "./panel";
+import { openSubmodule } from "./graph";
 
 export type DiffSource = "unstaged" | "staged" | "commit";
 export type Mode = "hunk" | "inline" | "split";
@@ -70,7 +71,10 @@ export const loadMonaco = () =>
   });
   }));
 // full: loaded past the size a diff loads unasked
-export let diffFile: { kind: DiffSource; f: Change; c?: Commit; orig: Blob; mod: Blob; dirty: boolean; full: boolean } | null = null;
+type SubCommit = { hash: string; subject: string };
+type SubmoduleChange = { old: SubCommit | null; new: SubCommit | null; added: SubCommit[]; removed: SubCommit[]; changed: number; untracked: number; initialized: boolean };
+// sub: what a submodule went through, shown instead of a text diff
+export let diffFile: { kind: DiffSource; f: Change; c?: Commit; orig: Blob; mod: Blob; dirty: boolean; full: boolean; sub?: SubmoduleChange } | null = null;
 export let diffEditor: Monaco.editor.IStandaloneDiffEditor | null = null;
 // hunk header bars, as view zone ids per side
 let hunkZones: { mod: string[]; orig: string[]; nodes: HTMLElement[] } = { mod: [], orig: [], nodes: [] };
@@ -318,9 +322,13 @@ export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistor
   // clicking the open file again closes it
   if (diffFile && diffFile.kind === kind && diffFile.f.path === f.path && diffFile.c?.hash === c?.hash && diffFile.c?.parents[0] === c?.parents[0]) return closeDiff();
   if (!(await confirmDrop())) return;
-  let orig: Blob, mod: Blob;
+  let orig: Blob, mod: Blob, sub: SubmoduleChange | undefined;
   try {
-    [orig, mod] = await fetchSides(kind, f, c);
+    if (isSubmodule(f.path)) {
+      const [from, to] = kind === "unstaged" ? ["INDEX", "WORKTREE"] : kind === "staged" ? ["HEAD", "INDEX"] : [c!.parents[0] ?? "", c!.hash];
+      sub = await run<SubmoduleChange>("submodule_change", { path: f.path, from, to });
+      orig = mod = { text: "", exists: false, binary: false, large: null };
+    } else [orig, mod] = await fetchSides(kind, f, c);
   } catch (e) {
     return say(String(e), true);
   }
@@ -328,7 +336,7 @@ export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistor
   const gen = ++opening, fresh = $("diff").hidden && !merging;
   const copy = document.querySelector(".still") ?? still(merging ? $("merge") : [$("diff-editor"), $("diff-binary")].find((e) => !$("diff").hidden && !e.hidden));
   await closeMerge(true);
-  diffFile = { kind, f, c, orig, mod, dirty: false, full: false };
+  diffFile = { kind, f, c, orig, mod, dirty: false, full: false, sub };
   if (fresh) $("diff").classList.add("blank");
   $("diff").hidden = false;
   document.body.classList.add("diffing");
@@ -365,21 +373,41 @@ const MAX_ASKED = 200 << 20;
 
 /** The open diff's sides in the editor, or why not: binary, or too big to load unasked. */
 function paintSides() {
-  const { f, orig, mod } = diffFile!;
+  const { f, orig, mod, sub } = diffFile!;
   const binary = orig.binary || mod.binary, large = Math.max(orig.large ?? 0, mod.large ?? 0);
-  $("diff-editor").hidden = binary || !!large;
-  $("diff-binary").hidden = !binary && !large;
+  $("diff-editor").hidden = binary || !!large || !!sub;
+  $("diff-binary").hidden = !binary && !large && !sub;
   $("diff-binary").replaceChildren(
-    ...(binary ? ["Binary or non-UTF-8 file: whole-file actions only."] : [`${basename(f.path)} is ${megabytes(large)}: too big to show, whole-file actions only.`, forceLoadButton(large)]),
+    ...(sub
+      ? submoduleCard(f.path, sub)
+      : binary
+        ? ["Binary or non-UTF-8 file: whole-file actions only."]
+        : [`${basename(f.path)} is ${megabytes(large)}: too big to show, whole-file actions only.`, forceLoadButton(large)]),
   );
   $("diff-save").hidden = true;
   applyMode();
-  if (binary || large) return Promise.resolve();
+  if (binary || large || sub) return Promise.resolve();
   // Monaco gives up on a diff after 5 s and marks the whole file changed: a file loaded on request gets the time it takes
   setOptions({ maxComputationTime: diffFile!.full ? 0 : 5000 });
   setModels(false);
   // the folds land a moment after the text
   return diffDrawn(diffFile!.full ? 300_000 : 500);
+}
+
+/** The commits a submodule moved between, and what changed in its folder. */
+function submoduleCard(path: string, s: SubmoduleChange) {
+  const line = (c: SubCommit | null, cls: string) =>
+    h("div", { className: `sub-line ${cls}` }, h("code", { textContent: c ? short(c.hash) : "none" }), h("span", { textContent: c ? c.subject || "(not in the submodule's clone)" : "" }));
+  const list = (title: string, cs: SubCommit[]) =>
+    cs.length ? [h("h4", { textContent: title }), ...cs.map((c) => h("div", { className: "sub-commit" }, h("code", { textContent: short(c.hash) }), h("span", { textContent: c.subject })))] : [];
+  const dirty = [s.changed && `${plural(s.changed, "changed file")}`, s.untracked && `${plural(s.untracked, "untracked file")}`].filter(Boolean).join(", ");
+  return [
+    ...(s.old?.hash === s.new?.hash ? [line(s.new, "")] : [line(s.old, "del"), line(s.new, "add")]),
+    ...list(`${plural(s.added.length, "commit")} added`, s.added),
+    ...list(`${plural(s.removed.length, "commit")} removed`, s.removed),
+    ...(dirty ? [h("p", { textContent: `Uncommitted in the submodule: ${dirty}. Open it to commit them.` })] : []),
+    ...(s.initialized ? [h("button", { className: "sub-open", innerHTML: `${svg(ICONS.submodule)}Open submodule`, onclick: () => openSubmodule(path) })] : []),
+  ];
 }
 
 function forceLoadButton(bytes: number) {

@@ -87,6 +87,11 @@ header {
 .top-mid, .hist-mid { display: flex; align-items: center; gap: 8px; }
 .sep { width: 1px; height: 28px; margin: 0 8px; background: var(--border); }
 #repo-name { font-weight: 600; font-size: 14px; }
+#repo-name .back { cursor: pointer; }
+#repo-name .back:hover { text-decoration: underline; }
+#repo-name .sub-close { margin-left: 4px; padding: 1px 3px; border: none; background: none; color: var(--dim); line-height: 0; vertical-align: -2px; }
+#repo-name .sub-close:hover { color: var(--text); }
+#repo-name .sub-close svg { width: 13px; height: 13px; }
 .top-side .ico svg { width: 15px; height: 15px; }
 #repo-ico { margin-right: -2px; color: var(--dim); }
 #branch-ico { margin: 0 -2px 0 4px; padding: 2px 0 2px 12px; border-left: 1px solid color-mix(in srgb, var(--dim) 50%, transparent); color: var(--accent); }
@@ -277,6 +282,10 @@ body.home main { grid-template-columns: 1fr; }
 .item.current { position: relative; background-color: var(--sel); }
 .item.current .label { color: var(--accent); font-weight: 600; }
 .item .ico { color: var(--dim); }
+/* a submodule's state, where other rows have their eye */
+.item .sub-state { position: absolute; left: 8px; }
+.item .sub-state.ok { color: var(--add); }
+.item .sub-state.out { color: var(--mod); }
 /* in the indent, so the branch icons stay aligned */
 .item .ico.check { position: absolute; left: 4px; padding: 1px; color: var(--on-accent); background: var(--accent); border-radius: 3px; }
 #sidebar .ico svg, #details .ico svg { width: 15px; height: 15px; }
@@ -594,6 +603,15 @@ textarea.msg-in { height: 104px; resize: vertical; }
 .seg button svg { width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; }
 #diff-editor { flex: 1; min-height: 0; }
 #diff-binary { padding: 20px; color: var(--dim); }
+/* a submodule's change: its old and new commit, the ones between */
+.sub-line { display: flex; gap: 12px; padding: 8px 12px; color: var(--text); }
+.sub-line.del { background: color-mix(in srgb, var(--del) 18%, transparent); }
+.sub-line.add { background: color-mix(in srgb, var(--add) 18%, transparent); }
+.sub-line code, .sub-commit code { font: 12px var(--mono); color: var(--dim); }
+#diff-binary h4 { margin: 18px 0 6px; font-weight: 600; color: var(--text); }
+.sub-commit { display: flex; gap: 12px; padding: 3px 12px; color: var(--text); }
+#diff-binary .sub-open { margin: 16px 0 0; }
+.sub-open svg { width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; }
 #diff-binary button { margin-left: 8px; }
 /* greyed by its colours, not opacity: its tooltip stays readable */
 #diff-binary button.off { opacity: 1; color: var(--dim); }

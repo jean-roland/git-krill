@@ -6,7 +6,7 @@ import { repoName } from "./core.js";
 import { $, COLORS, ICONS, MenuItem, basename, colorIndex, dialog, h, hideBanner, hideDialog, hint, ico, input, pickDir, popup, say, showBanner, showDialog, showMenu, store, svg, toast } from "./ui";
 import { closeHistory, closeMerge, closeResolvedMerge, confirmDrop, diffFile, openRow, reloadDiff } from "./diff";
 import { conflictCount, getMsg, renderPanel, setMsg } from "./panel";
-import { paintWipRow, renderGraph, renderSide, resetGraph } from "./graph";
+import { leaveSubmodule, paintWipRow, renderGraph, renderSide, resetGraph } from "./graph";
 import { dropTerm, showTerm } from "./terminal";
 
 export type Change = { path: string; old: string | null; code: string; conflict?: string };
@@ -16,13 +16,16 @@ export type Status = { branch: string; state: string; ahead: number | null; behi
 type Ref = { name: string; hash: string; upstream: string; track: string };
 export type Stash = { name: string; hash: string; parents: string[]; subject: string };
 export type Worktree = { path: string; head: string; branch: string; locked: boolean; prunable: boolean };
-type Refs = { refs: Ref[]; stashes: Stash[]; remotes: string[]; worktrees: Worktree[] };
+// head: the commit checked out in it, empty when not initialized
+export type Submodule = { name: string; path: string; url: string; recorded: string; head: string; modified: boolean; untracked: boolean; ahead: number | null; behind: number | null };
+type Refs = { refs: Ref[]; stashes: Stash[]; remotes: string[]; worktrees: Worktree[]; submodules: Submodule[]; superproject: string };
 // large: too big to load unasked, its size in bytes
 export type Blob = { text: string; exists: boolean; binary: boolean; large: number | null };
 // file: a discard, the work tree text before and after (null: no file)
 type UndoStep = { op: string; branch: [string, string]; head: [string, string]; file?: [string, string | null, string | null] };
 // limit: how many commits the graph loads, raised by "Load more"
-export type Tab = { repo: string; selected: string[]; msg: string; scroll: number; undo: UndoStep[]; redo: UndoStep[]; worktree: boolean; limit: number };
+// parent: the repository a submodule was opened from, in this tab; one level only
+export type Tab = { repo: string; parent: string; selected: string[]; msg: string; scroll: number; undo: UndoStep[]; redo: UndoStep[]; worktree: boolean; limit: number };
 export const LOG_LIMIT = 3000;
 // ops that move HEAD, walked back with a reset or a checkout
 const UNDOABLE = new Set([
@@ -54,7 +57,7 @@ export let active = 0;
 export let repo = "";
 export let commits: Commit[] = [];
 export let status: Status | null = null;
-export let refs: Refs = { refs: [], stashes: [], remotes: [], worktrees: [] };
+export let refs: Refs = { refs: [], stashes: [], remotes: [], worktrees: [], submodules: [], superproject: "" };
 // the picked graph rows ("WIP" or hashes), where a Shift range starts, whether it is one, or the stash shown instead
 export const selection = { hashes: ["WIP"], anchor: "", isRange: false, stash: null as Stash | null };
 // the merge, rebase... in progress, and the step whose message the commit box holds
@@ -293,7 +296,7 @@ export const isRepo = (path: string) => invoke("repo_root", { path }).then(() =>
 function renderToolbar() {
   if (!status) return;
   $("branch").textContent = $("branch").title = status.branch || "detached HEAD";
-  $("repo-ico").innerHTML = svg(tabs[active].worktree ? ICONS.worktree : ICONS.repo);
+  $("repo-ico").innerHTML = svg(refs.superproject ? ICONS.submodule : tabs[active].worktree ? ICONS.worktree : ICONS.repo);
   $("branch-ico").innerHTML = svg(ICONS.branch);
   $("behind").textContent = status.behind ? String(status.behind) : "";
   $("ahead").textContent = status.ahead ? String(status.ahead) : "";
@@ -314,19 +317,30 @@ function renderToolbar() {
 const aliases = (): Record<string, string> => JSON.parse(store("aliases") ?? "{}");
 /** The header's repository name and the window title; a linked worktree names its main repository first. */
 export function paintRepoName() {
-  const name = tabName(tabs[active]), main = refs.worktrees[0];
-  $("repo-name").textContent = !main || main === thisWorktree() ? name : `${basename(main.path)} › ${name}`;
+  const t = tabs[active], name = tabName(t), main = refs.worktrees[0];
   $("repo-name").title = repo;
+  // a submodule opened in this tab: its parent's name leads back, so does the ×
+  if (t.parent) {
+    const back = `Back to ${repoLabel(t.parent)} (Esc, Alt+←)`;
+    $("repo-name").replaceChildren(
+      // in the colour of its tab badge: the repository this tab belongs to
+      h("span", { className: "back", textContent: repoLabel(t.parent), title: back, onclick: leaveSubmodule, style: `color: ${COLORS[colorIndex(t.parent)]}` }),
+      ` › ${repoLabel(t.repo)}`,
+      h("button", { className: "icon sub-close", title: back, innerHTML: svg(ICONS.close), onclick: leaveSubmodule }),
+    );
+  } else $("repo-name").textContent = !main || main === thisWorktree() ? name : `${basename(main.path)} › ${name}`;
   getCurrentWindow().setTitle(repo ? `Git Krill · ${name}` : "Git Krill");
 }
 
-export const tabName = (t: Tab) => (t.repo ? (aliases()[t.repo] ?? basename(t.repo)) : "Home");
+const repoLabel = (path: string) => aliases()[path] ?? basename(path);
+export const tabName = (t: Tab) => (!t.repo ? "Home" : t.parent ? `${repoLabel(t.parent)} › ${repoLabel(t.repo)}` : repoLabel(t.repo));
 // closed this session, for Ctrl+Shift+T
 const closedTabs: string[] = [];
 
 /** Reopen the last run's tabs, then the repository krill was started on. */
 export async function restoreTabs() {
-  tabs = (JSON.parse(store("tabs") ?? "[]") as string[]).map(newTab);
+  // a submodule opened in its parent's tab is saved as [parent, submodule]
+  tabs = (JSON.parse(store("tabs") ?? "[]") as (string | string[])[]).map((x) => (Array.isArray(x) ? newTab(x[1], x[0]) : newTab(x)));
   if (!tabs.length) tabs.push(newTab(""));
   active = Math.min(Number(store("active-tab")) || 0, tabs.length - 1);
   const arg = await invoke<string>("initial_repo");
@@ -342,12 +356,12 @@ export async function restoreTabs() {
 }
 
 function saveTabs() {
-  store("tabs", JSON.stringify(tabs.map((t) => t.repo)));
+  store("tabs", JSON.stringify(tabs.map((t) => (t.parent ? [t.parent, t.repo] : t.repo))));
   store("active-tab", String(active));
 }
 
-export function newTab(repo: string): Tab {
-  const t: Tab = { repo, selected: ["WIP"], msg: "", scroll: 0, undo: [], redo: [], worktree: false, limit: LOG_LIMIT };
+export function newTab(repo: string, parent = ""): Tab {
+  const t: Tab = { repo, parent, selected: ["WIP"], msg: "", scroll: 0, undo: [], redo: [], worktree: false, limit: LOG_LIMIT };
   // a linked worktree's .git is a file
   if (repo) invoke<boolean>("is_linked_worktree", { repo }).then((w) => w && ((t.worktree = true), renderTabs()));
   return t;
@@ -369,8 +383,9 @@ function renderTabs() {
           oncontextmenu: (e: MouseEvent) => popup(e, tabMenu(i)),
         },
         // a repo's initial on a colour of its own, so tabs tell apart at a glance
+        // a submodule opened in its parent's tab wears the parent's badge
         t.repo && !t.worktree
-          ? h("span", { className: "tab-badge", textContent: tabName(t)[0]?.toUpperCase() ?? "", style: `--c: ${COLORS[colorIndex(t.repo)]}` })
+          ? h("span", { className: "tab-badge", textContent: tabName(t)[0]?.toUpperCase() ?? "", style: `--c: ${COLORS[colorIndex(t.parent || t.repo)]}` })
           : ico(t.repo ? ICONS.worktree : ICONS.home),
         h("span", { className: "tab-name", textContent: tabName(t) }),
         h("button", { className: "x", textContent: "×", title: "Close (Ctrl+W)", onclick: (e: Event) => (e.stopPropagation(), closeTab(i)) }),

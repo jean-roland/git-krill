@@ -1,8 +1,8 @@
 // The right panel: work in progress or a commit's details, the file lists, the commit box.
-import { Change, Commit, commits, fakeCommit, gitOp, headHash, isHead, opInfo, refresh, repo, run, runFixed, selection, status } from "./repo";
+import { Change, Commit, commits, fakeCommit, gitOp, headHash, isHead, opInfo, refresh, refs, repo, run, runFixed, selection, status } from "./repo";
 import { $, ICONS, MenuItem, ask, avatar, basename, copy, dateFmt, h, ico, input, onCtrlEnter, label, plural, popup, say, shaLink, short, store, svg } from "./ui";
 import { DiffSource, confirmDiscard, diffFile, merging, openDiff, openHistory } from "./diff";
-import { jumpTo, linkRemote, webUrl } from "./graph";
+import { discardSubmodule, jumpTo, linkRemote, openSubmodule, webUrl } from "./graph";
 import { planOpen } from "./rebase";
 
 type Dir = { dirs: Map<string, Dir>; files: Change[] };
@@ -51,11 +51,12 @@ function fileMenu(f: Change, kind: DiffSource, c?: Commit): MenuItem[] {
       : kind === "unstaged"
       ? ([
           ["Stage", () => gitOp("stage", f.path)],
-          ["Discard changes", () => confirmDiscard(f)],
+          ["Discard changes", () => (isSubmodule(f.path) ? discardSubmodule(f.path) : confirmDiscard(f))],
         ] as MenuItem[])
       : []),
     ...(kind === "staged" ? ([["Unstage", () => gitOp("unstage", f.path)]] as MenuItem[]) : []),
     null,
+    ...(isSubmodule(f.path) ? ([["Open submodule", () => openSubmodule(f.path)]] as MenuItem[]) : []),
     ["File history", () => openHistory(f.path, c)],
     ["Open in VS Code", () => run("open_in_editor", { path: f.path, line: 1 }).catch(neutral)],
     ["Open in default program", () => run("open_default", { path: f.path, folder: false }).catch(neutral)],
@@ -80,6 +81,8 @@ function fileMenu(f: Change, kind: DiffSource, c?: Commit): MenuItem[] {
 }
 
 /* file lists */
+
+export const isSubmodule = (path: string) => refs.submodules.some((s) => s.path === path);
 
 const CODE_ICON: Record<string, string> = { M: "m", T: "m", A: "a", "?": "a", D: "d", R: "r", C: "r", U: "u" };
 const STATUS_ORDER = "U?AMTRCD";
@@ -107,7 +110,8 @@ function fileList(
         oncontextmenu: (e: MouseEvent) => popup(e, menu(f)),
         title: f.old ? `${f.old} → ${f.path}` : f.path,
       },
-      h("span", { className: `code code-${code}`, innerHTML: code ? svg(ICONS[code]) : "", title: f.code }),
+      // a submodule is no file: its own icon, in the colour of its change
+      h("span", { className: `code code-${code}`, innerHTML: code ? svg(isSubmodule(f.path) ? ICONS.submodule : ICONS[code]) : "", title: f.code }),
       h("span", { className: "path" }, h("span", { className: "dir", textContent: dir }), h("span", { className: "name", textContent: f.path.slice(slash) })),
       ...actions.filter(([, , when]) => !when || when(f)).map(([label, fn]) => h("button", { textContent: label, onclick: (e: Event) => (e.stopPropagation(), fn(f)) })),
     );

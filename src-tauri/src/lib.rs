@@ -80,6 +80,23 @@ struct Stash {
 }
 
 #[derive(Serialize)]
+struct Submodule {
+    name: String,
+    path: String,
+    url: String,
+    // the commit HEAD records, empty before the first commit that adds it
+    recorded: String,
+    // the commit checked out in it, empty when not initialized
+    head: String,
+    // changes to its tracked files, untracked files in it
+    modified: bool,
+    untracked: bool,
+    // its checkout against the recorded commit, when it differs and both are known
+    ahead: Option<u32>,
+    behind: Option<u32>,
+}
+
+#[derive(Serialize)]
 struct Worktree {
     path: String,
     head: String,
@@ -97,6 +114,9 @@ struct Refs {
     remotes: Vec<String>,
     // the main worktree first
     worktrees: Vec<Worktree>,
+    submodules: Vec<Submodule>,
+    // the repository this one is a submodule of, empty when none
+    superproject: String,
 }
 
 #[derive(Serialize)]
@@ -301,7 +321,69 @@ fn refs(repo: String) -> Result<Refs, String> {
             (!w.path.is_empty()).then_some(w)
         })
         .collect();
-    Ok(Refs { refs, stashes, remotes, worktrees })
+    let superproject = git(&repo, &["rev-parse", "--show-superproject-working-tree"])?.trim().to_string();
+    Ok(Refs { refs, stashes, remotes, worktrees, submodules: submodules(&repo)?, superproject })
+}
+
+/// \brief The submodules `.gitmodules` lists, with their state; git is asked again only about the ones that changed.
+fn submodules(repo: &str) -> Result<Vec<Submodule>, String> {
+    if !Path::new(repo).join(".gitmodules").exists() {
+        return Ok(Vec::new());
+    }
+    let mut subs: Vec<Submodule> = Vec::new();
+    // submodule.<name>.path / .url, the name may hold dots
+    for l in git(repo, &["config", "-f", ".gitmodules", "--get-regexp", r"^submodule\..*\.(path|url)$"])?.lines() {
+        let Some((key, value)) = l.split_once(' ') else { continue };
+        let Some((name, field)) = key.strip_prefix("submodule.").and_then(|k| k.rsplit_once('.')) else { continue };
+        let i = subs.iter().position(|s| s.name == name).unwrap_or_else(|| {
+            subs.push(Submodule { name: name.into(), path: String::new(), url: String::new(), recorded: String::new(), head: String::new(), modified: false, untracked: false, ahead: None, behind: None });
+            subs.len() - 1
+        });
+        if field == "path" { subs[i].path = value.into() } else { subs[i].url = value.into() }
+    }
+    subs.retain(|s| !s.path.is_empty());
+    let paths: Vec<String> = subs.iter().map(|s| s.path.clone()).collect();
+    let mut args = vec!["ls-tree", "HEAD", "--"];
+    args.extend(paths.iter().map(String::as_str));
+    // "160000 commit <sha>\t<path>"; no HEAD yet: nothing recorded
+    for l in git(repo, &args).unwrap_or_default().lines() {
+        let Some((meta, path)) = l.split_once('\t') else { continue };
+        if let Some(sub) = subs.iter_mut().find(|s| s.path == path) {
+            sub.recorded = meta.rsplit(' ').next().unwrap_or("").into();
+        }
+    }
+    let mut args = vec!["status", "--porcelain=v2", "-z", "--"];
+    args.extend(paths.iter().map(String::as_str));
+    // "1 XY S<c><m><u> ..." for a changed submodule: c its commit moved, m tracked changes, u untracked files
+    let status = git(repo, &args)?;
+    for e in status.split('\0').filter(|e| e.starts_with("1 ") || e.starts_with("2 ")) {
+        let f: Vec<&str> = e.splitn(9, ' ').collect();
+        let Some(sub) = f.get(8).and_then(|p| subs.iter_mut().find(|s| s.path == *p)) else { continue };
+        let (xy, flags) = (f[1], f[2].as_bytes());
+        sub.modified = flags.get(2) == Some(&b'M');
+        sub.untracked = flags.get(3) == Some(&b'U');
+        // its checkout left the recorded commit: in the index (staged) or in its own folder
+        if xy.starts_with('M') || flags.get(1) == Some(&b'C') {
+            sub.head = "?".into();
+        }
+    }
+    for sub in &mut subs {
+        let dir = Path::new(repo).join(&sub.path);
+        if !dir.join(".git").exists() {
+            sub.head.clear();
+            continue;
+        }
+        if sub.head != "?" {
+            sub.head = sub.recorded.clone();
+            continue;
+        }
+        let d = dir.to_string_lossy();
+        sub.head = git(&d, &["rev-parse", "HEAD"])?.trim().into();
+        let counts = git(&d, &["rev-list", "--left-right", "--count", &format!("{}...HEAD", sub.recorded)]).ok();
+        let mut counts = counts.iter().flat_map(|c| c.split_whitespace()).filter_map(|n| n.parse().ok());
+        (sub.behind, sub.ahead) = (counts.next(), counts.next());
+    }
+    Ok(subs)
 }
 
 #[tauri::command(async)]
@@ -696,7 +778,8 @@ fn delete_file(repo: String, path: String) -> Result<(), String> {
 /// \brief Whether `repo` is a linked worktree: its `.git` is a file.
 #[tauri::command]
 fn is_linked_worktree(repo: String) -> bool {
-    Path::new(&repo).join(".git").is_file()
+    // a submodule's .git is a file too, pointing into its parent's .git/modules
+    std::fs::read_to_string(Path::new(&repo).join(".git")).is_ok_and(|g| g.contains("/worktrees/"))
 }
 
 /// \brief Whether `path` exists in the work tree.
@@ -820,6 +903,92 @@ fn tag_rename(repo: &str, old: &str, to: &str) -> Result<String, String> {
     git(repo, &["tag", "-d", old])
 }
 
+/// \brief Drop what changed in submodule `path`: its files, its untracked ones, then back on the recorded commit.
+fn submodule_discard(repo: &str, path: &str) -> Result<String, String> {
+    let dir = work_path(repo, path)?;
+    let d = dir.to_string_lossy();
+    git(&d, &["reset", "-q", "--hard"])?;
+    git(&d, &["clean", "-fdq"])?;
+    git_with_stderr(repo, &["submodule", "update", "--", path])
+}
+
+/// \brief Remove submodule `path` (named `name` in .gitmodules): its entry and folder, staged to commit, and its clone in .git/modules.
+fn submodule_delete(repo: &str, path: &str, name: &str) -> Result<String, String> {
+    if name.is_empty() || Path::new(name).components().any(|c| !matches!(c, Component::Normal(_))) {
+        return Err(format!("bad submodule name {name}"));
+    }
+    let out = git_with_stderr(repo, &["rm", "-f", "--", not_option(path)?])?;
+    let clone = git_dir(repo)?.join("modules").join(name);
+    if clone.exists() {
+        std::fs::remove_dir_all(&clone).map_err(|e| e.to_string())?;
+    }
+    Ok(out)
+}
+
+#[derive(Serialize)]
+struct SubCommit {
+    hash: String,
+    subject: String,
+}
+
+#[derive(Serialize)]
+struct SubmoduleChange {
+    old: Option<SubCommit>,
+    new: Option<SubCommit>,
+    // the commits from old to new, newest first; removed ones when new is behind
+    added: Vec<SubCommit>,
+    removed: Vec<SubCommit>,
+    // files changed and untracked in its folder, when `to` is the working tree
+    changed: u32,
+    untracked: u32,
+    initialized: bool,
+}
+
+/// \brief What submodule `path` went through from `from` to `to` (a commit, "INDEX" or "WORKTREE"; empty: none).
+#[tauri::command(async)]
+fn submodule_change(repo: String, path: String, from: String, to: String) -> Result<SubmoduleChange, String> {
+    let dir = work_path(&repo, &path)?;
+    let d = dir.to_string_lossy().into_owned();
+    let initialized = dir.join(".git").exists();
+    let at = |rev: &str| -> Option<String> {
+        let sha = match rev {
+            "" => return None,
+            "WORKTREE" if initialized => git(&d, &["rev-parse", "HEAD"]).ok()?,
+            "WORKTREE" => return None,
+            "INDEX" => git(&repo, &["rev-parse", &format!(":{path}")]).ok()?,
+            r => git(&repo, &["rev-parse", &format!("{}:{path}", not_option(r).ok()?)]).ok()?,
+        };
+        Some(sha.trim().to_string())
+    };
+    // its subject: only a clone that has the commit knows it; an empty folder would answer for the parent repo
+    let commit = |hash: String| {
+        let subject = if initialized { git(&d, &["log", "-1", "--format=%s", &hash]).unwrap_or_default().trim().to_string() } else { String::new() };
+        SubCommit { hash, subject }
+    };
+    let range = |a: &str, b: &str| -> Vec<SubCommit> {
+        if !initialized {
+            return Vec::new();
+        }
+        git(&d, &["log", "-n200", "--format=%H%x00%s", &format!("{a}..{b}")])
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|l| l.split_once('\0').map(|(h, s)| SubCommit { hash: h.into(), subject: s.into() }))
+            .collect()
+    };
+    let (old, new) = (at(&from), at(&to));
+    let (added, removed) = match (&old, &new) {
+        (Some(a), Some(b)) if a != b => (range(a, b), range(b, a)),
+        _ => (Vec::new(), Vec::new()),
+    };
+    let (mut changed, mut untracked) = (0, 0);
+    if to == "WORKTREE" && initialized {
+        for l in git(&d, &["status", "--porcelain"]).unwrap_or_default().lines() {
+            if l.starts_with("??") { untracked += 1 } else { changed += 1 }
+        }
+    }
+    Ok(SubmoduleChange { old: old.map(commit), new: new.map(commit), added, removed, changed, untracked, initialized })
+}
+
 /// \brief A shell word: `s` in single quotes.
 fn sh_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
@@ -883,6 +1052,8 @@ fn git_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         "resolve-all" => return resolve_all(&repo),
         "rebase-interactive" => return rebase_interactive(&repo, &arg, &arg2),
         "tag-rename" => return tag_rename(&repo, &arg, &arg2),
+        "submodule-discard" => return submodule_discard(&repo, &arg),
+        "submodule-delete" => return submodule_delete(&repo, &arg, &arg2),
         "stash-apply" => return stash_restore(&repo, "apply", &arg),
         "stash-pop" => return stash_restore(&repo, "pop", &arg),
         // in the background: a key that needs its passphrase fails quietly instead of asking
@@ -953,6 +1124,8 @@ fn git_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         "worktree-remove" => vec!["worktree", "remove", not_option(&arg)?],
         "worktree-force-remove" => vec!["worktree", "remove", "--force", not_option(&arg)?],
         "worktree-prune" => vec!["worktree", "prune"],
+        "submodule-update" => vec!["submodule", "update", "--init", "--", not_option(&arg)?],
+        "submodule-set-url" => vec!["submodule", "set-url", "--", not_option(&arg)?, not_option(&arg2)?],
         "stash-drop" => vec!["stash", "drop", not_option(&arg)?],
         "continue" if state == "merge" && !arg.is_empty() => vec!["commit", "-m", &arg],
         "continue" if state == "merge" => vec!["commit", "--no-edit"],
@@ -989,7 +1162,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, gh_verified, remote_tags, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, is_linked_worktree,
+            initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, gh_verified, remote_tags, submodule_change, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, is_linked_worktree,
             is_merged, revert_hunk, open_default, delete_file, open_url, remote_urls, edit_remote,
             pty::pty_spawn, pty::pty_write, pty::pty_resize, pty::pty_kill, askpass::askpass_reply
         ])

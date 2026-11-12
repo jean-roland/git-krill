@@ -2,7 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { layoutGraph } from "./core.js";
 import { closeRebase, ontoRange, openRebase, rebaseRange } from "./rebase";
-import { Commit, LOG_LIMIT, Stash, Status, Worktree, active, commits, dropEdits, fakeCommit, findRef, gitOp, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, newTab, opInfo, openRepo, paintRepoName, pull, push, redraw, refs, remoteTags, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
+import { Commit, LOG_LIMIT, Stash, Status, Submodule, Worktree, active, commits, dropEdits, fakeCommit, findRef, gitOp, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, newTab, opInfo, openRepo, paintRepoName, pull, push, redraw, refs, remoteTags, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
 import { $, COLORS, ICONS, MenuItem, ask, askName, basename, copy, dateFmt, dialog, h, ico, input, popup, say, short, spriteId, store, svg } from "./ui";
 import { dropTerm } from "./terminal";
 import { conflictCount, conflictLine, fileCounts, opLine, renderPanel, wipFiles } from "./panel";
@@ -117,6 +117,20 @@ export function renderSide() {
     el.title = w.path;
     return el;
   };
+  // the folder every submodule shares, like submodules/, says nothing on each row
+  const dirs = refs.submodules.map((s) => s.path.slice(0, s.path.lastIndexOf("/") + 1));
+  const shared = dirs.every((d) => d === dirs[0]) ? (dirs[0] ?? "") : "";
+  const submoduleRow = (s: Submodule) => {
+    const [icon, cls, state] = submoduleState(s);
+    return h(
+      "div",
+      { className: "item", title: `${s.path}\n${s.url}\n${state}`, ondblclick: () => (s.head ? openSubmodule(s.path) : gitOp("submodule-update", s.path)), oncontextmenu: (e: MouseEvent) => popup(e, submoduleMenu(s)) },
+      h("span", { className: `ico sub-state ${cls}`, innerHTML: svg(ICONS[icon]) }),
+      ico(ICONS.submodule),
+      h("span", { className: "label", textContent: s.path.slice(shared.length) }),
+      h("small", { textContent: [s.ahead && `↑${s.ahead}`, s.behind && `↓${s.behind}`].filter(Boolean).join(" ") }),
+    );
+  };
   paintRepoName();
   $("sidebar").replaceChildren(
     section("local", "Local", local.length, () => local.map(localRow), true, "local"),
@@ -125,7 +139,50 @@ export function renderSide() {
     section("stashes", "Stashes", refs.stashes.length, () => refs.stashes.map(stashRow), false, "stash"),
     // optional sections, last and only when there is something: the checkout alone is no list of worktrees
     ...(refs.worktrees.length > 1 ? [section("worktrees", "Worktrees", refs.worktrees.length, () => refs.worktrees.map(worktreeRow), false, "worktree")] : []),
+    ...(refs.submodules.length ? [section("submodules", "Submodules", refs.submodules.length, () => refs.submodules.map(submoduleRow), false, "submodule")] : []),
   );
+}
+
+/** A submodule's state icon, its class and what it means. */
+function submoduleState(s: Submodule): [string, string, string] {
+  const here = basename(repo);
+  if (!s.head) return ["warn", "out", "Not initialized: double-click to check it out"];
+  if (s.head !== s.recorded) return ["sync", "out", `Out of sync: checked out on another commit than ${here} records`];
+  if (s.modified || s.untracked) return ["sync", "out", "Uncommitted changes in it"];
+  return ["check", "ok", `In sync with ${here}`];
+}
+
+// in this tab, one level deep: a submodule's own submodules open in a tab of their own
+export const openSubmodule = (path: string) => (tabs[active].parent ? openRepo(`${repo}/${path}`) : openWorktree(`${repo}/${path}`, repo));
+
+/** Back on the recorded commit, its changed and untracked files dropped, after asking. */
+export const discardSubmodule = (path: string) =>
+  ask(`Discard every change in submodule ${path}? Its changed and untracked files are lost, and it goes back to the commit ${basename(repo)} records.`, "Discard").then(
+    (ok) => ok && gitOp("submodule-discard", path),
+  );
+
+function submoduleMenu(s: Submodule): MenuItem[] {
+  const out = s.head !== s.recorded, dirty = out || s.modified || s.untracked;
+  return [
+    { title: s.path, icon: ICONS.submodule },
+    ...(s.head
+      ? ([
+          ...(tabs[active].parent ? [] : [["Open", () => openSubmodule(s.path)]]),
+          ["Open in a new tab", () => openRepo(`${repo}/${s.path}`)],
+          ...(out ? [["Update to the recorded commit", () => gitOp("submodule-update", s.path)]] : []),
+        ] as MenuItem[])
+      : ([["Initialize", () => gitOp("submodule-update", s.path)]] as MenuItem[])),
+    ...(s.head && dirty ? ([["Discard changes", () => discardSubmodule(s.path)]] as MenuItem[]) : []),
+    null,
+    ["Edit URL", () => dialog("Edit submodule URL", [["URL", s.url]], "Save", ([url]) => url && url !== s.url && gitOp("submodule-set-url", [s.path, url]))],
+    [
+      "Delete",
+      () =>
+        ask(`Delete submodule ${s.path}? Its folder and its clone are removed; the removal is staged, to commit.`, "Delete").then((ok) => ok && gitOp("submodule-delete", [s.path, s.name])),
+    ],
+    null,
+    ["Copy path", () => copy(s.path)],
+  ];
 }
 
 /** The worktree other than this one that has `branch` checked out, its folder still there. */
@@ -148,15 +205,24 @@ function worktreeMenu(w: Worktree, main: boolean): MenuItem[] {
   ];
 }
 
-/** Show worktree `path` in this tab, or switch to the tab that has it. */
-async function openWorktree(path: string) {
-  const i = tabs.findIndex((t) => t.repo === path);
+/** Show worktree `path` in this tab, or switch to the tab that has it; a submodule opened from `parent` too. */
+async function openWorktree(path: string, parent = "") {
+  const i = tabs.findIndex((t) => t.repo === path && t.parent === parent);
   if (i >= 0) return switchTab(i);
   if (!(await isRepo(path))) return say(`${path} no longer exists`, true);
   if (!(await dropEdits())) return;
   // the shell ran in the old folder
   dropTerm(tabs[active]);
-  tabs[active] = newTab(path);
+  tabs[active] = newTab(path, parent);
+  await switchTab(active, false);
+}
+
+/** Back from a submodule opened in this tab to its repository. */
+export async function leaveSubmodule() {
+  const parent = tabs[active].parent;
+  if (!parent || !(await dropEdits())) return;
+  dropTerm(tabs[active]);
+  tabs[active] = newTab(parent);
   await switchTab(active, false);
 }
 
