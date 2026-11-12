@@ -37,12 +37,15 @@ const DONE: Record<string, (arg: string, arg2: string, branch: string, upstream:
   "push-delete": (remote, name) => `Deleted ${name.replace(/^refs\/tags\//, "tag ")} on ${remote}`,
   "tag-push": (remote, name) => `Pushed tag ${name} to ${remote}`,
   "tag-delete": (name) => `Deleted tag ${name}`,
+  "tag-rename": (name, to) => `Renamed tag ${name} to ${JSON.parse(to)[0]}`,
   "branch-delete": (name) => `Deleted branch ${name}`,
   "branch-force-delete": (name) => `Deleted branch ${name}`,
   "worktree-remove": (path) => `Removed worktree ${basename(path)}`,
   "worktree-force-remove": (path) => `Removed worktree ${basename(path)}`,
   "worktree-prune": () => "Pruned the worktrees whose folder is gone",
 };
+// what may change the remotes' tags, or the list of them
+const NET_OPS = new Set(["fetch", "fetch-remote", "pull", "push", "push-upstream", "tag-push", "push-delete", "tag-rename"]);
 // how Pull reconciles a diverged branch, by git_op's pull argument
 const PULLS: Record<string, string> = { "": "fast-forward if possible", "ff-only": "fast-forward only", rebase: "rebase" };
 
@@ -112,6 +115,7 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
   }
   document.body.classList.remove("busy");
   await refresh();
+  if (ok && NET_OPS.has(name)) loadRemoteTags();
   if (ok && record && UNDOABLE.has(name) && tab === tabs[active]) {
     const step: UndoStep = { op: name, branch: [branch, status?.branch ?? ""], head: [head, headHash()] };
     if (step.head.every(Boolean) && (step.head[0] !== step.head[1] || step.branch[0] !== step.branch[1])) recordUndo(tab, step);
@@ -701,6 +705,20 @@ export const findRef = (name: string) => refs.refs.find((r) => r.name === name);
 export const thisWorktree = () => refs.worktrees.find((w) => w.path === repo) ?? refs.worktrees[0];
 
 export const isHead = (c: Commit) => c.refs.some((r) => r === "HEAD" || r.startsWith("HEAD -> "));
+// the tags on each remote, per repository, asked after each fetch and push: a remote left out is unknown
+export const remoteTags = new Map<string, Record<string, string[]>>();
+/** Ask the remotes which tags they have; the labels repaint when that changed. */
+function loadRemoteTags() {
+  const r = repo;
+  run<Record<string, string[]>>("remote_tags").then(
+    (t) => {
+      const was = JSON.stringify(remoteTags.get(r));
+      remoteTags.set(r, t);
+      if (r === repo && JSON.stringify(t) !== was) redraw();
+    },
+    () => {},
+  );
+}
 // when each repository was last fetched in the background
 const fetchedAt = new Map<string, number>();
 // repositories whose background fetch was told to need a passphrase or password, once a run
@@ -714,6 +732,7 @@ export function autoFetch() {
   run<string>("git_op", { op: "auto-fetch", arg: "" }).then(
     (out) => {
       fetchedAt.set(r, Date.now());
+      if (r === repo) loadRemoteTags();
       // with several remotes git names each one even when nothing came
       if (r === repo && out.split("\n").some((l) => l.trim() && !l.startsWith("Fetching "))) refresh();
     },

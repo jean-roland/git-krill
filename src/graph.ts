@@ -2,7 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { layoutGraph } from "./core.js";
 import { closeRebase, ontoRange, openRebase, rebaseRange } from "./rebase";
-import { Commit, LOG_LIMIT, Stash, Status, Worktree, active, commits, dropEdits, fakeCommit, findRef, gitOp, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, newTab, opInfo, openRepo, paintRepoName, pull, push, redraw, refs, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
+import { Commit, LOG_LIMIT, Stash, Status, Worktree, active, commits, dropEdits, fakeCommit, findRef, gitOp, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, newTab, opInfo, openRepo, paintRepoName, pull, push, redraw, refs, remoteTags, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
 import { $, COLORS, ICONS, MenuItem, ask, askName, basename, copy, dateFmt, dialog, h, ico, input, popup, say, short, spriteId, store, svg } from "./ui";
 import { dropTerm } from "./terminal";
 import { conflictCount, conflictLine, fileCounts, opLine, renderPanel, wipFiles } from "./panel";
@@ -22,6 +22,12 @@ let laneW = 0;
 let graphLayout: { width: number; nodes: number[]; edges: { row: number; lane: number; toRow: number; toLane: number; via: number }[] } = { width: 0, nodes: [], edges: [] };
 
 /* branches sidebar */
+
+/** The cloud on a tag the remotes have, none when no remote has it or none answered. */
+function tagCloud(name: string) {
+  const on = refs.remotes.filter((r) => remoteTags.get(repo)?.[r]?.includes(name));
+  return on.length ? [ico(ICONS.remote, on.map((r) => `${name} on ${r} (remote tag)`).join("\n"))] : [];
+}
 
 function trackLabel(track: string) {
   if (track === "[gone]") return "gone";
@@ -83,7 +89,13 @@ export function renderSide() {
     return sideItem(name, "branch", hash, trackLabel(track), current ? "current" : "", () => branchMenu(name, false), () => current || checkoutBranch(name, false), current ? undefined : ref);
   };
   const remoteRow = ([full, hash, ref]: string[]) => sideItem(full.slice(full.indexOf("/") + 1), "branch", hash, "", "", () => branchMenu(full, true), () => checkoutBranch(full, true), ref);
-  const tagRow = ([name, hash, ref]: string[]) => sideItem(name, "tag", hash, "", "", () => tagMenu(name), undefined, ref);
+  const tagRow = ([name, hash, ref]: string[]) => {
+    const row = sideItem(name, "tag", hash, "", "", () => tagMenu(name), undefined, ref);
+    // an unpushed tag keeps the cloud's place: the laptops stay in one column
+    const cloud = tagCloud(name)[0] ?? Object.assign(ico(ICONS.remote), { style: "visibility: hidden" });
+    row.append(ico(ICONS.local, `${name} (local tag)`), cloud);
+    return row;
+  };
   const stashRow = (s: Stash) =>
     h(
       "div",
@@ -408,6 +420,7 @@ function chip(l: Label) {
     h("span", { className: "ref-name", textContent: l.name }),
   );
   if (l.tag) el.append(ico(ICONS.tag));
+  if (l.tag) el.append(...tagCloud(l.name));
   if (l.local) el.append(ico(ICONS.local, `${l.name} (local branch)`));
   if (l.remotes.length) el.append(ico(ICONS.remote, l.remotes.map((r) => `${r} -> ${l.name} (remote branch)`).join("\n")));
   const wt = l.local && worktreeOf(l.name);
@@ -602,13 +615,18 @@ async function deleteBranch(name: string, upstream: string) {
 }
 
 function tagMenu(name: string): MenuItem[] {
+  // an unanswered remote offers both push and delete
+  const known = remoteTags.get(repo) ?? {}, has = (r: string) => known[r]?.includes(name) ?? true, lacks = (r: string) => !known[r]?.includes(name);
+  const on = refs.remotes.filter((r) => known[r]?.includes(name)), link = [linkRemote(), ...on].find((r) => on.includes(r));
   return [
     { title: name, icon: ICONS.tag },
     ["Checkout (detached)", () => gitOp("checkout", name)],
     null,
-    ...refs.remotes.map((r): MenuItem => [`Push to ${r}`, () => gitOp("tag-push", [r, name])]),
-    ["Delete", () => ask(`Delete tag ${name}?`, "Delete").then((ok) => ok && gitOp("tag-delete", name))],
-    ...refs.remotes.map(
+    ...refs.remotes.filter(lacks).map((r): MenuItem => [`Push to ${r}`, () => gitOp("tag-push", [r, name])]),
+    ["Rename", () => askName(on.length ? `New tag name, on ${on.join(", ")} too` : "New tag name", name, (n) => n !== name && gitOp("tag-rename", [name, JSON.stringify([n, ...on])]))],
+    // no question: the commit stays, and a pushed tag comes back with a fetch
+    ["Delete", () => gitOp("tag-delete", name)],
+    ...refs.remotes.filter(has).map(
       (r): MenuItem => [
         `Delete on ${r}`,
         () => ask(`Delete tag ${name} on ${r}? This pushes the deletion.`, "Delete").then((ok) => ok && gitOp("push-delete", [r, `refs/tags/${name}`])),
@@ -617,6 +635,7 @@ function tagMenu(name: string): MenuItem[] {
     hideItem(`refs/tags/${name}`),
     null,
     ["Copy tag name", () => copy(name)],
+    ...(link ? ([[`Copy link to tag on ${link}`, async () => copy(`${await webUrl(link)}/tree/${name}`)]] as MenuItem[]) : []),
   ];
 }
 
