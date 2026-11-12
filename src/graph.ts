@@ -41,11 +41,12 @@ function eye(key: string, hidden: boolean, toggle = () => toggleHidden(key)) {
 }
 
 /** A sidebar row; `hide` is what its eye keeps out of the graph, none on the checked out branch. */
-function sideItem(label: string, icon: string, hash: string, extra: string, cls: string, menu: MenuItem[], dbl?: () => unknown, hide?: string) {
+function sideItem(label: string, icon: string, hash: string, extra: string, cls: string, menu: () => MenuItem[], dbl?: () => unknown, hide?: string) {
   const hidden = !!hide && hiddenSet.has(hide);
   return h(
     "div",
-    { className: `item ${cls}${hidden ? " hidden-ref" : ""}`, title: label, onclick: () => jumpTo(hash), ondblclick: dbl ?? null, oncontextmenu: (e: MouseEvent) => popup(e, menu) },
+    // the menu is made on right-click: thousands of branches each looking themselves up cost seconds
+    { className: `item ${cls}${hidden ? " hidden-ref" : ""}`, title: label, onclick: () => jumpTo(hash), ondblclick: dbl ?? null, oncontextmenu: (e: MouseEvent) => popup(e, menu()) },
     ...(cls === "current" ? [h("span", { className: "ico check", innerHTML: svg(ICONS.check) })] : hide ? [eye(hide, hidden)] : []),
     ico(ICONS[icon]),
     h("span", { className: "label", textContent: label }),
@@ -57,29 +58,32 @@ export function renderSide() {
   // what the user folded stays folded, per repository
   const r = repo, folds = sideFolds();
   updateHidden();
-  const section = (key: string, title: string, items: HTMLElement[], open: boolean, icon = "") => {
-    const count = h("span", { className: "n", textContent: String(items.length) });
-    const d = h("details", { open: folds[key] ?? open }, h("summary", {}, ...(icon ? [ico(ICONS[icon])] : []), title, count), ...items);
-    d.ontoggle = () => r === repo && store(`sidebar-folds:${r}`, JSON.stringify({ ...sideFolds(), [key]: d.open }));
+  const section = (key: string, title: string, count: number, rows: () => HTMLElement[], open: boolean, icon = "") => {
+    const d = h("details", { open: folds[key] ?? open }, h("summary", {}, ...(icon ? [ico(ICONS[icon])] : []), title, h("span", { className: "n", textContent: String(count) })));
+    // a folded section's rows are made when it first opens
+    let filled = false;
+    const fill = () => !filled && d.open && ((filled = true), d.append(...rows()));
+    fill();
+    d.ontoggle = () => (fill(), r === repo && store(`sidebar-folds:${r}`, JSON.stringify({ ...sideFolds(), [key]: d.open })));
     d.dataset.key = key;
     return d;
   };
-  const local: HTMLElement[] = [], tags: HTMLElement[] = [], remotes = new Map<string, HTMLElement[]>();
+  const local: string[][] = [], tags: string[][] = [], remotes = new Map<string, string[][]>();
   for (const r of refs.refs) {
-    if (r.name.startsWith("refs/heads/")) {
-      const name = r.name.slice("refs/heads/".length), current = name === status?.branch;
-      local.push(sideItem(name, "branch", r.hash, trackLabel(r.track), current ? "current" : "", branchMenu(name, false), () => current || checkoutBranch(name, false), current ? undefined : r.name));
-    } else if (r.name.startsWith("refs/remotes/")) {
-      const full = r.name.slice("refs/remotes/".length), slash = full.indexOf("/");
-      const items = remotes.get(full.slice(0, slash)) ?? [];
-      items.push(sideItem(full.slice(slash + 1), "branch", r.hash, "", "", branchMenu(full, true), () => checkoutBranch(full, true), r.name));
-      remotes.set(full.slice(0, slash), items);
-    } else {
-      const name = r.name.slice("refs/tags/".length);
-      tags.push(sideItem(name, "tag", r.hash, "", "", tagMenu(name), undefined, r.name));
-    }
+    if (r.name.startsWith("refs/heads/")) local.push([r.name.slice("refs/heads/".length), r.hash, r.track, r.name]);
+    else if (r.name.startsWith("refs/remotes/")) {
+      const full = r.name.slice("refs/remotes/".length), remote = full.slice(0, full.indexOf("/"));
+      if (!remotes.has(remote)) remotes.set(remote, []);
+      remotes.get(remote)!.push([full, r.hash, r.name]);
+    } else tags.push([r.name.slice("refs/tags/".length), r.hash, r.name]);
   }
-  const stashes = refs.stashes.map((s) =>
+  const localRow = ([name, hash, track, ref]: string[]) => {
+    const current = name === status?.branch;
+    return sideItem(name, "branch", hash, trackLabel(track), current ? "current" : "", () => branchMenu(name, false), () => current || checkoutBranch(name, false), current ? undefined : ref);
+  };
+  const remoteRow = ([full, hash, ref]: string[]) => sideItem(full.slice(full.indexOf("/") + 1), "branch", hash, "", "", () => branchMenu(full, true), () => checkoutBranch(full, true), ref);
+  const tagRow = ([name, hash, ref]: string[]) => sideItem(name, "tag", hash, "", "", () => tagMenu(name), undefined, ref);
+  const stashRow = (s: Stash) =>
     h(
       "div",
       {
@@ -91,24 +95,23 @@ export function renderSide() {
       eye(s.hash, hiddenSet.has(s.hash)),
       ico(ICONS.stash),
       h("span", { className: "label", textContent: s.subject }),
-    ),
-  );
-  const worktrees = refs.worktrees.map((w, k) => {
+    );
+  const worktreeRow = (w: Worktree, k: number) => {
     const here = w === thisWorktree();
     const extra = w.prunable ? "gone" : w.locked ? "locked" : k ? "" : "main";
     const open = () => (w.prunable ? prune(w) : openWorktree(w.path));
-    const el = sideItem(w.branch || `detached at ${short(w.head)}`, "worktree", w.head, extra, here ? "current" : "", worktreeMenu(w, k === 0), () => here || open());
+    const el = sideItem(w.branch || `detached at ${short(w.head)}`, "worktree", w.head, extra, here ? "current" : "", () => worktreeMenu(w, k === 0), () => here || open());
     el.title = w.path;
     return el;
-  });
+  };
   paintRepoName();
   $("sidebar").replaceChildren(
-    section("local", "Local", local, true, "local"),
-    section("remote", "Remote", [...remotes].map(([name, items]) => remoteSection(section(`remote/${name}`, name, items, false, "globe"), name)), true, "remote"),
-    section("tags", "Tags", tags, false, "tag"),
-    section("stashes", "Stashes", stashes, false, "stash"),
+    section("local", "Local", local.length, () => local.map(localRow), true, "local"),
+    section("remote", "Remote", remotes.size, () => [...remotes].map(([name, rows]) => remoteSection(section(`remote/${name}`, name, rows.length, () => rows.map(remoteRow), false, "globe"), name)), true, "remote"),
+    section("tags", "Tags", tags.length, () => tags.map(tagRow), false, "tag"),
+    section("stashes", "Stashes", refs.stashes.length, () => refs.stashes.map(stashRow), false, "stash"),
     // optional sections, last and only when there is something: the checkout alone is no list of worktrees
-    ...(worktrees.length > 1 ? [section("worktrees", "Worktrees", worktrees, false, "worktree")] : []),
+    ...(refs.worktrees.length > 1 ? [section("worktrees", "Worktrees", refs.worktrees.length, () => refs.worktrees.map(worktreeRow), false, "worktree")] : []),
   );
 }
 
