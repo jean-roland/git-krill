@@ -207,7 +207,11 @@ export function paintFileOpts() {
     b.classList.toggle("off", view !== "tree");
     b.title = view === "tree" ? what : `${what}: only in Tree view`;
   });
-  document.querySelectorAll<HTMLElement>(".files-opts .sort").forEach((b) => (b.textContent = SORTS[store("files-sort") ?? ""] ?? "A–Z"));
+  // every label in the button, the others invisible: it keeps the widest one's width
+  const sort = store("files-sort") ?? "";
+  document.querySelectorAll<HTMLElement>(".files-opts .sort").forEach((b) =>
+    b.replaceChildren(...Object.entries(SORTS).map(([k, label]) => h("span", { className: k === sort ? "" : "ghost", textContent: label }))),
+  );
 }
 
 /** What the commit panel shows: one commit, a stash, a compare or a range as one pseudo commit. */
