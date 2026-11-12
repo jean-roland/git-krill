@@ -2,6 +2,8 @@
 
 A lean desktop git client for Linux: a commit graph, diffs you can stage from, a merge tool, and little else. It runs the `git` you already have, so your config, hooks, keys and credentials apply as usual.
 
+![The commit graph, with a commit's details](docs/screenshots/graph.png)
+
 ## Features
 
 - **Graph**: every branch in lanes, with branch and tag labels, generated author avatars, and search (Ctrl+F). Branches, tags, remotes and stashes can be hidden one by one.
@@ -13,6 +15,10 @@ A lean desktop git client for Linux: a commit graph, diffs you can stage from, a
 - **Stashes, tags and worktrees** from the sidebar.
 - **Tabs**, one repository each, and a terminal in each tab (Ctrl+`).
 - SSH passphrase and HTTPS password prompts show in the window.
+
+| Staging hunks | Merge tool | File history and blame |
+| --- | --- | --- |
+| ![A diff with Stage hunk buttons](docs/screenshots/diff.png) | ![The three-pane merge tool](docs/screenshots/merge.png) | ![A file's history with blame](docs/screenshots/history.png) |
 
 ## Install
 
