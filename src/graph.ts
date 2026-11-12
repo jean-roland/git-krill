@@ -1,7 +1,7 @@
 // The commit graph, the sidebar of refs, their menus and the find bar.
 import { invoke } from "@tauri-apps/api/core";
 import { layoutGraph } from "./core.js";
-import { Commit, LOG_LIMIT, Stash, Status, Worktree, active, commits, dropEdits, fakeCommit, findRef, gitOp, headHash, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, newTab, opInfo, openRepo, paintRepoName, pull, push, redraw, refs, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
+import { Commit, LOG_LIMIT, Stash, Status, Worktree, active, commits, dropEdits, fakeCommit, findRef, gitOp, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, newTab, opInfo, openRepo, paintRepoName, pull, push, redraw, refs, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
 import { $, COLORS, ICONS, MenuItem, ask, askName, basename, copy, dateFmt, dialog, h, ico, input, popup, say, short, spriteId, store, svg } from "./ui";
 import { dropTerm } from "./terminal";
 import { conflictCount, conflictLine, fileCounts, opLine, renderPanel, wipFiles } from "./panel";
@@ -128,7 +128,7 @@ function worktreeMenu(w: Worktree, main: boolean): MenuItem[] {
       ? ([["Prune: its folder is gone", () => prune(w)]] as MenuItem[])
       : main || here
         ? []
-        : ([["Remove worktree…", () => removeWorktree(w)]] as MenuItem[])),
+        : ([["Remove worktree", () => removeWorktree(w)]] as MenuItem[])),
   ];
 }
 
@@ -169,8 +169,8 @@ function remoteSection(d: HTMLElement, name: string) {
     popup(e, [
       { title: name, icon: ICONS.globe },
       ["Fetch", () => gitOp("fetch-remote", name)],
-      [hidden ? "Show in the graph" : "Hide from the graph", () => toggleRemote(name)],
-      ["Edit…", () => editRemote(name)],
+      ["Edit", () => editRemote(name)],
+      [hidden ? "Show" : "Hide", () => toggleRemote(name)],
       null,
       ["Copy link", async () => copy(await webUrl(name))],
     ]);
@@ -238,7 +238,7 @@ function stashMenu(s: Stash): MenuItem[] {
     ["Pop stash", () => gitOp("stash-pop", s.name)],
     ["Drop stash", () => ask(`Drop stash "${s.subject}"? It cannot be undone.`, "Drop").then((ok) => ok && gitOp("stash-drop", s.name))],
     null,
-    ["Edit stash message…", () => dialog("Edit stash message", [["Message", s.subject]], "Save", ([m]) => m && gitOp("stash-message", [s.name, m]))],
+    ["Edit stash message", () => dialog("Edit stash message", [["Message", s.subject]], "Save", ([m]) => m && gitOp("stash-message", [s.name, m]))],
     hideItem(s.hash),
   ];
 }
@@ -497,36 +497,53 @@ function checkoutBranch(name: string, remote: boolean) {
   );
 }
 
-/** Checkout, merge and rebase for branch `name` (a remote one as "remote/branch"). */
-/** Checkout, merge and rebase for branch `name`; `named` when other branches share the menu, else its title names it. */
-function refMenu(name: string, remote: boolean, named = true): MenuItem[] {
+/** Checkout, merge and rebase for branch `name` (a remote one as "remote/branch"); none for the checked out one. */
+function refMenu(name: string, remote: boolean): MenuItem[] {
   const branch = status?.branch || "HEAD";
-  // checking out a remote branch by its short name creates the tracking branch
-  const local = remote ? name.slice(name.indexOf("/") + 1) : name;
-  const items: MenuItem[] = [];
-  if (remote || name !== status?.branch) items.push([named ? `Checkout ${local}` : "Checkout", () => checkoutBranch(name, remote)]);
-  if (name !== status?.branch)
-    items.push(
-      [named ? `Merge ${name} into ${branch}` : `Merge into ${branch}`, () => gitOp("merge", name)],
-      [named ? `Rebase ${branch} onto ${name}` : `Rebase ${branch} onto this branch`, () => gitOp("rebase", name)],
-    );
-  return items;
+  if (!remote && name === status?.branch) return [];
+  return [
+    ["Checkout", () => checkoutBranch(name, remote)],
+    [`Merge into ${branch}`, () => gitOp("merge", name)],
+    [`Rebase ${branch} onto this branch`, () => gitOp("rebase", name)],
+  ];
 }
 
 function commitMenu(e: MouseEvent, c: Commit) {
   const branch = status?.branch || "HEAD", ls = labels(c).filter((l) => !l.tag);
+  const remote = ls[0] && !ls[0].local ? ls[0].remotes[0] : linkRemote();
+  // HEAD's own history is reset to, not rebased onto or picked
+  const mine = inHistory(c.hash, commits.find(isHead)?.hash ?? "");
+  // a reset undoes the branch's own commits or catches up with its remote one, nothing else
+  const up = findRef(`refs/heads/${status?.branch}`)?.upstream, upHash = up ? (findRef(`refs/remotes/${up}`)?.hash ?? "") : "";
+  const resettable = mine || (!!upHash && inHistory(c.hash, upHash));
+  const [newBranch, newTag] = createItems(c.hash);
   popup(e, [
     { title: `${short(c.hash)} ${c.subject}`, icon: ICONS.commit },
-    ...ls.flatMap((l) => refMenu(labelRef(l), !l.local)),
-    null,
     ["Checkout (detached)", () => gitOp("checkout", c.hash)],
-    [`Rebase ${branch} onto this commit`, () => gitOp("rebase", c.hash)],
-    ["Cherry-pick", () => gitOp("cherry-pick", c.hash)],
+    ...(mine ? [] : ([[`Rebase ${branch} onto this commit`, () => gitOp("rebase", c.hash)], ["Cherry-pick", () => gitOp("cherry-pick", c.hash)]] as MenuItem[])),
+    ...(resettable ? ([[`Reset ${branch} to this commit`, resetItems(c.hash)]] as MenuItem[]) : []),
     null,
-    ...commitItems(c.hash),
+    newBranch,
+    ["Revert commit", () => gitOp("revert", c.hash)],
+    newTag,
     null,
-    ...copyItems(c.hash, ls[0]?.name ?? "", ls[0] && !ls[0].local ? ls[0].remotes[0] : linkRemote()),
+    ["Copy commit SHA", () => copy(c.hash)],
+    ...(remote ? ([[`Copy link to commit on ${remote}`, async () => copy(`${await webUrl(remote)}/commit/${c.hash}`)]] as MenuItem[]) : []),
   ]);
+}
+
+/** Whether `hash` is commit `from` or one of its loaded ancestors. */
+function inHistory(hash: string, from: string) {
+  const byHash = new Map(commits.map((c) => [c.hash, c]));
+  const todo = [from], seen = new Set<string>();
+  while (todo.length) {
+    const at = todo.pop()!;
+    if (at === hash) return true;
+    if (!at || seen.has(at)) continue;
+    seen.add(at);
+    todo.push(...(byHash.get(at)?.parents ?? []));
+  }
+  return false;
 }
 
 /** Branch `name` (a remote one as "remote/branch"): the same menu in the sidebar and on graph labels. */
@@ -539,21 +556,22 @@ function branchMenu(name: string, remote: boolean): MenuItem[] {
   const slash = onRemote.indexOf("/"), rem = onRemote.slice(0, slash), remBranch = onRemote.slice(slash + 1);
   return [
     { title: name, icon: ICONS.branch },
-    ...refMenu(name, remote, false),
+    ...refMenu(name, remote),
     null,
     ...(current ? ([["Pull", pull], ["Push", push], null] as MenuItem[]) : []),
-    ...commitItems(sha),
-    ...(current ? ([["Edit commit message", rewordHead]] as MenuItem[]) : []),
+    // the commit's own actions (reset, revert) are on its row
+    ...createItems(sha),
     null,
-    ...(remote ? [] : ([["Rename…", () => askName("New branch name", name, (n) => gitOp("branch-rename", [name, n]))]] as MenuItem[])),
-    ...(current || !ref ? [] : [hideItem(ref.name)]),
+    ...(remote ? [] : ([["Rename", () => askName("New branch name", name, (n) => gitOp("branch-rename", [name, n]))]] as MenuItem[])),
     ...(remote || current ? [] : ([["Delete", () => deleteBranch(name, onRemote)]] as MenuItem[])),
-    // a local branch's upstream too: one menu for both
-    ...(onRemote
+    // a local branch's upstream too: one menu for both; none of it on the checked out branch
+    ...(onRemote && !current
       ? ([[remote ? `Delete on ${rem}` : `Delete ${remBranch} on ${rem}`, () => ask(`Delete branch ${remBranch} on ${rem}? This pushes the deletion.`, "Delete").then((ok) => ok && gitOp("push-delete", [rem, remBranch]))]] as MenuItem[])
       : []),
+    ...(current || !ref ? [] : [hideItem(ref.name)]),
     null,
-    ...copyItems(sha, remote ? remBranch : name, rem || linkRemote(), remBranch),
+    ["Copy branch name", () => copy(remote ? remBranch : name)],
+    ...(rem ? ([[`Copy link to branch on ${rem}`, async () => copy(`${await webUrl(rem)}/tree/${remBranch}`)]] as MenuItem[]) : []),
   ];
 }
 
@@ -579,43 +597,26 @@ function tagMenu(name: string): MenuItem[] {
         () => ask(`Delete tag ${name} on ${r}? This pushes the deletion.`, "Delete").then((ok) => ok && gitOp("push-delete", [r, `refs/tags/${name}`])),
       ],
     ),
-    null,
     hideItem(`refs/tags/${name}`),
+    null,
     ["Copy tag name", () => copy(name)],
   ];
 }
 
-/** What to do with commit `sha`, shared by the commit and branch menus. */
-function commitItems(sha: string): MenuItem[] {
+/** Soft, mixed and hard resets of the checked out branch to `sha`. */
+function resetItems(sha: string): MenuItem[] {
   const b = status?.branch || "HEAD";
-  const reset: MenuItem[] = [
+  return [
     ["Soft: keep the changes staged", () => gitOp("reset-soft", sha)],
     ["Mixed: keep the changes unstaged", () => gitOp("reset-mixed", sha)],
     ["Hard: discard every change", () => ask(`Reset ${b} to ${short(sha)} and discard every uncommitted change?`, "Reset").then((ok) => ok && gitOp("reset-hard", sha))],
   ];
-  return [
-    ["Create branch here…", () => askName("New branch name", "", (n) => gitOp("branch-create", [n, sha]))],
-    [`Reset ${b} to this commit`, reset],
-    [`Revert ${short(sha)}`, () => gitOp("revert", sha)],
-    ["Create tag here…", () => askName("Tag name", "", (n) => gitOp("tag-create", [n, sha]))],
-  ];
 }
 
-function copyItems(sha: string, branch: string, remote: string, remoteBranch = branch): MenuItem[] {
-  return [
-    ...(branch ? ([["Copy branch name", () => copy(branch)]] as MenuItem[]) : []),
-    ["Copy commit SHA", () => copy(sha)],
-    ...(remote && remoteBranch ? ([[`Copy link to branch on ${remote}`, async () => copy(`${await webUrl(remote)}/tree/${remoteBranch}`)]] as MenuItem[]) : []),
-    ...(remote ? ([[`Copy link to commit on ${remote}`, async () => copy(`${await webUrl(remote)}/commit/${sha}`)]] as MenuItem[]) : []),
-  ];
-}
-
-/** Select HEAD and open its message editor. */
-async function rewordHead() {
-  jumpTo(headHash());
-  await renderPanel();
-  $("commit-msg").querySelector<HTMLElement>(".edit")?.click();
-}
+const createItems = (sha: string): MenuItem[] => [
+  ["Create branch here", () => askName("New branch name", "", (n) => gitOp("branch-create", [n, sha]))],
+  ["Create tag here", () => askName("Tag name", "", (n) => gitOp("tag-create", [n, sha]))],
+];
 
 /** Mark the commits matching the search box; non-matching rows dim. */
 function markHits() {

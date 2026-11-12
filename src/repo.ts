@@ -482,7 +482,7 @@ function tabMenu(i: number): MenuItem[] {
     ["Close other tabs", () => closeTabs(i, (k) => k === i)],
     ["Close tabs to the right", () => closeTabs(i, (k) => k <= i)],
   ];
-  if (t.repo) items.push(["Rename tab…", () => renameTab(i)]);
+  if (t.repo) items.push(["Rename tab", () => renameTab(i)]);
   if (closedTabs.length) items.push(["Reopen closed tab (Ctrl+Shift+T)", reopenTab]);
   return items;
 }
@@ -675,7 +675,7 @@ function graphFilter() {
 }
 
 /** Show or hide `key` in the menus that offer it. */
-export const hideItem = (key: string): MenuItem => [hiddenSet.has(key) ? "Show in the graph" : "Hide from the graph", () => toggleHidden(key)];
+export const hideItem = (key: string): MenuItem => [hiddenSet.has(key) ? "Show" : "Hide", () => toggleHidden(key)];
 
 export function toggleHidden(key: string) {
   const list = flippedRefs();
