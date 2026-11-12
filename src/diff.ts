@@ -77,6 +77,8 @@ let hunkZones: { mod: string[]; orig: string[]; nodes: HTMLElement[] } = { mod: 
 let hunks: LineChange[] = [];
 let lastSide: "orig" | "mod" = "mod";
 let modelSeq = 0;
+// the diff editor's view model: ours to dispose
+let diffView: Monaco.editor.IDiffEditorViewModel | null = null;
 // a fresh URI each time: the language comes from the path's extension, and an old model may still hold the last one
 const newModel = (text: string, path: string) => monaco.editor.createModel(text, undefined, monaco.Uri.from({ scheme: "krill", path: `/${++modelSeq}/${path}` }));
 
@@ -414,11 +416,14 @@ function setModels(keepView: boolean) {
   if (!diffFile) return;
   const ed = editor();
   const view = keepView ? ed.saveViewState() : null;
-  const prev = ed.getModel();
+  const prev = diffView;
   const modified = newModel(diffFile.mod.text, `b/${diffFile.f.path}`);
-  ed.setModel({ original: newModel(diffFile.orig.text, `a/${diffFile.f.path}`), modified });
-  prev?.original.dispose();
-  prev?.modified.dispose();
+  // Monaco 0.52 never disposes a view model it makes from bare models, nor the files it holds
+  diffView = ed.createViewModel({ original: newModel(diffFile.orig.text, `a/${diffFile.f.path}`), modified });
+  ed.setModel(diffView);
+  prev?.dispose();
+  prev?.model.original.dispose();
+  prev?.model.modified.dispose();
   setOptions({ readOnly: !(diffFile.kind === "unstaged" && diffFile.mod.exists), glyphMargin: diffFile.kind !== "commit" });
   modified.onDidChangeContent(() => {
     if (!diffFile) return;
