@@ -54,6 +54,8 @@ export const loadMonaco = () =>
       "editor.foreground": "#cccccc",
       "editor.background": cssVar("--bg"),
       "editorGutter.background": cssVar("--bg"),
+      // else it follows the minimap's on/off, which the diff editor flips on every update: the flip wiped the marks
+      "editorOverviewRuler.background": cssVar("--bg"),
       "editorLineNumber.foreground": "#5d6575",
       "editorLineNumber.activeForeground": cssVar("--text"),
       "editor.lineHighlightBackground": "#222833",
@@ -79,6 +81,8 @@ export let diffEditor: Monaco.editor.IStandaloneDiffEditor | null = null;
 // hunk header bars, as view zone ids per side
 let hunkZones: { mod: string[]; orig: string[]; nodes: HTMLElement[] } = { mod: [], orig: [], nodes: [] };
 let hunks: LineChange[] = [];
+// the hunks' marks in the modified side's scrollbar
+let changeMarks: Monaco.editor.IEditorDecorationsCollection;
 let lastSide: "orig" | "mod" = "mod";
 let modelSeq = 0;
 // the diff editor's view model: ours to dispose
@@ -100,10 +104,15 @@ export function editor() {
     renderMarginRevertIcon: false,
     renderGutterMenu: false,
     useInlineViewWhenSpaceIsLimited: false,
+    // its two lanes and viewport box beside the minimap: one lane of marks in the scrollbar instead
+    renderOverviewRuler: false,
+    // halves, for a changed hunk's two colours
+    overviewRulerLanes: 2,
     // the size cap is ours: past it a file loads only when asked
     maxFileSize: 0,
   });
   const me = diffEditor.getModifiedEditor();
+  changeMarks = me.createDecorationsCollection();
   lineActions(me, false);
   lineActions(diffEditor.getOriginalEditor(), true);
   me.onDidFocusEditorText(() => (lastSide = "mod"));
@@ -211,8 +220,8 @@ function removedLineActions(ed: Monaco.editor.ICodeEditor, staging: () => boolea
 
 function setOptions(o: Monaco.editor.IDiffEditorOptions) {
   editor().updateOptions(o);
-  // the diff editor forces its sub-editors' minimap off on every update; hunk view hides too much for one
-  const minimap = { enabled: viewMode() !== "hunk", renderCharacters: false, showSlider: "always" as const };
+  // the diff editor forces its sub-editors' minimap off on every update; only Inline has room and use for one
+  const minimap = { enabled: viewMode() === "inline", renderCharacters: false, showSlider: "always" as const };
   editor().getModifiedEditor().updateOptions({ minimap });
 }
 
@@ -269,6 +278,13 @@ function updateHunkBars() {
     : diffFile.c?.hash !== "WORKTREE" ? [["revert", "Revert hunk"]]
     : [];
   hunks = diffFile ? lineChanges() : [];
+  // a deletion marks the line it follows; a changed hunk splits the lane, removed left and added right
+  const { Left, Right, Full } = monaco.editor.OverviewRulerLane;
+  const mark = (c: LineChange, color: string, position: Monaco.editor.OverviewRulerLane) => ({
+    range: new monaco.Range(Math.max(c.ms, 1), 1, Math.max(c.me, c.ms, 1), 1),
+    options: { overviewRuler: { color: `${cssVar(color)}99`, position } },
+  });
+  changeMarks.set(hunks.flatMap((c) => (!c.oe ? [mark(c, "--add", Full)] : !c.me ? [mark(c, "--del", Full)] : [mark(c, "--del", Left), mark(c, "--add", Right)])));
   // bars head the hunks between folds; in the whole file the line numbers say where a change is
   const shown = viewMode() === "hunk" ? hunks : [];
   const bar = (c: LineChange, buttons: boolean) => {
@@ -443,9 +459,19 @@ function paintOpenEditor() {
 }
 
 /** A first diff of two tiny models, owned like any other so the next one frees it. */
-export function warmDiff() {
-  diffView = editor().createViewModel({ original: newModel("a", "a"), modified: newModel("b", "b") });
+export async function warmDiff() {
+  const lines = Array.from({ length: 600 }, (_, i) => `    value_${i} = compute(${i * 7 % 13}, "${i}");`);
+  const changed = lines.map((l, i) => (i % 25 ? l : `${l} // ${i}`));
+  diffView = editor().createViewModel({ original: newModel(lines.join("\n"), "a.c"), modified: newModel(changed.join("\n"), "b.c") });
+  // drawn once out of sight: Monaco's first render made the first file shown slower
+  const pane = $("diff");
+  pane.classList.add("blank");
+  pane.hidden = false;
   editor().setModel(diffView);
+  await diffDrawn();
+  pane.classList.remove("blank");
+  // a file opened meanwhile keeps its pane
+  if (!diffFile) pane.hidden = true;
 }
 
 function setModels(keepView: boolean) {
