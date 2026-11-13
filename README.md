@@ -22,7 +22,7 @@ A lean desktop git client for Linux: a commit graph, diffs you can stage from, a
 
 ## Install
 
-Download the `.deb` from the [releases](https://github.com/jean-roland/Git_Krill/releases), then:
+Download the `.deb` from the [releases](https://github.com/jean-roland/git-krill/releases), then:
 
 ```sh
 sudo apt install ./git-krill_0.1.0_amd64.deb
