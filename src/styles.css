@@ -660,6 +660,7 @@ textarea.msg-in { height: 104px; resize: vertical; }
 /* the old version goes, unless the file is deleted and it is all there is */
 #diff-binary.single .img-side.del:not(:only-child) { display: none; }
 .img-side .frame { flex: 1; min-height: 0; position: relative; overflow: hidden; border-radius: 4px; background: repeating-conic-gradient(#2a303b 0 25%, #222731 0 50%) 0 0 / 16px 16px; }
+.img-side .huge { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--dim); }
 .img-side.del .frame { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--del) 60%, transparent); }
 .img-side.add .frame { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--add) 60%, transparent); }
 /* centred at its own size, shrunk to fit inside the frame's border: grid centring let a tall one spill over it */

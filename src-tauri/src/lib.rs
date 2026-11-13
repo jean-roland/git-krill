@@ -9,6 +9,7 @@ use std::os::unix::fs::DirBuilderExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 #[derive(Serialize)]
@@ -845,7 +846,9 @@ fn lfs_patterns(repo: String, path: String) -> Result<Vec<String>, String> {
     let attributes = std::fs::read_to_string(Path::new(&repo).join(".gitattributes")).unwrap_or_default();
     let rules = lfs_rules(&attributes);
     // git matches them itself: each pattern sets an attribute of its own in a probe file
-    let probe = git_dir(&repo)?.join("krill-attributes");
+    // one file per call: two quick ones would delete each other's
+    static PROBES: AtomicUsize = AtomicUsize::new(0);
+    let probe = git_dir(&repo)?.join(format!("krill-attributes-{}", PROBES.fetch_add(1, Ordering::Relaxed)));
     std::fs::write(&probe, rules.iter().map(|(i, p)| format!("{p} krill-lfs-{i}\n")).collect::<String>()).map_err(|e| e.to_string())?;
     let out = git_bytes(&repo, &["-c", &format!("core.attributesFile={}", probe.display()), "check-attr", "-z", "-a", "--", &path], None);
     let _ = std::fs::remove_file(&probe);
@@ -875,6 +878,20 @@ fn lfs_untrack(repo: &str, patterns: &str) -> Result<String, String> {
         }
     }
     Ok(format!("Untracked {}", patterns.lines().collect::<Vec<_>>().join(", ")))
+}
+
+/// \brief What tells each version (`at`, `path`) apart, far cheaper than reading it: size and time on disk, else git's object id; empty when there is none.
+#[tauri::command(async)]
+fn version_ids(repo: String, sides: Vec<(String, String)>) -> Vec<String> {
+    let id = |at: &str, path: &str| -> Result<String, String> {
+        match at {
+            "" => Ok(String::new()),
+            "WORKTREE" => std::fs::symlink_metadata(work_path(&repo, path)?).map(|m| format!("{} {:?}", m.len(), m.modified().ok())).map_err(|e| e.to_string()),
+            "INDEX" => git(&repo, &["rev-parse", "-q", "--verify", &format!(":{path}")]),
+            r => git(&repo, &["rev-parse", "-q", "--verify", &format!("{}:{path}", not_option(r)?)]),
+        }
+    };
+    sides.iter().map(|(at, path)| id(at, path).unwrap_or_default()).collect()
 }
 
 /// \brief File content `at` a commit, "INDEX" or "WORKTREE"; past MAX_TEXT bytes only its size, unless `full`.
@@ -1224,7 +1241,10 @@ fn tag_rename(repo: &str, old: &str, to: &str) -> Result<String, String> {
     let (new, remotes) = to.split_first().ok_or("no tag name")?;
     let (old, new) = (not_option(old)?, not_option(new)?);
     let tag = format!("refs/tags/{old}");
-    if git(repo, &["cat-file", "-t", &tag])?.trim() == "tag" {
+    // a retry after a push that failed half way finds the new tag made already, on the same commit
+    let peeled = |t: &str| git(repo, &["rev-parse", "-q", "--verify", &format!("{t}^{{}}")]).unwrap_or_default();
+    let made = peeled(&tag) == peeled(&format!("refs/tags/{new}"));
+    if !made && git(repo, &["cat-file", "-t", &tag])?.trim() == "tag" {
         let info = git(repo, &["for-each-ref", "--format=%(taggername)%00%(taggeremail:trim)%00%(taggerdate:raw)%00%(contents)%00%(contents:signature)", &tag])?;
         let f: Vec<&str> = info.splitn(5, '\0').collect();
         let [name, email, date, contents, signature] = f[..] else { return Err(format!("unreadable tag {old}")) };
@@ -1244,7 +1264,7 @@ fn tag_rename(repo: &str, old: &str, to: &str) -> Result<String, String> {
             })
             .map_err(|e| e.to_string())?;
         report(out)?;
-    } else {
+    } else if !made {
         git(repo, &["tag", new, &tag])?;
     }
     for remote in remotes {
@@ -1601,7 +1621,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, gh_verified, remote_tags, submodule_change, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, worktree_main, lfs_patterns,
+            initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, gh_verified, remote_tags, submodule_change, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, worktree_main, lfs_patterns, version_ids,
             is_merged, revert_hunk, open_default, open_version, file_bytes, tool_status, global_config, set_global_config, delete_file, open_url, remote_urls, edit_remote,
             pty::pty_spawn, pty::pty_write, pty::pty_resize, pty::pty_kill, askpass::askpass_reply
         ])

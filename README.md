@@ -28,7 +28,7 @@ Download the `.deb` from the [releases](https://github.com/jean-roland/git-krill
 sudo apt install ./git-krill_0.1.0_amd64.deb
 ```
 
-Run `git-krill`, or `git-krill path/to/repo`. Needs `git` (tested with 2.43). "Open in editor" uses VS Code's `code` command.
+Run `git-krill`, or `git-krill path/to/repo`. Needs `git` (tested with 2.43; before 2.40 a commit's files lack their LFS chip). "Open in editor" runs the command set in Settings, VS Code's `code` by default.
 
 ## Build
 

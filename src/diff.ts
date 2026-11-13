@@ -2,7 +2,7 @@
 import type * as Monaco from "monaco-editor/esm/vs/editor/edcore.main";
 import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import { applyChanges, allLines, pickLines, parseConflicts, mergeSides, pickedLines, parseBlame, toggleSide, toggleLine, hasSide, pickedOf } from "./core.js";
-import { Blob, Change, Commit, active, fakeCommit, gitOp, headHash, lfsChip, opInfo, recordUndo, refresh, run, status, tabs } from "./repo";
+import { Blob, Change, Commit, active, fakeCommit, gitOp, headHash, lfsChip, opInfo, recordUndo, refresh, repo, run, status, tabs } from "./repo";
 import { $, COLORS, ICONS, MenuItem, ask, avatar, avatarSvg, basename, colorIndex, copy, cssVar, dateText, dateTimeText, esc, h, hideBanner, input, megabytes, plural, popup, say, short, showBanner, store, svg, toast, whileLoading } from "./ui";
 import { fileLists, isConflict, isSubmodule, markOpenFile, wipFiles } from "./panel";
 import { openSubmodule } from "./graph";
@@ -74,8 +74,8 @@ export const loadMonaco = () =>
   }));
 type SubCommit = { hash: string; subject: string };
 type SubmoduleChange = { old: SubCommit | null; new: SubCommit | null; added: SubCommit[]; removed: SubCommit[]; changed: number; untracked: number; initialized: boolean };
-// full: loaded past the size a diff loads unasked; sub: what a submodule went through, shown instead of a text diff
-export let diffFile: { kind: DiffSource; f: Change; c?: Commit; orig: Blob; mod: Blob; dirty: boolean; full: boolean; sub?: SubmoduleChange } | null = null;
+// full: loaded past the size a diff loads unasked; sub: what a submodule went through, shown instead of a text diff; ids: its sides' versions, see versionIds
+export let diffFile: { kind: DiffSource; f: Change; c?: Commit; orig: Blob; mod: Blob; dirty: boolean; full: boolean; sub?: SubmoduleChange; ids?: string } | null = null;
 export let diffEditor: Monaco.editor.IStandaloneDiffEditor | null = null;
 // hunk header bars, as view zone ids per side
 let hunkZones: { mod: string[]; orig: string[]; nodes: HTMLElement[] } = { mod: [], orig: [], nodes: [] };
@@ -328,6 +328,9 @@ function sideSources(kind: DiffSource, f: Change, c?: Commit): [string, string][
   return [[c!.parents[0] ?? "", old], [c!.hash, f.path]];
 }
 
+/** What tells the sides' versions apart, asked before reading them again: a refresh mostly finds nothing changed. */
+const versionIds = (kind: DiffSource, f: Change, c?: Commit) => run<string[]>("version_ids", { sides: sideSources(kind, f, c) }).then((ids) => ids.join("\n"), () => "");
+
 async function fetchSides(kind: DiffSource, f: Change, c?: Commit, full = false): Promise<[Blob, Blob]> {
   const none: Blob = { text: "", exists: false, binary: false, large: null, lfs: "" };
   const [o, m] = sideSources(kind, f, c).map(([at, path]) => (at ? run<Blob>("blob", { at, path, full }) : Promise.resolve(none)));
@@ -356,12 +359,12 @@ export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistor
   // clicking the open file again closes it
   if (diffFile && diffFile.kind === kind && diffFile.f.path === f.path && diffFile.c?.hash === c?.hash && diffFile.c?.parents[0] === c?.parents[0]) return closeDiff();
   if (!(await confirmDrop())) return;
-  let orig: Blob, mod: Blob, sub: SubmoduleChange | undefined;
+  let orig: Blob, mod: Blob, sub: SubmoduleChange | undefined, ids: string | undefined;
   try {
     if (isSubmodule(f.path)) {
       sub = await submoduleChange(kind, f, c);
       orig = mod = { text: "", exists: false, binary: false, large: null, lfs: "" };
-    } else [orig, mod] = await fetchSides(kind, f, c);
+    } else [[orig, mod], ids] = await Promise.all([fetchSides(kind, f, c), versionIds(kind, f, c)]);
   } catch (e) {
     return say(String(e), true);
   }
@@ -370,7 +373,7 @@ export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistor
   const gen = ++opening, fresh = $("diff").hidden && !merging;
   const copy = document.querySelector(".still") ?? still(merging ? $("merge") : [$("diff-editor"), $("diff-binary")].find((e) => !$("diff").hidden && !e.hidden));
   await closeMerge(true);
-  diffFile = { kind, f, c, orig, mod, dirty: false, full: false, sub };
+  diffFile = { kind, f, c, orig, mod, dirty: false, full: false, sub, ids };
   if (fresh) $("diff").classList.add("blank");
   $("diff").hidden = false;
   const range = c ? `  ·  ${c.parents[0] ? short(c.parents[0]) : "root"}..${short(c.hash)}` : "";
@@ -465,6 +468,8 @@ const IMAGE = /\.(png|jpe?g|gif|webp|bmp|ico|avif)$/i;
 const SVG = /\.svg$/i;
 // raw bytes the window decodes itself, far cheaper than text in the editor: shown unasked up to this
 const IMAGE_UNASKED = 50 << 20;
+// past this an image is not drawn: decoded at 4 bytes a pixel, a 30000×30000 one would take the window's ~3.6 GB
+const MAX_PIXELS = 100e6;
 
 /** An SVG's diff as its text or as drawn, remembered for the next ones. */
 export async function setSvgView(view: string) {
@@ -500,20 +505,26 @@ function imageSides() {
 
 /** One version of an image at its own size, captioned with its pixel and byte sizes once loaded. */
 function imageSide(at: string, path: string, cls = "") {
-  const img = h("img", { alt: "" }) as HTMLImageElement, caption = h("small", { textContent: sideName(at) });
+  const img = h("img", { alt: "" }) as HTMLImageElement, frame = h("div", { className: "frame" }), caption = h("small", { textContent: sideName(at) });
   run<ArrayBuffer>("file_bytes", { at, path }).then(
     (bytes) => {
       // Blob here is git's, from ./repo
       // an SVG draws only with its type; the others are recognised by their bytes
       const url = URL.createObjectURL(new globalThis.Blob([bytes], { type: SVG.test(path) ? "image/svg+xml" : "" }));
       const size = bytesText(bytes.byteLength), pixels = () => (img.naturalWidth ? ` · ${img.naturalWidth}×${img.naturalHeight}` : "");
-      img.onload = () => (URL.revokeObjectURL(url), (caption.textContent = `${sideName(at)}${pixels()} · ${size}`));
+      // off the page until its size is known: the pixels decode only once drawn
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        caption.textContent = `${sideName(at)}${pixels()} · ${size}`;
+        if (img.naturalWidth * img.naturalHeight <= MAX_PIXELS) return frame.append(img);
+        frame.append(h("div", { className: "huge" }, h("span", { textContent: "Image too big to show here" }), openButton(at, path)));
+      };
       img.onerror = () => (URL.revokeObjectURL(url), (caption.textContent = `${sideName(at)} · ${size}: cannot be shown`));
       img.src = url;
     },
     (e) => (caption.textContent = String(e)),
   );
-  return h("figure", { className: `img-side ${cls}` }, h("div", { className: "frame" }, img), caption);
+  return h("figure", { className: `img-side ${cls}` }, frame, caption);
 }
 
 /** Download the open diff's LFS versions from the remote, then show them. */
@@ -631,11 +642,17 @@ export async function reloadDiff(row = -1) {
     d.sub = sub;
     return paintSides();
   }
+  // nothing changed: nothing read, a file loaded on request is hundreds of MB
+  const ids = await versionIds(d.kind, d.f, d.c);
+  if (diffFile !== d || d.dirty) return;
+  if (ids && ids === d.ids) return paintOpenEditor();
   const [orig, mod] = await fetchSides(d.kind, d.f, d.c, d.full);
   // another file opened meanwhile, or edits began
   if (diffFile !== d || d.dirty) return;
+  d.ids = ids;
   paintOpenEditor();
-  const same = (a: Blob, b: Blob) => a.text === b.text && a.exists === b.exists && a.binary === b.binary && a.large === b.large && a.lfs === b.lfs;
+  // an image has no text to compare: its new version is drawn
+  const same = (a: Blob, b: Blob) => a.text === b.text && a.exists === b.exists && a.binary === b.binary && a.large === b.large && a.lfs === b.lfs && !a.binary;
   if (same(orig, d.orig) && same(mod, d.mod)) return;
   Object.assign(d, { orig, mod });
   // no text diff before or now: its pane is painted again
@@ -721,18 +738,20 @@ export const confirmDiscard = (f: Change) => ask(`Discard all changes to ${f.pat
 
 /** Discard `path` back to the index, or to `text` for some of its lines; undone by writing the old text back. */
 export async function discard(path: string, untracked: boolean, text?: string) {
-  const t = tabs[active];
+  const t = tabs[active], r = repo;
   const read = async () => {
     const b = await run<Blob>("blob", { at: "WORKTREE", path });
     return b.binary || b.large ? undefined : b.exists ? b.text : null;
   };
   const before = await read().catch(() => undefined);
+  // the write is for the tab it was asked in
+  if (repo !== r) return;
   if (text === undefined) await gitOp(untracked ? "clean" : "discard", path);
   else await run("write_file", { path, text }).then(() => say(`discarded lines of ${path}`), (e) => say(String(e), true));
   const after = await read().catch(() => undefined);
   await refresh();
   // a binary file has no text to put back
-  if (before === undefined || after === undefined || before === after) return;
+  if (before === undefined || after === undefined || before === after || repo !== r) return;
   const head = headHash(), branch = status?.branch ?? "";
   recordUndo(t, { op: "discard", branch: [branch, branch], head: [head, head], file: [path, before, after] });
 }

@@ -228,6 +228,8 @@ export function push() {
 /** Undo (or redo) the last HEAD move krill made, if nothing moved HEAD since. */
 export async function undoRedo(back: boolean) {
   const t = tabs[active];
+  // a tab still loading has no HEAD to compare yet: its steps would look stale
+  if (!status) return;
   const step = (back ? t.undo : t.redo).pop();
   if (!step) return;
   const [from, to] = back ? [1, 0] : [0, 1];
@@ -239,8 +241,10 @@ export async function undoRedo(back: boolean) {
   }
   let ok;
   if (step.file) {
-    const [path, ...text] = step.file;
+    const [path, ...text] = step.file, r = repo;
     const now = await run<Blob>("blob", { at: "WORKTREE", path });
+    // left for another tab meanwhile: the step waits for its own
+    if (repo !== r) return void (back ? t.undo : t.redo).push(step);
     if ((now.exists ? now.text : null) !== text[from]) {
       renderToolbar();
       return say(`${path} changed since, nothing to ${back ? "undo" : "redo"}`, true);
@@ -616,7 +620,7 @@ export function renderTabHits() {
               { className: `tab-hit${i === active ? " on" : ""}`, onclick: () => (($("tab-search").hidden = true), i !== active && switchTab(i)) },
               h("b", { textContent: tabName(t) }),
               h("small", { textContent: t.repo }),
-              h("button", { textContent: "×", title: "Close", onclick: (e: Event) => (e.stopPropagation(), closeTab(i), renderTabHits()) }),
+              h("button", { textContent: "×", title: "Close", onclick: (e: Event) => (e.stopPropagation(), closeTab(i).then(renderTabHits)) }),
             ),
           ],
     ),

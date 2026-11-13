@@ -202,10 +202,9 @@ $("init-repo").onclick = async () => {
 };
 $("clone-btn").onclick = cloneDialog;
 addEventListener("focus", refresh);
-addEventListener("click", (e) => {
-  $("menu").hidden = $("submenu").hidden = true;
-  if (!(e.target as HTMLElement).closest("#tab-search, #tab-find")) $("tab-search").hidden = true;
-});
+addEventListener("click", () => ($("menu").hidden = $("submenu").hidden = true));
+// any press outside closes the tab search, even one a button keeps to itself: its list would be stale
+addEventListener("pointerdown", (e) => !(e.target as HTMLElement).closest("#tab-search, #tab-find") && ($("tab-search").hidden = true), true);
 // WebKit's Reload/Back menu means nothing here; inputs and Monaco keep theirs
 addEventListener("contextmenu", (e) => !(e.target as HTMLElement).closest("input, textarea, #diff-editor") && e.preventDefault());
 addEventListener("keydown", (e) => {
