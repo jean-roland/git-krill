@@ -1,12 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { DEFAULT_EDITOR, fetchMinutes } from "./repo";
-import { $, ICONS, h, ico, say, showMenu, store, svg } from "./ui";
+import { $, ICONS, h, ico, say, showMenu, store, svg, toast } from "./ui";
 
 type Tools = { git: string; lfs: string; gh: string; lfsSetUp: boolean; lfsInUse: boolean; ghHosts: string[] };
 // the last answer, asked again on the background fetch's rhythm: once a run while it is off
 let checked: { at: number; tools: Tools } | null = null;
-// the order global_config answers in, lib.rs GLOBAL_KEYS
+// the order global_config answers in, lib.rs GLOBAL_KEYS: these, then commit.gpgsign, rerere.enabled, rerere.autoUpdate
 const IDENTITY: [string, string][] = [["user.name", "Name"], ["user.email", "Email"], ["user.signingkey", "Signing key"]];
+const RERERE = ["rerere.enabled", "rerere.autoUpdate"];
 
 const row = (label: string, ...kids: (Node | string)[]) => h("div", { className: "set-row" }, h("span", { className: "set-label", textContent: label }), h("div", {}, ...kids));
 const hint = (text: string) => h("small", { className: "set-hint", textContent: text });
@@ -16,9 +17,9 @@ const note = (text: string) => h("small", { className: "set-note", textContent: 
 const version = (line: string) => line.match(/\d+(\.\d+)+/)?.[0] ?? line;
 const state = (ok: boolean, text: string) => h("span", { className: ok ? "set-ok" : "set-bad", textContent: `${ok ? "✓" : "✗"} ${text}` });
 
-/** The Settings tab: the tools krill leans on, background fetch, the editor and the global git identity. */
+/** The Settings tab: the tools krill leans on, background fetch, the editor, the global git identity and conflict replay. */
 export function renderSettings() {
-  const tools = h("div", {}, ...checking());
+  const tools = h("div", {}, ...checking()), global = globalRows();
   $("settings-box").replaceChildren(
     h("h1", { textContent: "Settings" }),
     h("div", { className: "head" }, "Tools ", h("button", { className: "set-again", innerHTML: `${svg(ICONS.sync)}Refresh`, title: "Check the tools again", onclick: () => paintTools(tools, true) })),
@@ -28,7 +29,9 @@ export function renderSettings() {
     h("div", { className: "head", textContent: "Editor" }),
     editorRow(),
     h("div", { className: "head", textContent: "Git identity, for every repository" }),
-    ...identityRows(),
+    ...global.identity,
+    h("div", { className: "head", textContent: "Conflicts, for every repository" }),
+    ...global.conflicts,
   );
   paintTools(tools);
 }
@@ -84,22 +87,44 @@ function editorRow() {
   return row("Open in editor", cmd, hint(`{file} and {line} are filled in; the default is ${DEFAULT_EDITOR}. Left empty, the desktop's default app opens the file.`));
 }
 
-/** ~/.gitconfig's identity, saved field by field. */
-function identityRows() {
+/** ~/.gitconfig's identity and conflict replay, saved field by field. */
+function globalRows() {
   const fields = IDENTITY.map(([key]) => h("input", { spellcheck: false, onchange: (e: Event) => set(key, (e.target as HTMLInputElement).value.trim()) }));
   const sign = h("input", { type: "checkbox", onchange: () => set("commit.gpgsign", sign.checked ? "true" : "") });
+  // the replayed files come back staged: the stop is only for a look
+  const rerere = h("input", { type: "checkbox", onchange: () => RERERE.forEach((k) => set(k, rerere.checked ? "true" : "")) });
   const load = () =>
     invoke<string[]>("global_config").then((values) => {
       fields.forEach((f, i) => (f.value = values[i]));
       sign.checked = values[3] === "true";
+      rerere.checked = values[4] === "true";
     });
   // one write at a time: two would fight over the config's lock; a failed one shows what is really saved
   let writing = Promise.resolve();
   const set = (key: string, value: string) =>
     (writing = writing.then(() => invoke("set_global_config", { key, value }).then(() => say(`Saved ${key}`), (e) => (say(String(e), true), load()))));
   load();
-  return [
-    ...IDENTITY.map(([, label], i) => row(label, fields[i])),
-    row("Sign commits", h("label", {}, sign, " Sign every commit with the signing key"), hint("A repository's own settings win over these.")),
-  ];
+  return {
+    identity: [
+      ...IDENTITY.map(([, label], i) => row(label, fields[i])),
+      row("Sign commits", h("label", {}, sign, " Sign every commit with the signing key"), hint("A repository's own settings win over these.")),
+    ],
+    conflicts: [
+      row(
+        "Reuse fixes",
+        h("label", {}, rerere, " Reuse recorded resolutions (git rerere)"),
+        hint("A conflict resolved once is resolved the same way when it comes back, as in a rebase redone or a branch rebased again. The rebase still stops there, the files already staged."),
+      ),
+    ],
+  };
+}
+
+/** Once ever, at a first stop on conflicts with rerere off: it would replay these fixes next time. */
+export function rerereTip() {
+  if (store("rerere-tip")) return;
+  invoke<string[]>("global_config").then((values) => {
+    if (values[4] === "true") return;
+    store("rerere-tip", "shown");
+    toast("Tip: reuse your conflict fixes", "Turn on Reuse recorded resolutions in Settings: git then resolves a conflict it met before the way you did.", "info");
+  });
 }

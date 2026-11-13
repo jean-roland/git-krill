@@ -8,7 +8,7 @@ import { closeHistory, closeMerge, closeResolvedMerge, confirmDrop, diffFile, op
 import { conflictCount, getMsg, renderPanel, setMsg } from "./panel";
 import { stepBack, paintWipRow, renderGraph, renderSide, resetGraph } from "./graph";
 import { dropTerm, showTerm } from "./terminal";
-import { renderSettings } from "./settings";
+import { renderSettings, rerereTip } from "./settings";
 
 // lfs: git-lfs stores it
 export type Change = { path: string; old: string | null; code: string; conflict?: string; lfs?: boolean };
@@ -135,8 +135,11 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
     const onBranch = /^(push|pull)/.test(name) && branch ? `: ${branch}` : "";
     // stopping on conflicts is no failure: the WIP panel takes over
     const conflicts = msg.split("\n").filter((l) => l.startsWith("CONFLICT"));
+    // rerere's replays: "Resolved 'f' using previous resolution."
+    const reused = msg.split("\n").filter((l) => l.includes("using previous resolution"));
     if (conflicts.length) {
-      toast(`${what} stopped on conflicts`, conflicts.join("\n"), "info");
+      toast(`${what} stopped on conflicts`, [...conflicts, ...reused].join("\n"), "info");
+      if (!name.startsWith("stash")) rerereTip();
       if (tab === tabs[active]) {
         selection.stash = null;
         selection.hashes = [(selection.anchor = "WIP")];

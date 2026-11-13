@@ -1154,15 +1154,15 @@ fn tool_status_now() -> Tools {
 }
 
 // the global git settings the Settings page edits, and nothing else
-const GLOBAL_KEYS: [&str; 4] = ["user.name", "user.email", "user.signingkey", "commit.gpgsign"];
+const GLOBAL_KEYS: [&str; 6] = ["user.name", "user.email", "user.signingkey", "commit.gpgsign", "rerere.enabled", "rerere.autoUpdate"];
 
 /// \brief The values of GLOBAL_KEYS in ~/.gitconfig, empty when unset.
 #[tauri::command(async)]
 fn global_config() -> Vec<String> {
     GLOBAL_KEYS
         .iter()
-        // included files count, and a yes/on/1 reads as true
-        .map(|k| Command::new("git").args(["config", "--global", "--includes", if k.contains("gpgsign") { "--type=bool" } else { "--no-type" }, "--get", k]).stdin(Stdio::null()).output().map_or(String::new(), |o| String::from_utf8_lossy(&o.stdout).trim().to_string()))
+        // included files count, and past the identity a yes/on/1 reads as true
+        .map(|k| Command::new("git").args(["config", "--global", "--includes", if k.starts_with("user.") { "--no-type" } else { "--type=bool" }, "--get", k]).stdin(Stdio::null()).output().map_or(String::new(), |o| String::from_utf8_lossy(&o.stdout).trim().to_string()))
         .collect()
 }
 
