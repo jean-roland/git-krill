@@ -344,6 +344,9 @@ body.home main { grid-template-columns: 1fr; }
 #cols .subject { top: 0; margin-left: 0; }
 /* the titles take the row's height, so their separators run top to bottom */
 #cols > span { align-self: stretch; line-height: 21px; }
+#cols .icon { flex: none; padding: 0 2px; border: none; background: none; line-height: 0; color: var(--dim); }
+#cols .icon:hover { color: var(--text); }
+#cols .icon svg { width: 14px; height: 14px; stroke-width: 2.6; }
 .chunk { position: relative; }
 .load-more { display: block; margin: 12px auto 16px; }
 .lanes { position: absolute; top: 0; left: var(--refs-w); pointer-events: none; }

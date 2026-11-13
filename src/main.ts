@@ -92,6 +92,7 @@ $("find-q").onkeydown = (e) => {
 $("find-prev").onclick = () => findStep(-1);
 $("find-next").onclick = () => findStep(1);
 $("find-close").onclick = closeFind;
+$("find-open").onclick = openFind;
 document.querySelectorAll<HTMLInputElement>(".file-filter").forEach((f) => (f.oninput = () => filterFiles(f.value)));
 $("stage-all").onclick = () => gitOp(conflictCount() ? "resolve-all" : "stage-all");
 $("op-continue").onclick = () => {
