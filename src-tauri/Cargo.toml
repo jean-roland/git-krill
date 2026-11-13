@@ -1,6 +1,6 @@
 [package]
 name = "krill"
-version = "0.1.0"
+version = "0.2.0"
 description = "Lean git client"
 authors = ["Jean-Roland Gosse <jean.roland.gosse@gmail.com>"]
 edition = "2024"
