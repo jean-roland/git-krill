@@ -75,7 +75,10 @@ export const dateTimeText = (t: number, d = new Date(t * 1000)) => `${dateText(t
 
 export const $ = (id: string) => document.getElementById(id)!;
 export const input = (id: string) => $(id) as HTMLInputElement;
-export const basename = (p: string) => p.split("/").pop() || p;
+// Windows paths may come with either separator
+export const basename = (p: string) => p.split(/[\\/]/).pop() || p;
+// Ctrl, or Cmd on macOS
+export const mod = (e: KeyboardEvent | MouseEvent) => e.ctrlKey || e.metaKey;
 // names like WORKTREE stay whole
 export const short = (hash: string) => (/^[0-9a-f]{8,}$/.test(hash) ? hash.slice(0, 7) : hash);
 
@@ -133,7 +136,7 @@ export function onCtrlEnter(els: HTMLElement[], fn: () => unknown) {
   for (const el of els)
     el.onkeydown = (e) => {
       // a handler returning false cancels the key, so no expression body here
-      if (e.ctrlKey && e.key === "Enter") fn();
+      if (mod(e) && e.key === "Enter") fn();
     };
 }
 

@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { layoutGraph } from "./core.js";
 import { closeRebase, ontoRange, openRebase, rebaseRange } from "./rebase";
 import { Commit, LOG_LIMIT, Stash, Status, Submodule, Worktree, active, closeTab, commits, dropEdits, fakeCommit, findRef, foldsKey, gitOp, headHash, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, keepTab, newTab, opInfo, openRepo, paintRepoName, pull, push, redraw, refs, remoteTags, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
-import { $, COLORS, ICONS, MenuItem, ask, askName, basename, copy, dateTimeText, dialog, h, ico, input, popup, say, short, spriteId, store, svg } from "./ui";
+import { $, COLORS, ICONS, MenuItem, ask, askName, basename, copy, dateTimeText, dialog, h, ico, input, mod, popup, say, short, spriteId, store, svg } from "./ui";
 import { dropTerm } from "./terminal";
 import { conflictCount, conflictLine, fileCounts, opLine, renderPanel, wipFiles } from "./panel";
 
@@ -591,7 +591,7 @@ function clickRow(e: MouseEvent, hash: string) {
     const [a, b] = [idx(selection.anchor), idx(hash)].sort((x, y) => x - y);
     selection.hashes = commits.slice(a, b + 1).map((c) => c.hash);
     selection.isRange = true;
-  } else if (hash !== "WIP" && e.ctrlKey) {
+  } else if (hash !== "WIP" && mod(e)) {
     const s = selection.hashes.filter((x) => x !== "WIP");
     selection.hashes = s.includes(hash) ? s.filter((x) => x !== hash) : [...s, hash];
     if (!selection.hashes.length) selection.hashes = ["WIP"];

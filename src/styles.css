@@ -16,7 +16,8 @@
   --ren: #b467ff;
   /* the faint lines down a tree's levels */
   --guide: color-mix(in srgb, var(--dim) 25%, transparent);
-  --mono: "JetBrains Mono", "Fira Code", "DejaVu Sans Mono", monospace;
+  /* then Linux's, macOS's and Windows' own */
+  --mono: "JetBrains Mono", "Fira Code", "DejaVu Sans Mono", "SF Mono", Menlo, "Cascadia Mono", Consolas, monospace;
   /* the merge tool's A (current) blue, B (incoming) yellow, unpicked magenta */
   --m-a: #4f8cff;
   --m-b: #ffcf3f;

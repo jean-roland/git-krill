@@ -1,6 +1,6 @@
 import { Commit, commits, gitOp, headHash, isHead, opInfo, repo, selection } from "./repo";
 import { jumpTo, paintSelection } from "./graph";
-import { $, ICONS, avatar, h, ico, say, short, showDialog, showMenu, hideDialog, onCtrlEnter, svg } from "./ui";
+import { $, ICONS, avatar, h, ico, mod, say, short, showDialog, showMenu, hideDialog, onCtrlEnter, svg } from "./ui";
 import { countLeft, joinMsg, renderPanel, splitMsg } from "./panel";
 
 type Action = "pick" | "reword" | "squash" | "drop";
@@ -251,9 +251,9 @@ export function rebaseKey(e: KeyboardEvent) {
   if (!plan || $("rebase").hidden || !$("merge").hidden) return false;
   const i = plan.at, key = e.key.toLowerCase();
   if (e.key === "Escape") closeRebase();
-  else if (e.ctrlKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) move(i, e.key === "ArrowUp" ? -1 : 1);
+  else if (mod(e) && (e.key === "ArrowUp" || e.key === "ArrowDown")) move(i, e.key === "ArrowUp" ? -1 : 1);
   else if (e.key === "ArrowUp" || e.key === "ArrowDown") pick(i + (e.key === "ArrowUp" ? -1 : 1));
-  else if (!e.ctrlKey && !e.altKey && "prsd".includes(key) && key) setAction(i, ACTIONS.find(([a]) => a[0] === key)![0]);
+  else if (!mod(e) && !e.altKey && "prsd".includes(key) && key) setAction(i, ACTIONS.find(([a]) => a[0] === key)![0]);
   else return false;
   return true;
 }

@@ -1,14 +1,13 @@
-//! krill as ssh's and git's askpass helper: their prompts reach the window's dialog through a unix socket.
+//! krill as ssh's and git's askpass helper: their prompts reach the window's dialog over a loopback connection that only krill's children hold the key to.
 use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::fs::DirBuilderExt;
-use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::{Path, PathBuf};
+use std::net::{TcpListener, TcpStream};
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::{mpsc, Mutex, OnceLock};
 use tauri::{Emitter, Manager, State};
 
-// krill's own binary and the socket it answers on, for ssh and git to ask a passphrase or password through
-static ASKPASS: OnceLock<(PathBuf, PathBuf)> = OnceLock::new();
+// krill's own binary, and where it answers with the key a helper must show: "127.0.0.1:<port> <key>"
+static ASKPASS: OnceLock<(PathBuf, String)> = OnceLock::new();
 
 // where the window's answer to the pending prompt goes
 #[derive(Default)]
@@ -17,50 +16,52 @@ pub struct Askpass(Mutex<Option<mpsc::Sender<Option<String>>>>);
 /// \brief Point a git run's prompts at krill: with `ask` they reach the dialog, without they fail at once and say so.
 pub fn env(git: &mut Command, ask: bool) {
     match ASKPASS.get() {
-        Some((exe, sock)) => git.env("SSH_ASKPASS", exe).env("GIT_ASKPASS", exe).env("SSH_ASKPASS_REQUIRE", "force").env("KRILL_ASKPASS", if ask { sock.as_os_str() } else { "".as_ref() }),
+        Some((exe, at)) => git.env("SSH_ASKPASS", exe).env("GIT_ASKPASS", exe).env("SSH_ASKPASS_REQUIRE", "force").env("KRILL_ASKPASS", if ask { at.as_str() } else { "" }),
         None => git.env("SSH_ASKPASS_REQUIRE", "never").env_remove("SSH_ASKPASS").env_remove("GIT_ASKPASS"),
     };
 }
 
 /// \brief Started by ssh or git as their askpass helper: the question goes to the running krill, and krill exits with its answer.
 pub fn helper() {
-    let Some(sock) = std::env::var_os("KRILL_ASKPASS") else { return };
+    let Some(at) = std::env::var_os("KRILL_ASKPASS") else { return };
     let prompt = std::env::args().nth(1).unwrap_or_default();
-    // no socket: a background run nobody can answer, so only say what was needed
-    if sock.is_empty() {
+    // nowhere to ask: a background run nobody can answer, so only say what was needed
+    if at.is_empty() {
         eprintln!("krill: needs a passphrase or password: {prompt}");
         std::process::exit(1);
     }
-    std::process::exit(ask(Path::new(&sock), &prompt));
+    std::process::exit(ask(&at.to_string_lossy(), &prompt));
 }
 
-/// \brief Send the prompt to the running krill, print its answer; no answer is a cancel.
-fn ask(sock: &Path, prompt: &str) -> i32 {
-    let Ok(mut s) = UnixStream::connect(sock) else { return 1 };
+/// \brief Send the key and the prompt to the running krill at `at`, print its answer; no answer is a cancel.
+fn ask(at: &str, prompt: &str) -> i32 {
+    let Some((addr, key)) = at.split_once(' ') else { return 1 };
+    let Ok(mut s) = TcpStream::connect(addr) else { return 1 };
     let mut answer = String::new();
-    if writeln!(s, "{}", prompt.replace('\n', " ")).is_err() || s.read_to_string(&mut answer).is_err() || answer.is_empty() {
+    if writeln!(s, "{key}\n{}", prompt.replace('\n', " ")).is_err() || s.read_to_string(&mut answer).is_err() || answer.is_empty() {
         return 1;
     }
     print!("{answer}");
     0
 }
 
-/// \brief Listen for askpass helpers in a folder only this user can enter.
+/// \brief Listen for askpass helpers on loopback: any local process can knock, only one with the key gets a dialog.
 pub fn start(app: &tauri::AppHandle) -> std::io::Result<()> {
-    let dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join(format!("krill-{}", std::process::id()));
-    // a dead krill with the same pid left it
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::DirBuilder::new().mode(0o700).create(&dir)?;
-    let sock = dir.join("askpass");
-    let listener = UnixListener::bind(&sock)?;
+    let listener = TcpListener::bind(("127.0.0.1", 0))?;
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).map_err(|e| std::io::Error::other(e.to_string()))?;
+    let key: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
     // the path as started: a rebuild replaces the file, and its new binary answers the same way
-    let _ = ASKPASS.set((std::env::current_exe()?, sock));
+    let _ = ASKPASS.set((std::env::current_exe()?, format!("{} {key}", listener.local_addr()?)));
     let app = app.clone();
     std::thread::spawn(move || {
         // one prompt at a time: ssh asks again only after the answer
         for mut s in listener.incoming().flatten() {
-            let mut prompt = String::new();
-            if BufReader::new(&s).read_line(&mut prompt).is_err() {
+            // a caller that never speaks would hold up the next prompt
+            let _ = s.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+            let (mut shown, mut prompt) = (String::new(), String::new());
+            let mut lines = BufReader::new(&s);
+            if lines.read_line(&mut shown).is_err() || shown.trim_end() != key || lines.read_line(&mut prompt).is_err() {
                 continue;
             }
             let (tx, rx) = mpsc::channel();
@@ -71,13 +72,6 @@ pub fn start(app: &tauri::AppHandle) -> std::io::Result<()> {
         }
     });
     Ok(())
-}
-
-/// \brief Remove the socket's folder, on exit.
-pub fn stop() {
-    if let Some((_, sock)) = ASKPASS.get() {
-        let _ = sock.parent().map(std::fs::remove_dir_all);
-    }
 }
 
 /// \brief The window's answer to the pending prompt, `None` when cancelled.

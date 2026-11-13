@@ -31,6 +31,9 @@
     "shortDescription": "Lean git client",
     "longDescription": "A lean desktop git client for Linux: a commit graph, diffs you can stage from, a merge tool, and little else.",
     "homepage": "https://github.com/jean-roland/git-krill",
+    "macOS": {
+      "signingIdentity": "-"
+    },
     "linux": {
       "deb": {
         "depends": ["git"],

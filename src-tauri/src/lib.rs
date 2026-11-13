@@ -5,7 +5,9 @@ use serde::Serialize;
 use std::collections::HashSet;
 use std::sync::OnceLock;
 use std::io::{Read, Write};
+#[cfg(unix)]
 use std::os::unix::fs::DirBuilderExt;
+#[cfg(unix)]
 use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -145,8 +147,28 @@ struct Blob {
 }
 
 /// \brief A git command in `repo`; with `ask`, ssh and https prompts reach krill's dialog, without they fail at once and say so.
+/// \brief A program krill runs: on Windows without the console window it would flash up.
+fn command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    #[allow(unused_mut)]
+    let mut c = Command::new(program);
+    // CREATE_NO_WINDOW
+    #[cfg(windows)]
+    std::os::windows::process::CommandExt::creation_flags(&mut c, 0x0800_0000);
+    c
+}
+
+/// \brief The desktop's own opener: the default app for a file, the file manager for a folder, the browser for a link.
+const fn opener() -> &'static str {
+    if cfg!(windows) { "explorer" } else if cfg!(target_os = "macos") { "open" } else { "xdg-open" }
+}
+
+/// \brief The user's home folder, empty when unknown.
+fn home() -> PathBuf {
+    std::env::home_dir().unwrap_or_default()
+}
+
 fn git_command(repo: &str, args: &[&str], ask: bool) -> Command {
-    let mut git = Command::new("git");
+    let mut git = command("git");
     git.current_dir(repo);
     // git-lfs set up but gone: its filter would fail every command, without it LFS files read as their pointers
     if !lfs_installed() {
@@ -163,6 +185,7 @@ fn git_command(repo: &str, args: &[&str], ask: bool) -> Command {
         .env("LC_MESSAGES", "C");
     askpass::env(&mut git, ask);
     // its own session, off the terminal krill may run from: ssh would wait there for a key passphrase
+    #[cfg(unix)]
     unsafe { git.pre_exec(|| (libc::setsid() >= 0).then_some(()).ok_or_else(std::io::Error::last_os_error)) };
     git
 }
@@ -170,7 +193,7 @@ fn git_command(repo: &str, args: &[&str], ask: bool) -> Command {
 /// \brief Whether git-lfs runs here, asked once a run: an install while krill runs shows after a restart.
 fn lfs_installed() -> bool {
     static INSTALLED: OnceLock<bool> = OnceLock::new();
-    *INSTALLED.get_or_init(|| Command::new("git").args(["lfs", "version"]).stdin(Stdio::null()).output().is_ok_and(|o| o.status.success()))
+    *INSTALLED.get_or_init(|| command("git").args(["lfs", "version"]).stdin(Stdio::null()).output().is_ok_and(|o| o.status.success()))
 }
 
 /// \brief Run git, `input` on its stdin.
@@ -290,7 +313,7 @@ fn init(path: String) -> Result<String, String> {
 
 /// \brief `p` with a leading `~/` meaning the home folder, as in a shell.
 fn home_path(p: &str) -> String {
-    p.strip_prefix("~/").map_or(p.to_string(), |r| format!("{}/{r}", std::env::var("HOME").unwrap_or_default()))
+    p.strip_prefix("~/").map_or(p.to_string(), |r| home().join(r).to_string_lossy().into_owned())
 }
 
 /// \brief Clone `url` into `parent`/`name`, creating `parent` if needed; returns the new work tree.
@@ -734,7 +757,7 @@ fn remote_tags(repo: String) -> Result<std::collections::HashMap<String, Vec<Str
 #[tauri::command(async)]
 fn gh_verified(host: String, slug: String, hash: String) -> Result<String, String> {
     let path = format!("repos/{}/commits/{}", not_option(&slug)?, not_option(&hash)?);
-    let mut gh = Command::new("gh");
+    let mut gh = command("gh");
     gh.args(["api", "--hostname", not_option(&host)?, &path, "--jq", r#".commit.verification | "\(.verified) \(.reason)""#])
         .env("GH_PROMPT_DISABLED", "1")
         .env("GH_NO_UPDATE_NOTIFIER", "1")
@@ -756,9 +779,14 @@ fn stop_blame() {
 
 /// \brief Stop process `id` and what it started: git runs in its own session, the group is git's.
 fn kill_group(id: Option<u32>) {
-    if let Some(id) = id {
-        unsafe { libc::kill(-(id as i32), libc::SIGTERM) };
-    }
+    let Some(id) = id else { return };
+    #[cfg(unix)]
+    unsafe {
+        libc::kill(-(id as i32), libc::SIGTERM)
+    };
+    // no process groups: the tree from its root
+    #[cfg(windows)]
+    let _ = command("taskkill").args(["/T", "/F", "/PID", &id.to_string()]).status();
 }
 
 // past this a file loads only when asked: each copy on its way to the editor costs as much
@@ -947,7 +975,11 @@ fn open_version(repo: String, at: String, path: String) -> Result<(), String> {
     let version: String = at.chars().filter(char::is_ascii_alphanumeric).take(12).collect();
     let dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("git-krill").join(format!("{:x}", std::hash::Hasher::finish(&key))).join(version);
     let file = work_path(&dir.to_string_lossy(), &path)?;
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(file.parent().unwrap_or(&dir)).map_err(|e| e.to_string())?;
+    let mut dirs = std::fs::DirBuilder::new();
+    dirs.recursive(true);
+    #[cfg(unix)]
+    dirs.mode(0o700);
+    dirs.create(file.parent().unwrap_or(&dir)).map_err(|e| e.to_string())?;
     let copy = || -> Result<(), String> {
         // streamed to disk, not read whole: a video can be gigabytes
         let out = std::fs::File::create(&file).map_err(|e| e.to_string())?;
@@ -965,13 +997,20 @@ fn open_version(repo: String, at: String, path: String) -> Result<(), String> {
     };
     // no half copy left behind under the real name
     copy().inspect_err(|_| drop(std::fs::remove_file(&file)))?;
-    xdg_open(&file)
+    desktop_open(&file)
 }
 
 /// \brief Hand `target` to the desktop's default app, saying so when none takes its type.
-fn xdg_open(target: &Path) -> Result<(), String> {
-    let mut child = Command::new("xdg-open").arg(target).spawn().map_err(|e| e.to_string())?;
-    // a type with no app fails at once; xdg-open may also wait on the app it started, so a second of quiet means it runs
+fn desktop_open(target: &Path) -> Result<(), String> {
+    // git's paths use /, which explorer misreads
+    let target: PathBuf = target.components().collect();
+    let mut child = command(opener()).arg(&target).spawn().map_err(|e| e.to_string())?;
+    // explorer exits 1 whatever happens, and its own dialog says when no app takes the type
+    if cfg!(windows) {
+        reap(child);
+        return Ok(());
+    }
+    // a type with no app fails at once; the opener may also wait on the app it started, so a second of quiet means it runs
     for _ in 0..20 {
         if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
             let name = target.file_name().unwrap_or_default().to_string_lossy();
@@ -1045,7 +1084,7 @@ fn edit_remote(repo: String, name: String, new_name: String, fetch: String, push
 #[tauri::command(async)]
 fn open_default(repo: String, path: String, folder: bool) -> Result<(), String> {
     let p = existing_path(&repo, &path)?;
-    xdg_open(if folder { p.parent().unwrap_or(&p) } else { &p })
+    desktop_open(if folder { p.parent().unwrap_or(&p) } else { &p })
 }
 
 /// \brief Delete `path` from the work tree.
@@ -1114,8 +1153,16 @@ fn open_in_editor(repo: String, path: String, line: u32, editor: String) -> Resu
     // split before filling in: a path with spaces stays one argument
     let mut words = editor.split_whitespace().map(|w| w.replace("{file}", &file).replace("{line}", &line.to_string()));
     let child = match words.next() {
-        Some(cmd) => Command::new(cmd).args(words).spawn().or_else(|_| Command::new("xdg-open").arg(&p).spawn()),
-        None => Command::new("xdg-open").arg(&p).spawn(),
+        Some(cmd) => {
+            let args: Vec<String> = words.collect();
+            command(&cmd)
+                .args(&args)
+                .spawn()
+                // a script on Windows, as VS Code's `code` is: only .exe names are found bare
+                .or_else(|e| if cfg!(windows) { command(format!("{cmd}.cmd")).args(&args).spawn() } else { Err(e) })
+                .or_else(|_| command(opener()).arg(p.components().collect::<PathBuf>()).spawn())
+        }
+        None => command(opener()).arg(p.components().collect::<PathBuf>()).spawn(),
     };
     reap(child.map_err(|e| e.to_string())?);
     Ok(())
@@ -1145,8 +1192,8 @@ fn tool_status() -> Tools {
 
 fn tool_status_now() -> Tools {
     // out of any repository: only the user's and the system's config count
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
-    let run = |cmd: &str, args: &[&str]| Command::new(cmd).args(args).current_dir(&home).stdin(Stdio::null()).output().ok();
+    let home = home();
+    let run = |cmd: &str, args: &[&str]| command(cmd).args(args).current_dir(&home).stdin(Stdio::null()).output().ok();
     let first_line = |o: Option<std::process::Output>| o.filter(|o| o.status.success()).map_or(String::new(), |o| String::from_utf8_lossy(&o.stdout).lines().next().unwrap_or("").trim().to_string());
     let lfs = first_line(run("git", &["lfs", "version"]));
     // gh says it on stdout or stderr depending on its version, as "Logged in to <host> account <user>" or "... as <user>"
@@ -1179,7 +1226,7 @@ fn global_config() -> Vec<String> {
     GLOBAL_KEYS
         .iter()
         // included files count, and past the identity a yes/on/1 reads as true
-        .map(|k| Command::new("git").args(["config", "--global", "--includes", if k.starts_with("user.") { "--no-type" } else { "--type=bool" }, "--get", k]).stdin(Stdio::null()).output().map_or(String::new(), |o| String::from_utf8_lossy(&o.stdout).trim().to_string()))
+        .map(|k| command("git").args(["config", "--global", "--includes", if k.starts_with("user.") { "--no-type" } else { "--type=bool" }, "--get", k]).stdin(Stdio::null()).output().map_or(String::new(), |o| String::from_utf8_lossy(&o.stdout).trim().to_string()))
         .collect()
 }
 
@@ -1190,7 +1237,7 @@ fn set_global_config(key: String, value: String) -> Result<(), String> {
         return Err(format!("{key} is not a setting krill edits"));
     }
     let args = if value.is_empty() { vec!["config", "--global", "--unset", &key] } else { vec!["config", "--global", &key, not_option(&value)?] };
-    let out = Command::new("git").args(&args).stdin(Stdio::null()).output().map_err(|e| e.to_string())?;
+    let out = command("git").args(&args).stdin(Stdio::null()).output().map_err(|e| e.to_string())?;
     // 5: unsetting what was not set, nothing to do
     if out.status.success() || (value.is_empty() && out.status.code() == Some(5)) { Ok(()) } else { Err(output_text(&out)) }
 }
@@ -1602,13 +1649,37 @@ fn open_url(url: String) -> Result<(), String> {
     if !url.starts_with("https://") && !url.starts_with("http://") {
         return Err(format!("not a web link: {url}"));
     }
-    reap(Command::new("xdg-open").arg(&url).spawn().map_err(|e| e.to_string())?);
+    reap(command(opener()).arg(&url).spawn().map_err(|e| e.to_string())?);
     Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// \brief The login shell's PATH: started from the Finder, an app gets launchd's bare one, without Homebrew's git-lfs and gh.
+#[cfg(target_os = "macos")]
+fn login_path() {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    let Ok(out) = command(shell).args(["-l", "-c", "printf '\\n%s' \"$PATH\""]).stdin(Stdio::null()).output() else { return };
+    // its profile may print first: the last line is ours
+    if let Some(path) = String::from_utf8_lossy(&out.stdout).lines().last().filter(|p| out.status.success() && !p.is_empty()) {
+        // before any other thread starts
+        unsafe { std::env::set_var("PATH", path) };
+    }
+}
+
+/// \brief macOS's menu bar, its default one minus Close Window and Undo: their Cmd+W and Cmd+Z would beat krill's own (close the tab, undo in git).
+#[cfg(target_os = "macos")]
+fn mac_menu(h: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{Menu, PredefinedMenuItem as Item, Submenu};
+    let app = Submenu::with_items(h, "Git Krill", true, &[&Item::about(h, None, None)?, &Item::separator(h)?, &Item::hide(h, None)?, &Item::quit(h, None)?])?;
+    // a text field copies and pastes only through these
+    let edit = Submenu::with_items(h, "Edit", true, &[&Item::cut(h, None)?, &Item::copy(h, None)?, &Item::paste(h, None)?, &Item::select_all(h, None)?])?;
+    Menu::with_items(h, &[&app, &edit])
+}
+
 pub fn run() {
     askpass::helper();
+    #[cfg(target_os = "macos")]
+    login_path();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
@@ -1618,6 +1689,8 @@ pub fn run() {
             if let Err(e) = askpass::start(app.handle()) {
                 eprintln!("no passphrase prompts: {e}");
             }
+            #[cfg(target_os = "macos")]
+            app.set_menu(mac_menu(app.handle())?)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1627,9 +1700,5 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
-        .run(|_, event| {
-            if let tauri::RunEvent::Exit = event {
-                askpass::stop();
-            }
-        });
+        .run(|_, _| {});
 }

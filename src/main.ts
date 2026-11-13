@@ -4,7 +4,7 @@ import "@xterm/xterm/css/xterm.css";
 import { Mode, closeDiff, closeHistory, closeMerge, diffEditor, diffFile, editor, goConflict, hist, histEd, histView, loadMerge, loadMonaco, merging, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setMode, setSvgView, showRev, warmDiff } from "./diff";
 import { rebaseKey } from "./rebase";
 import { SORTS, amending, commit, conflictCount, emptyStep, fileLists, filterFiles, foldAll, getMsg, openFile, paintFileOpts, renderCommitBtn, renderPanel, setMsg } from "./panel";
-import { $, ask, closeDialog, hideBanner, input, onCtrlEnter, pickDir, popup, say, store } from "./ui";
+import { $, ask, closeDialog, hideBanner, input, mod, onCtrlEnter, pickDir, popup, say, store } from "./ui";
 import { closeFind, drawRows, findStep, findTyped, stepBack, openFind, paintSelection, showRow, shown } from "./graph";
 import { Change, active, addTab, autoFetch, cloneDialog, closeTab, fetchMinutes, gitOp, opInfo, newTabMenu, openInEditor, openPicked, openRepo, openSettings, paintPull, pull, pullMenu, push, refresh, renderTabHits, reopenTab, repo, restoreTabs, run, selection, switchTab, tabs, undoRedo } from "./repo";
 import { terms, toggleTerm } from "./terminal";
@@ -220,10 +220,10 @@ addEventListener("keydown", (e) => {
   // the rebase plan's keys, unless a dialog, a menu, a diff over it or a field has them
   else if ($("dialog").hidden && $("menu").hidden && $("diff").hidden && !(e.target as HTMLElement).closest?.("select, input, textarea") && rebaseKey(e)) e.preventDefault();
   else if (e.key === "F5") (e.preventDefault(), refresh());
-  else if (e.ctrlKey && e.shiftKey && key === "t") (e.preventDefault(), asking || reopenTab());
-  else if (e.ctrlKey && key === "t") (e.preventDefault(), asking || addTab());
-  else if (e.ctrlKey && key === "o") (e.preventDefault(), asking || openPicked());
-  else if (e.ctrlKey && key === "w") (e.preventDefault(), asking || closeTab(active));
+  else if (mod(e) && e.shiftKey && key === "t") (e.preventDefault(), asking || reopenTab());
+  else if (mod(e) && key === "t") (e.preventDefault(), asking || addTab());
+  else if (mod(e) && key === "o") (e.preventDefault(), asking || openPicked());
+  else if (mod(e) && key === "w") (e.preventDefault(), asking || closeTab(active));
   // fields and buttons answer Enter themselves: elsewhere in a dialog it means its main action
   else if (e.key === "Enter" && !$("dialog").hidden && !(e.target as HTMLElement).closest?.("input, textarea, button, select"))
     (e.preventDefault(), $("dialog").querySelector<HTMLElement>("button.primary")?.click());
@@ -239,10 +239,10 @@ addEventListener("keydown", (e) => {
     // nothing left open: the graph itself steps back out of a worktree or a submodule
     else if (tabs[active].parent && !(e.target as HTMLElement).closest?.("input, textarea")) stepBack();
   } else if ((e.target as HTMLElement).closest?.("input:not([type=checkbox]), textarea, #diff-editor, #merge, #hist-file") || !repo) return;
-  else if (e.ctrlKey && key === "f") (e.preventDefault(), openFind());
-  else if (e.ctrlKey && key === "z") (e.preventDefault(), undoRedo(!e.shiftKey));
-  else if (e.ctrlKey && key === "y") (e.preventDefault(), undoRedo(false));
-  else if (e.key.startsWith("Arrow") && !e.ctrlKey && !e.altKey && !e.shiftKey) (e.preventDefault(), arrow(e.key));
+  else if (mod(e) && key === "f") (e.preventDefault(), openFind());
+  else if (mod(e) && key === "z") (e.preventDefault(), undoRedo(!e.shiftKey));
+  else if (mod(e) && key === "y") (e.preventDefault(), undoRedo(false));
+  else if (e.key.startsWith("Arrow") && !mod(e) && !e.altKey && !e.shiftKey) (e.preventDefault(), arrow(e.key));
 });
 
 // Monaco and its diff worker warmed up under the splash: a cold first diff took ~0.5 s, and a file opened during the warm-up drew wrong

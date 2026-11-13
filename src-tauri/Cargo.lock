@@ -1653,6 +1653,7 @@ dependencies = [
 name = "krill"
 version = "0.2.0"
 dependencies = [
+ "getrandom 0.3.4",
  "libc",
  "portable-pty",
  "serde",
