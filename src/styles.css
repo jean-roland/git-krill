@@ -595,6 +595,7 @@ textarea.msg-in { height: 104px; resize: vertical; }
 #diff-path { font: 12px var(--mono); margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bar button { flex: none; white-space: nowrap; }
 #diff-path { min-width: 40px; }
+.lfs { flex: none; margin-left: 8px; padding: 0 4px; border: 1px solid var(--accent); border-radius: 3px; color: var(--accent); font: 10px/14px var(--mono); }
 #hist-path { min-width: 0; font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .seg { display: inline-flex; }
 .seg button { border-radius: 0; margin-left: -1px; }

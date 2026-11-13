@@ -3,7 +3,7 @@ import type * as Monaco from "monaco-editor/esm/vs/editor/edcore.main";
 import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import { applyChanges, allLines, pickLines, parseConflicts, mergeSides, pickedLines, parseBlame, toggleSide, toggleLine, hasSide, pickedOf } from "./core.js";
 import { Blob, Change, Commit, active, fakeCommit, gitOp, headHash, opInfo, recordUndo, refresh, run, status, tabs } from "./repo";
-import { $, COLORS, ICONS, MenuItem, ask, avatar, avatarSvg, basename, colorIndex, copy, cssVar, dateFmt, dayFmt, esc, h, hideBanner, input, megabytes, plural, popup, say, short, showBanner, store, svg, toast, whileLoading } from "./ui";
+import { $, COLORS, ICONS, MenuItem, ask, avatar, avatarSvg, basename, colorIndex, copy, cssVar, dateFmt, dayFmt, esc, h, hideBanner, input, lfsChip, megabytes, plural, popup, say, short, showBanner, store, svg, toast, whileLoading } from "./ui";
 import { fileLists, isConflict, isSubmodule, markOpenFile, wipFiles } from "./panel";
 import { openSubmodule } from "./graph";
 
@@ -302,7 +302,7 @@ function fitHunkBars() {
 }
 
 async function fetchSides(kind: DiffSource, f: Change, c?: Commit, full = false): Promise<[Blob, Blob]> {
-  const none: Blob = { text: "", exists: false, binary: false, large: null };
+  const none: Blob = { text: "", exists: false, binary: false, large: null, lfs: "" };
   const blob = (at: string, path: string) => (at ? run<Blob>("blob", { at, path, full }) : Promise.resolve(none));
   const old = f.old ?? f.path;
   if (kind === "unstaged") return Promise.all([blob("INDEX", f.path), blob("WORKTREE", f.path)]);
@@ -327,7 +327,7 @@ export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistor
     if (isSubmodule(f.path)) {
       const [from, to] = kind === "unstaged" ? ["INDEX", "WORKTREE"] : kind === "staged" ? ["HEAD", "INDEX"] : [c!.parents[0] ?? "", c!.hash];
       sub = await run<SubmoduleChange>("submodule_change", { path: f.path, from, to });
-      orig = mod = { text: "", exists: false, binary: false, large: null };
+      orig = mod = { text: "", exists: false, binary: false, large: null, lfs: "" };
     } else [orig, mod] = await fetchSides(kind, f, c);
   } catch (e) {
     return say(String(e), true);
@@ -341,7 +341,7 @@ export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistor
   $("diff").hidden = false;
   document.body.classList.add("diffing");
   const range = c ? `  ·  ${c.parents[0] ? short(c.parents[0]) : "root"}..${short(c.hash)}` : "";
-  $("diff-path").textContent = (f.old ? `${f.old} → ${f.path}` : f.path) + range;
+  $("diff-path").replaceChildren((f.old ? `${f.old} → ${f.path}` : f.path) + range, ...(orig.lfs || mod.lfs ? [lfsChip()] : []));
   paintOpenEditor();
   markOpenFile();
   // Monaco normalizes line endings, so a CRLF<->LF rewrite would not show at all
@@ -380,9 +380,11 @@ function paintSides() {
   $("diff-binary").replaceChildren(
     ...(sub
       ? submoduleCard(f.path, sub)
-      : binary
-        ? ["Binary or non-UTF-8 file: whole-file actions only."]
-        : [`${basename(f.path)} is ${megabytes(large)}: too big to show, whole-file actions only.`, forceLoadButton(large)]),
+      : orig.lfs === "missing" || mod.lfs === "missing"
+        ? [`${basename(f.path)} is stored with Git LFS and this version is not downloaded: whole-file actions only.`]
+        : binary
+          ? ["Binary or non-UTF-8 file: whole-file actions only."]
+          : [`${basename(f.path)} is ${megabytes(large)}: too big to show, whole-file actions only.`, forceLoadButton(large)]),
   );
   $("diff-save").hidden = true;
   applyMode();
@@ -873,7 +875,7 @@ function conflictBanner(f: Change) {
             ? [`${f.path} was added on ${cur} only.`, [["Keep the file", "take-current"], ["Delete the file", "take-incoming"]]]
             : f.conflict === "UA"
               ? [`${f.path} was added on ${inc} only.`, [["Keep the file", "take-incoming"], ["Delete the file", "take-current"]]]
-              : [`${f.path} cannot be merged line by line (binary, not UTF-8 or over 10 MB).`, [[`Take current (${cur})`, "take-current"], [`Take incoming (${inc})`, "take-incoming"]]];
+              : [`${f.path} cannot be merged line by line (${f.lfs ? "stored with Git LFS" : "binary, not UTF-8 or over 10 MB"}).`, [[`Take current (${cur})`, "take-current"], [`Take incoming (${inc})`, "take-incoming"]]];
   showBanner(h("span", { textContent: text }), ...choices.map(([label, o]) => h("button", { textContent: label, onclick: () => (hideBanner(), gitOp(o, f.path)) })));
 }
 
@@ -950,7 +952,7 @@ export async function showRev(i: number) {
   if (hist !== m || m.at !== i || !blob) return;
   m.blame = [];
   const ed = historyEditor(), view = ed.saveViewState(), old = ed.getModel();
-  const text = blob.binary ? "Binary or non-UTF-8 file" : blob.large ? `${megabytes(blob.large)}: too big to show here, the Diff view can load it` : blob.exists ? blob.text : `Deleted in ${short(c.hash)}`;
+  const text = blob.lfs === "missing" ? "Stored with Git LFS, this version is not downloaded" : blob.binary ? "Binary or non-UTF-8 file" : blob.large ? `${megabytes(blob.large)}: too big to show here, the Diff view can load it` : blob.exists ? blob.text : `Deleted in ${short(c.hash)}`;
   ed.setModel(newModel(text, `h/${f.path}`));
   old?.dispose();
   // another version of the same file: stay around the same lines

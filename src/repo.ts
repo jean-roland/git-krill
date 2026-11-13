@@ -9,7 +9,8 @@ import { conflictCount, getMsg, renderPanel, setMsg } from "./panel";
 import { stepBack, paintWipRow, renderGraph, renderSide, resetGraph } from "./graph";
 import { dropTerm, showTerm } from "./terminal";
 
-export type Change = { path: string; old: string | null; code: string; conflict?: string };
+// lfs: git-lfs stores it
+export type Change = { path: string; old: string | null; code: string; conflict?: string; lfs?: boolean };
 type OpInfo = { state: string; current: string; incoming: string; currentCommit: string; incomingCommit: string; step: string; message: string };
 export type Commit = { hash: string; parents: string[]; author: string; time: number; refs: string[]; subject: string; body: string };
 export type Status = { branch: string; state: string; ahead: number | null; behind: number | null; staged: Change[]; unstaged: Change[] };
@@ -18,9 +19,10 @@ export type Stash = { name: string; hash: string; parents: string[]; subject: st
 export type Worktree = { path: string; head: string; branch: string; locked: boolean; prunable: boolean };
 // head: the commit checked out in it, empty when not initialized
 export type Submodule = { name: string; path: string; url: string; recorded: string; head: string; modified: boolean; untracked: boolean; ahead: number | null; behind: number | null };
-type Refs = { refs: Ref[]; stashes: Stash[]; remotes: string[]; worktrees: Worktree[]; submodules: Submodule[]; superproject: string; repoTop: string };
+type Refs = { refs: Ref[]; stashes: Stash[]; remotes: string[]; worktrees: Worktree[]; submodules: Submodule[]; superproject: string; repoTop: string; lfs: boolean };
 // large: too big to load unasked, its size in bytes
-export type Blob = { text: string; exists: boolean; binary: boolean; large: number | null };
+// lfs: a git-lfs pointer in git, "here" when its object was read instead, "missing" when it is not downloaded
+export type Blob = { text: string; exists: boolean; binary: boolean; large: number | null; lfs: "" | "here" | "missing" };
 // file: a discard, the work tree text before and after (null: no file)
 type UndoStep = { op: string; branch: [string, string]; head: [string, string]; file?: [string, string | null, string | null] };
 // limit: how many commits the graph loads, raised by "Load more"
@@ -48,6 +50,7 @@ const DONE: Record<string, (arg: string, arg2: string, branch: string, upstream:
   "worktree-remove": (path) => `Removed worktree ${basename(path)}`,
   "worktree-force-remove": (path) => `Removed worktree ${basename(path)}`,
   "worktree-prune": () => "Pruned the worktrees whose folder is gone",
+  "lfs-pull": () => "Pulled the LFS files",
 };
 // what may change the remotes' tags, or the list of them
 const NET_OPS = new Set(["fetch", "fetch-remote", "pull", "push", "push-upstream", "tag-push", "push-delete", "tag-rename"]);
@@ -59,7 +62,7 @@ export let active = 0;
 export let repo = "";
 export let commits: Commit[] = [];
 export let status: Status | null = null;
-export let refs: Refs = { refs: [], stashes: [], remotes: [], worktrees: [], submodules: [], superproject: "", repoTop: "" };
+export let refs: Refs = { refs: [], stashes: [], remotes: [], worktrees: [], submodules: [], superproject: "", repoTop: "", lfs: false };
 // the picked graph rows ("WIP" or hashes), where a Shift range starts, whether it is one, or the stash shown instead
 export const selection = { hashes: ["WIP"], anchor: "", isRange: false, stash: null as Stash | null };
 // the merge, rebase... in progress, and the step whose message the commit box holds
@@ -154,7 +157,11 @@ export function pullMenu(e: MouseEvent) {
   e.stopPropagation();
   const mode = store("pull-mode") ?? "", r = (e.currentTarget as HTMLElement).getBoundingClientRect();
   showMenu(
-    Object.entries(PULLS).map(([k, label]): MenuItem => [`Pull, ${label}${k === mode ? "  ✓" : ""}`, () => (store("pull-mode", k), paintPull(), pull())]),
+    [
+      ...Object.entries(PULLS).map(([k, label]): MenuItem => [`Pull, ${label}${k === mode ? "  ✓" : ""}`, () => (store("pull-mode", k), paintPull(), pull())]),
+      // the files a clone or checkout left as pointers
+      ...(refs.lfs ? [null, ["Pull LFS files", () => gitOp("lfs-pull")] as MenuItem] : []),
+    ],
     r.left,
     r.bottom,
   );

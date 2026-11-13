@@ -1,6 +1,6 @@
 // The right panel: work in progress or a commit's details, the file lists, the commit box.
 import { Change, Commit, commits, fakeCommit, gitOp, headHash, isHead, opInfo, refresh, refs, repo, run, runFixed, selection, status } from "./repo";
-import { $, ICONS, MenuItem, ask, avatar, basename, copy, dateFmt, h, ico, input, onCtrlEnter, label, plural, popup, say, shaLink, short, store, svg } from "./ui";
+import { $, ICONS, MenuItem, ask, avatar, basename, copy, dateFmt, h, ico, input, lfsChip, onCtrlEnter, label, plural, popup, say, shaLink, short, store, svg } from "./ui";
 import { DiffSource, confirmDiscard, diffFile, merging, openDiff, openHistory } from "./diff";
 import { discardSubmodule, jumpTo, linkRemote, openSubmodule, webUrl } from "./graph";
 import { planOpen } from "./rebase";
@@ -114,6 +114,7 @@ function fileList(
       // a submodule is no file: its own icon, in the colour of its change
       h("span", { className: `code code-${code}`, innerHTML: code ? svg(isSubmodule(f.path) ? ICONS.submodule : ICONS[code]) : "", title: f.code }),
       h("span", { className: "path" }, h("span", { className: "dir", textContent: dir }), h("span", { className: "name", textContent: f.path.slice(slash) })),
+      ...(f.lfs ? [lfsChip()] : []),
       ...actions.filter(([, , when]) => !when || when(f)).map(([label, fn]) => h("button", { textContent: label, onclick: (e: Event) => (e.stopPropagation(), fn(f)) })),
     );
     row.dataset.path = f.path;

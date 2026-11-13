@@ -2,6 +2,7 @@ mod askpass;
 mod pty;
 
 use serde::Serialize;
+use std::collections::HashSet;
 use std::io::{Read, Write};
 use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
@@ -27,6 +28,9 @@ struct Change {
     // an unmerged path's two-letter status: UU, AA, DU...
     #[serde(skip_serializing_if = "Option::is_none")]
     conflict: Option<String>,
+    // git-lfs stores it
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    lfs: bool,
 }
 
 #[derive(Serialize)]
@@ -120,6 +124,8 @@ struct Refs {
     superproject: String,
     // the repo tool's top folder when this is one of its checkouts, else empty
     repo_top: String,
+    // git-lfs has run here
+    lfs: bool,
 }
 
 #[derive(Serialize)]
@@ -129,6 +135,8 @@ struct Blob {
     binary: bool,
     // too big to load unasked: its size in bytes
     large: Option<u64>,
+    // a git-lfs pointer in git: "here" when its object was read instead, "missing" when it is not downloaded
+    lfs: &'static str,
 }
 
 /// \brief A git command in `repo`; with `ask`, ssh and https prompts reach krill's dialog, without they fail at once and say so.
@@ -329,7 +337,8 @@ fn refs(repo: String) -> Result<Refs, String> {
         (main.path, repo_top) = main_folder(&main.path);
     }
     let superproject = git(&repo, &["rev-parse", "--show-superproject-working-tree"])?.trim().to_string();
-    Ok(Refs { refs, stashes, remotes, worktrees, submodules: submodules(&repo)?, superproject, repo_top })
+    let lfs = lfs_dir(&repo).is_ok_and(|d| d.is_dir());
+    Ok(Refs { refs, stashes, remotes, worktrees, submodules: submodules(&repo)?, superproject, repo_top, lfs })
 }
 
 /// \brief The main worktree's folder from what `git worktree list` names, and the repo tool's top folder when it is one of its checkouts.
@@ -460,18 +469,19 @@ fn status(repo: String) -> Result<Status, String> {
         let (x, y, path) = (&e[0..1], &e[1..2], e[3..].to_string());
         let old = if x == "R" || x == "C" { entries.next().map(String::from) } else { None };
         if matches!(&e[0..2], "DD" | "AU" | "UD" | "UA" | "DU" | "AA" | "UU") {
-            unstaged.push(Change { path, old: None, code: "U".into(), conflict: Some(e[0..2].to_string()) });
+            unstaged.push(Change { path, old: None, code: "U".into(), conflict: Some(e[0..2].to_string()), lfs: false });
         } else if x == "?" {
-            unstaged.push(Change { path, old: None, code: "?".into(), conflict: None });
+            unstaged.push(Change { path, old: None, code: "?".into(), conflict: None, lfs: false });
         } else {
             if y != " " {
-                unstaged.push(Change { path: path.clone(), old: None, code: y.into(), conflict: None });
+                unstaged.push(Change { path: path.clone(), old: None, code: y.into(), conflict: None, lfs: false });
             }
             if x != " " {
-                staged.push(Change { path, old, code: x.into(), conflict: None });
+                staged.push(Change { path, old, code: x.into(), conflict: None, lfs: false });
             }
         }
     }
+    mark_lfs(&repo, None, staged.iter_mut().chain(unstaged.iter_mut()));
     let counts = git(&repo, &["rev-list", "--left-right", "--count", "@{u}...HEAD"]).ok();
     let mut counts = counts.iter().flat_map(|c| c.split_whitespace()).filter_map(|n| n.parse().ok());
     Ok(Status {
@@ -539,6 +549,10 @@ fn conflict_text(repo: String, path: String) -> Result<Blob, String> {
     let (Some(cur), Some(inc)) = (oid("2"), oid("3")) else {
         return Err(format!("{path}: one side has no version of it"));
     };
+    // two git-lfs pointers do not merge line by line: one side is taken whole
+    if git(&repo, &["check-attr", "filter", "--", &path])?.trim_end().ends_with(": lfs") {
+        return Ok(BINARY);
+    }
     // added on both sides: merged against an empty base
     let base = match oid("1") {
         Some(b) => b,
@@ -570,12 +584,33 @@ fn commit_info(repo: String, hash: String, parent: String) -> Result<CommitInfo,
         let first = f.next().unwrap_or_default().to_string();
         if code == "R" || code == "C" {
             let path = f.next().unwrap_or_default().to_string();
-            files.push(Change { path, old: Some(first), code: code.into(), conflict: None });
+            files.push(Change { path, old: Some(first), code: code.into(), conflict: None, lfs: false });
         } else {
-            files.push(Change { path: first, old: None, code: code.into(), conflict: None });
+            files.push(Change { path: first, old: None, code: code.into(), conflict: None, lfs: false });
         }
     }
+    mark_lfs(&repo, Some(&hash), files.iter_mut());
     Ok(CommitInfo { message: message.trim_end().to_string(), email: email.to_string(), sign: sign.to_string(), files })
+}
+
+/// \brief Flag the changes git-lfs stores, by their filter attribute at commit `at`, else in the worktree.
+fn mark_lfs<'a>(repo: &str, at: Option<&str>, changes: impl Iterator<Item = &'a mut Change>) {
+    let mut changes: Vec<_> = changes.collect();
+    if changes.is_empty() {
+        return;
+    }
+    let paths = changes.iter().map(|c| c.path.as_str()).collect::<Vec<_>>().join("\0");
+    let mut args = vec!["check-attr", "-z", "--stdin", "filter"];
+    if let Some(at) = at {
+        args.splice(1..1, ["--source", at]);
+    }
+    let Ok(out) = git_bytes(repo, &args, Some(paths.as_bytes())) else { return };
+    // path, attribute, value, each NUL-ended
+    let fields: Vec<&[u8]> = out.split(|&b| b == 0).collect();
+    let lfs: HashSet<&[u8]> = fields.chunks(3).filter(|f| f.len() == 3 && f[2] == b"lfs").map(|f| f[0]).collect();
+    for c in &mut changes {
+        c.lfs = lfs.contains(c.path.as_bytes());
+    }
 }
 
 /// \brief The commits that touched `path` from `revs`, across renames, each with the file's name there.
@@ -602,7 +637,7 @@ fn file_log(repo: String, revs: Vec<String>, path: String) -> Result<Vec<(Commit
                 name = p.to_string();
             }
             let commit = Commit { subject: f[4].to_string(), ..commit_of(&f) };
-            let change = Change { path: name.clone(), old: old.clone(), code: code.get(0..1).unwrap_or("M").into(), conflict: None };
+            let change = Change { path: name.clone(), old: old.clone(), code: code.get(0..1).unwrap_or("M").into(), conflict: None, lfs: false };
             // the name before a rename holds for the older commits
             if let Some(o) = old {
                 name = o;
@@ -679,16 +714,16 @@ fn stop_blame() {
 const MAX_TEXT: usize = 10 << 20;
 // asked or not, past this it does not load: a bigger answer never reaches the window (it stalls past ~256 MB)
 const MAX_ASKED: usize = 200 << 20;
-const BINARY: Blob = Blob { text: String::new(), exists: true, binary: true, large: None };
-const MISSING: Blob = Blob { text: String::new(), exists: false, binary: false, large: None };
+const BINARY: Blob = Blob { text: String::new(), exists: true, binary: true, large: None, lfs: "" };
+const MISSING: Blob = Blob { text: String::new(), exists: false, binary: false, large: None, lfs: "" };
 const fn large(size: u64) -> Blob {
-    Blob { text: String::new(), exists: true, binary: false, large: Some(size) }
+    Blob { text: String::new(), exists: true, binary: false, large: Some(size), lfs: "" }
 }
 
 /// \brief A file's bytes as text; non-UTF-8 counts as binary: a lossy round trip would corrupt it on save/stage.
 fn blob_of(bytes: Vec<u8>) -> Blob {
     match String::from_utf8(bytes) {
-        Ok(text) if !text.contains('\0') => Blob { text, exists: true, binary: false, large: None },
+        Ok(text) if !text.contains('\0') => Blob { text, exists: true, binary: false, large: None, lfs: "" },
         _ => BINARY,
     }
 }
@@ -708,7 +743,25 @@ fn git_blob(repo: &str, spec: &str, max: usize) -> Result<Blob, String> {
     if !tokio::task::block_in_place(|| child.wait()).map_err(|e| e.to_string())?.success() {
         return Ok(MISSING);
     }
-    Ok(blob_of(bytes))
+    match lfs_object(repo, &bytes) {
+        Some((_, size)) if size > max as u64 => Ok(Blob { lfs: "here", ..large(size) }),
+        Some((object, _)) => Ok(std::fs::read(object).map_or(Blob { lfs: "missing", ..BINARY }, |b| Blob { lfs: "here", ..blob_of(b) })),
+        None => Ok(blob_of(bytes)),
+    }
+}
+
+/// \brief The local object and size a git-lfs pointer stands for; None when `bytes` is no pointer.
+fn lfs_object(repo: &str, bytes: &[u8]) -> Option<(PathBuf, u64)> {
+    // the spec caps a pointer at 1024 bytes
+    let text = std::str::from_utf8(bytes.get(..bytes.len().min(1024))?).ok()?.strip_prefix("version https://git-lfs.github.com/spec/v1\n")?;
+    let oid = text.lines().find_map(|l| l.strip_prefix("oid sha256:")).filter(|o| o.len() == 64 && o.bytes().all(|b| b.is_ascii_hexdigit()))?;
+    let size = text.lines().find_map(|l| l.strip_prefix("size "))?.parse().ok()?;
+    Some((lfs_dir(repo).ok()?.join("objects").join(&oid[..2]).join(&oid[2..4]).join(oid), size))
+}
+
+/// \brief git-lfs's folder, which every worktree of the repository shares.
+fn lfs_dir(repo: &str) -> Result<PathBuf, String> {
+    Ok(PathBuf::from(git(repo, &["rev-parse", "--path-format=absolute", "--git-common-dir"])?.trim()).join("lfs"))
 }
 
 /// \brief File content `at` a commit, "INDEX" or "WORKTREE"; past MAX_TEXT bytes only its size, unless `full`.
@@ -742,7 +795,8 @@ fn write_file(repo: String, path: String, text: String) -> Result<(), String> {
 fn stage_text(repo: String, path: String, text: String) -> Result<(), String> {
     let ls = git(&repo, &["ls-files", "-s", "--", &path])?;
     let mode = ls.split(' ').next().filter(|m| !m.is_empty()).unwrap_or("100644");
-    let sha = git_bytes(&repo, &["hash-object", "-w", "--stdin"], Some(text.as_bytes()))?;
+    // --path runs the file's filters, as git add would: git-lfs stores the object and stages its pointer
+    let sha = git_bytes(&repo, &["hash-object", "-w", "--stdin", "--path", &path], Some(text.as_bytes()))?;
     let sha = String::from_utf8_lossy(&sha).trim().to_string();
     git(&repo, &["update-index", "--add", "--cacheinfo", &format!("{mode},{sha},{path}")]).map(|_| ())
 }
@@ -1165,6 +1219,8 @@ fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
             _ => vec!["pull", "--no-rebase"],
         },
         "push" => vec!["push"],
+        // git-lfs globs its own pathspecs: under literal ones it fetches nothing, and still succeeds
+        "lfs-pull" => vec!["--no-literal-pathspecs", "lfs", "pull"],
         "stash-push" => vec!["stash", "push", "-u"],
         "stage" => vec!["add", "-A", "--", &arg],
         "unstage" => vec!["reset", "-q", "--", &arg],

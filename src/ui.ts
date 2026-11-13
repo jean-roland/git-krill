@@ -151,6 +151,8 @@ export function say(msg: string, err = false) {
 export const svg = (d: string) => `<svg viewBox="0 0 24 24"><path d="${d}"/></svg>`;
 /** Set a button's icon and text. */
 export const label = (b: HTMLElement, d: string, text: string) => ((b.innerHTML = svg(d)), b.append(text));
+/** A chip marking a file git-lfs stores. */
+export const lfsChip = () => h("small", { className: "lfs", textContent: "LFS", title: "Stored with Git LFS" });
 
 /** A next step for the failures with a known cause. */
 export function hint(msg: string) {
