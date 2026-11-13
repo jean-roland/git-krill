@@ -241,8 +241,11 @@ function applyMode() {
   setOptions({ renderSideBySide: m === "split", hideUnchangedRegions: { enabled: m === "hunk" } });
   updateHunkBars();
   document.querySelectorAll<HTMLElement>("[data-mode]").forEach((b) => b.classList.toggle("on", b.dataset.mode === m));
+  // a diff's images: both in Split, else only the new one
+  $("diff-binary").classList.toggle("single", m !== "split");
   const hunk = document.querySelector<HTMLElement>('[data-mode="hunk"]')!;
-  hunk.classList.toggle("off", full);
+  // on top of paintSides' dimming, which clears it for a text diff
+  if (full) hunk.classList.add("off");
   // Monaco cannot fold a file that big
   hunk.title = full ? "Can't show hunks for files over 10 MB" : "Changed hunks only";
 }
@@ -317,13 +320,18 @@ function fitHunkBars() {
   editor().getContainerDomNode().querySelectorAll<HTMLElement>(".hunk-bar").forEach((b) => (b.style.width = `${lay.contentWidth - lay.verticalScrollbarWidth}px`));
 }
 
+/** Where a diff's old and new sides are read: [at, path], at empty for a root commit's old side. */
+function sideSources(kind: DiffSource, f: Change, c?: Commit): [string, string][] {
+  const old = f.old ?? f.path;
+  if (kind === "unstaged") return [["INDEX", f.path], ["WORKTREE", f.path]];
+  if (kind === "staged") return [["HEAD", old], ["INDEX", f.path]];
+  return [[c!.parents[0] ?? "", old], [c!.hash, f.path]];
+}
+
 async function fetchSides(kind: DiffSource, f: Change, c?: Commit, full = false): Promise<[Blob, Blob]> {
   const none: Blob = { text: "", exists: false, binary: false, large: null, lfs: "" };
-  const blob = (at: string, path: string) => (at ? run<Blob>("blob", { at, path, full }) : Promise.resolve(none));
-  const old = f.old ?? f.path;
-  if (kind === "unstaged") return Promise.all([blob("INDEX", f.path), blob("WORKTREE", f.path)]);
-  if (kind === "staged") return Promise.all([blob("HEAD", old), blob("INDEX", f.path)]);
-  return Promise.all([blob(c!.parents[0] ?? "", old), blob(c!.hash, f.path)]);
+  const [o, m] = sideSources(kind, f, c).map(([at, path]) => (at ? run<Blob>("blob", { at, path, full }) : Promise.resolve(none)));
+  return Promise.all([o, m]);
 }
 
 /** Whether the open diff's and merge's unsaved edits may go, asking first; nothing closes yet. */
@@ -389,22 +397,35 @@ const MAX_ASKED = 200 << 20;
 
 /** The open diff's sides in the editor, or why not: binary, or too big to load unasked. */
 function paintSides() {
-  const { f, orig, mod, sub } = diffFile!;
+  const { kind, f, c, orig, mod, sub } = diffFile!;
   const binary = orig.binary || mod.binary, large = Math.max(orig.large ?? 0, mod.large ?? 0);
-  $("diff-editor").hidden = binary || !!large || !!sub;
-  $("diff-binary").hidden = !binary && !large && !sub;
+  const missing = orig.lfs === "missing" || mod.lfs === "missing";
+  const images = binary && !missing && (!large || large <= IMAGE_UNASKED) && IMAGE.test(f.path);
+  // the version a file opens in its app: the new one, the old when the file is gone
+  const shown = sideSources(kind, f, c)[mod.exists ? 1 : 0];
+  const pane = binary || !!large || !!sub || images;
+  $("diff-editor").hidden = pane;
+  $("diff-binary").hidden = !pane;
+  $("diff-binary").classList.toggle("images", images);
   $("diff-binary").replaceChildren(
     ...(sub
       ? submoduleCard(f.path, sub)
-      : orig.lfs === "missing" || mod.lfs === "missing"
+      : missing
         ? [`${basename(f.path)} is stored with Git LFS and this version is not downloaded: whole-file actions only.`]
-        : binary
-          ? ["Binary or non-UTF-8 file: whole-file actions only."]
-          : [`${basename(f.path)} is ${megabytes(large)}: too big to show, whole-file actions only.`, forceLoadButton(large)]),
+        : images
+          ? [imageSides()]
+          : binary && large && IMAGE.test(f.path)
+            ? [`${basename(f.path)} is ${megabytes(large)}: too big to show unasked.`, forceLoadButton(large), openButton(...shown)]
+            : binary
+              ? [`Binary or non-UTF-8 file${large ? `, ${megabytes(large)}` : ""}: whole-file actions only.`, openButton(...shown)]
+              : [`${basename(f.path)} is ${megabytes(large)}: too big to show, whole-file actions only.`, forceLoadButton(large), openButton(...shown)]),
   );
   $("diff-save").hidden = true;
+  // no text diff: its view and change buttons have nothing to act on, but images still lay out by view
+  dimDiffOpts(pane && !images);
+  if (images) [$("prev-change"), $("next-change")].forEach((b) => b.classList.add("off"));
   applyMode();
-  if (binary || large || sub) return Promise.resolve();
+  if (pane) return Promise.resolve();
   // Monaco gives up on a diff after 5 s and marks the whole file changed: a file loaded on request gets the time it takes
   setOptions({ maxComputationTime: diffFile!.full ? 0 : 5000 });
   setModels(false);
@@ -426,6 +447,42 @@ function submoduleCard(path: string, s: SubmoduleChange) {
     ...(dirty ? [h("p", { textContent: `Uncommitted in the submodule: ${dirty}. Open it to commit them.` })] : []),
     ...(s.initialized ? [h("button", { className: "sub-open", innerHTML: `${svg(ICONS.submodule)}Open submodule`, onclick: () => openSubmodule(path) })] : []),
   ];
+}
+
+// shown in krill; other binary files open in their own app
+const IMAGE = /\.(png|jpe?g|gif|webp|bmp|ico|avif)$/i;
+// raw bytes the window decodes itself, far cheaper than text in the editor: shown unasked up to this
+const IMAGE_UNASKED = 50 << 20;
+
+const sideName = (at: string) => (at === "WORKTREE" ? "Working tree" : at === "INDEX" ? "Staged" : at === "HEAD" ? "HEAD" : short(at));
+const bytesText = (n: number) => (n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 1024).toFixed(1)} KB` : megabytes(n));
+
+/** The open image's old and new versions, each as big as fits. */
+function imageSides() {
+  const { kind, f, c, orig, mod } = diffFile!;
+  const sides = sideSources(kind, f, c).flatMap(([at, path], i) => ((i ? mod : orig).exists ? [imageSide(at, path, i ? "add" : "del")] : []));
+  return h("div", { className: "img-sides" }, ...sides);
+}
+
+/** One version of an image at its own size, captioned with its pixel and byte sizes once loaded. */
+function imageSide(at: string, path: string, cls = "") {
+  const img = h("img", { alt: "" }) as HTMLImageElement, caption = h("small", { textContent: sideName(at) });
+  run<ArrayBuffer>("file_bytes", { at, path }).then(
+    (bytes) => {
+      // Blob here is git's, from ./repo
+      const url = URL.createObjectURL(new globalThis.Blob([bytes]));
+      const pixels = () => (img.naturalWidth ? ` · ${img.naturalWidth}×${img.naturalHeight}` : "");
+      img.onload = () => (URL.revokeObjectURL(url), (caption.textContent = `${sideName(at)}${pixels()} · ${bytesText(bytes.byteLength)}`));
+      img.src = url;
+    },
+    (e) => (caption.textContent = String(e)),
+  );
+  return h("figure", { className: `img-side ${cls}` }, h("div", { className: "frame" }, img), caption);
+}
+
+/** Open version `at` of `path` in the desktop's app for its type. */
+function openButton(at: string, path: string) {
+  return h("button", { className: "open-default", innerHTML: `${svg(ICONS.external)}Open in default program`, onclick: () => (say(`Opening ${basename(path)}…`), run("open_version", { at, path }).catch((e) => say(String(e), true))) });
 }
 
 function forceLoadButton(bytes: number) {
@@ -977,6 +1034,14 @@ export async function showRev(i: number) {
   const blob = await run<Blob>("blob", { at: c.hash, path: f.path }).catch((e) => (say(String(e), true), null));
   if (hist !== m || m.at !== i || !blob) return;
   m.blame = [];
+  // an image shows as itself, in the diff's binary pane
+  if (IMAGE.test(f.path) && blob.binary && blob.lfs !== "missing") {
+    $("hist-file").hidden = true;
+    $("diff-binary").hidden = false;
+    $("diff-binary").classList.add("images");
+    $("diff-binary").replaceChildren(h("div", { className: "img-sides" }, imageSide(c.hash, f.path)));
+    return reveal();
+  }
   const ed = historyEditor(), view = ed.saveViewState(), old = ed.getModel();
   const text = blob.lfs === "missing" ? "Stored with Git LFS, this version is not downloaded" : blob.binary ? "Binary or non-UTF-8 file" : blob.large ? `${megabytes(blob.large)}: too big to show here, the Diff view can load it` : blob.exists ? blob.text : `Deleted in ${short(c.hash)}`;
   ed.setModel(newModel(text, `h/${f.path}`));

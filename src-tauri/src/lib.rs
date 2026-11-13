@@ -756,6 +756,20 @@ fn blob_of(bytes: Vec<u8>) -> Blob {
     }
 }
 
+/// \brief Whether a file's first bytes say binary, as git judges it: a NUL early on, or text that is not UTF-8.
+fn looks_binary(head: &[u8]) -> bool {
+    let head = &head[..head.len().min(8000)];
+    // a character cut at the end of the head is no proof
+    head.contains(&0) || std::str::from_utf8(head).is_err_and(|e| e.error_len().is_some())
+}
+
+/// \brief The first bytes of the file at `p`, empty when it cannot be read.
+fn file_head(p: &Path) -> Vec<u8> {
+    let mut head = Vec::new();
+    let _ = std::fs::File::open(p).map(|f| f.take(8000).read_to_end(&mut head));
+    head
+}
+
 /// \brief Blob `spec` (rev:path) read up to `max` bytes; past them, only its size.
 fn git_blob(repo: &str, spec: &str, max: usize) -> Result<Blob, String> {
     let mut child = git_command(repo, &["cat-file", "blob", spec], true).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(|e| e.to_string())?;
@@ -765,14 +779,14 @@ fn git_blob(repo: &str, spec: &str, max: usize) -> Result<Blob, String> {
     if bytes.len() > max {
         let _ = child.kill();
         let _ = child.wait();
-        return Ok(large(git(repo, &["cat-file", "-s", spec])?.trim().parse().unwrap_or(0)));
+        return Ok(Blob { binary: looks_binary(&bytes), ..large(git(repo, &["cat-file", "-s", spec])?.trim().parse().unwrap_or(0)) });
     }
     // no such file there: git says so and fails
     if !tokio::task::block_in_place(|| child.wait()).map_err(|e| e.to_string())?.success() {
         return Ok(MISSING);
     }
     match lfs_object(repo, &bytes) {
-        Some((_, size)) if size > max as u64 => Ok(Blob { lfs: "here", ..large(size) }),
+        Some((object, size)) if size > max as u64 => Ok(Blob { lfs: "here", binary: looks_binary(&file_head(&object)), ..large(size) }),
         Some((object, _)) => Ok(std::fs::read(object).map_or(Blob { lfs: "missing", ..BINARY }, |b| Blob { lfs: "here", ..blob_of(b) })),
         None => Ok(blob_of(bytes)),
     }
@@ -802,7 +816,7 @@ fn blob(repo: String, at: String, path: String, full: Option<bool>) -> Result<Bl
             match std::fs::symlink_metadata(&p) {
                 // git stores the link target, not what it points to
                 Ok(m) if m.file_type().is_symlink() => std::fs::read_link(&p).ok().map(|t| t.to_string_lossy().into_owned().into_bytes()),
-                Ok(m) if m.len() > max as u64 => return Ok(large(m.len())),
+                Ok(m) if m.len() > max as u64 => return Ok(Blob { binary: looks_binary(&file_head(&p)), ..large(m.len()) }),
                 Ok(_) => std::fs::read(&p).ok(),
                 Err(_) => None,
             }
@@ -811,6 +825,67 @@ fn blob(repo: String, at: String, path: String, full: Option<bool>) -> Result<Bl
         r => return git_blob(&repo, &format!("{}:{path}", not_option(r)?), max),
     };
     Ok(bytes.map_or(MISSING, blob_of))
+}
+
+/// \brief The bytes of `path` `at` a commit, "INDEX" or "WORKTREE", a git-lfs pointer swapped for its object.
+fn version_bytes(repo: &str, at: &str, path: &str) -> Result<Vec<u8>, String> {
+    let bytes = match at {
+        "WORKTREE" => return std::fs::read(work_path(repo, path)?).map_err(|e| e.to_string()),
+        "INDEX" => git_bytes(repo, &["cat-file", "blob", &format!(":{path}")], None)?,
+        r => git_bytes(repo, &["cat-file", "blob", &format!("{}:{path}", not_option(r)?)], None)?,
+    };
+    match lfs_object(repo, &bytes) {
+        Some((object, _)) => std::fs::read(object).map_err(|_| format!("{path} is stored with Git LFS and this version is not downloaded")),
+        None => Ok(bytes),
+    }
+}
+
+/// \brief A version of a file as raw bytes, for the window to show an image.
+#[tauri::command(async)]
+fn file_bytes(repo: String, at: String, path: String) -> Result<tauri::ipc::Response, String> {
+    version_bytes(&repo, &at, &path).map(tauri::ipc::Response::new)
+}
+
+/// \brief Open a version of `path` with the desktop's default app: the working tree file, else a copy in a temporary folder.
+#[tauri::command(async)]
+fn open_version(repo: String, at: String, path: String) -> Result<(), String> {
+    if at == "WORKTREE" {
+        return open_default(repo, path, false);
+    }
+    let spec = if at == "INDEX" { format!(":{path}") } else { format!("{}:{path}", not_option(&at)?) };
+    let dir = std::env::temp_dir().join("git-krill");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    // the version first, the name whole: the app is picked by its extension
+    let version: String = at.chars().filter(char::is_ascii_alphanumeric).take(8).collect();
+    let file = dir.join(format!("{version}-{}", Path::new(&path).file_name().ok_or(format!("bad path {path}"))?.to_string_lossy()));
+    // streamed to disk, not read whole: a video can be gigabytes
+    let out = std::fs::File::create(&file).map_err(|e| e.to_string())?;
+    let mut git = git_command(&repo, &["cat-file", "blob", &spec], false);
+    if !tokio::task::block_in_place(|| git.stdin(Stdio::null()).stdout(out).stderr(Stdio::null()).status()).map_err(|e| e.to_string())?.success() {
+        return Err(format!("{path} is not in {at}"));
+    }
+    // a git-lfs pointer is small: the object it stands for goes in its place
+    if std::fs::metadata(&file).map_or(0, |m| m.len()) <= 1024 {
+        if let Some((object, _)) = lfs_object(&repo, &std::fs::read(&file).unwrap_or_default()) {
+            tokio::task::block_in_place(|| std::fs::copy(object, &file)).map_err(|_| format!("{path} is stored with Git LFS and this version is not downloaded"))?;
+        }
+    }
+    xdg_open(&file)
+}
+
+/// \brief Hand `target` to the desktop's default app, saying so when none takes its type.
+fn xdg_open(target: &Path) -> Result<(), String> {
+    let mut child = Command::new("xdg-open").arg(target).spawn().map_err(|e| e.to_string())?;
+    // a type with no app fails at once; xdg-open may also wait on the app it started, so a second of quiet means it runs
+    for _ in 0..20 {
+        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+            let name = target.file_name().unwrap_or_default().to_string_lossy();
+            return if status.success() { Ok(()) } else { Err(format!("No app opens {name}: the desktop has none set for its type")) };
+        }
+        tokio::task::block_in_place(|| std::thread::sleep(std::time::Duration::from_millis(50)));
+    }
+    reap(child);
+    Ok(())
 }
 
 #[tauri::command(async)]
@@ -875,9 +950,7 @@ fn edit_remote(repo: String, name: String, new_name: String, fetch: String, push
 #[tauri::command(async)]
 fn open_default(repo: String, path: String, folder: bool) -> Result<(), String> {
     let p = existing_path(&repo, &path)?;
-    let target = if folder { p.parent().unwrap_or(&p).to_path_buf() } else { p };
-    reap(Command::new("xdg-open").arg(target).spawn().map_err(|e| e.to_string())?);
-    Ok(())
+    xdg_open(if folder { p.parent().unwrap_or(&p) } else { &p })
 }
 
 /// \brief Delete `path` from the work tree.
@@ -1334,7 +1407,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, gh_verified, remote_tags, submodule_change, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, worktree_main,
-            is_merged, revert_hunk, open_default, delete_file, open_url, remote_urls, edit_remote,
+            is_merged, revert_hunk, open_default, open_version, file_bytes, delete_file, open_url, remote_urls, edit_remote,
             pty::pty_spawn, pty::pty_write, pty::pty_resize, pty::pty_kill, askpass::askpass_reply
         ])
         .build(tauri::generate_context!())
