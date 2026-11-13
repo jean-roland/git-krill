@@ -61,6 +61,7 @@ function resizer(grip: HTMLElement, box: HTMLElement, key: string, size: (m: Poi
 
 document.querySelectorAll<HTMLElement>("[data-op]").forEach((b) => (b.onclick = () => (b.dataset.op === "push" ? push() : b.dataset.op === "pull" ? pull() : gitOp(b.dataset.op!))));
 $("pull-mode").onclick = pullMenu;
+$("pull").oncontextmenu = (e) => (e.preventDefault(), pullMenu(e));
 paintPull();
 addEventListener("focus", () => autoFetch());
 // every minute, a fetch once the Settings tab's interval has passed

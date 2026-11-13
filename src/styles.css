@@ -114,8 +114,10 @@ header {
 .tool:hover, .tool.on { color: var(--accent); background: var(--hover); }
 .tool:disabled { opacity: 0.35; pointer-events: none; }
 .tool svg { width: 20px; height: 20px; stroke-width: 1.8; }
-.tool.caret { min-width: 0; align-self: stretch; justify-content: center; margin-left: -2px; padding: 0 2px; }
-.tool.caret svg { width: 12px; height: 12px; }
+.tool.caret { min-width: 0; align-self: stretch; justify-content: center; margin-left: -8px; padding: 0 2px; }
+/* its caret sits against it, a split button */
+#pull { min-width: 44px; }
+.tool.caret svg { width: 16px; height: 16px; }
 /* ahead/behind count as a badge on the icon */
 /* an empty one stays out of the column too, else its gap makes the toolbar 3px taller */
 .tool small:empty { display: none; }
