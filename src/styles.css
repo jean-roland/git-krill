@@ -774,6 +774,10 @@ svg.blame-av { cursor: pointer; }
 .m-tag.b { background: var(--m-b); }
 .m-head code { font: 12px var(--mono); color: var(--text); }
 .m-out-head { display: grid; grid-template-columns: 1fr auto 1fr; }
+/* the output takes typing too: nothing else says so */
+.m-out-title { display: flex; align-items: center; gap: 10px; }
+.m-editable { display: inline-flex; align-items: center; gap: 4px; opacity: 0.8; }
+.m-editable svg { width: 12px; height: 12px; }
 .m-nav { display: flex; align-items: center; gap: 4px; padding: 1px 4px; border: 1px solid var(--accent); border-radius: 6px; background: var(--sel); color: var(--text); font-weight: 700; }
 .m-nav .icon { border: none; background: none; color: var(--accent); }
 .m-head .icon { padding: 2px 5px; line-height: 0; }
