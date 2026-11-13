@@ -11,6 +11,7 @@ export type MenuItem = [string, (() => unknown) | MenuItem[] | null] | { title: 
 export const COLORS = ["#46b1ab", "#5d88d9", "#9c5dd9", "#5bc78e", "#d9ba5d", "#d95d96", "#d97d5d", "#d95d72"];
 export const ICONS: Record<string, string> = {
   external: "M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5",
+  settings: "M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4",
   m: "M4 20h4L19 9l-4-4L4 16z",
   a: "M12 5v14M5 12h14",
   d: "M5 12h14",

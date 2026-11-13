@@ -8,6 +8,7 @@ import { closeHistory, closeMerge, closeResolvedMerge, confirmDrop, diffFile, op
 import { conflictCount, getMsg, renderPanel, setMsg } from "./panel";
 import { stepBack, paintWipRow, renderGraph, renderSide, resetGraph } from "./graph";
 import { dropTerm, showTerm } from "./terminal";
+import { renderSettings } from "./settings";
 
 // lfs: git-lfs stores it
 export type Change = { path: string; old: string | null; code: string; conflict?: string; lfs?: boolean };
@@ -27,7 +28,8 @@ export type Blob = { text: string; exists: boolean; binary: boolean; large: numb
 type UndoStep = { op: string; branch: [string, string]; head: [string, string]; file?: [string, string | null, string | null] };
 // limit: how many commits the graph loads, raised by "Load more"
 // parent: what this tab steps back to, the main checkout of a worktree or the repository a submodule was opened from in it; one level only
-export type Tab = { repo: string; parent: string; selected: string[]; msg: string; scroll: number; undo: UndoStep[]; redo: UndoStep[]; worktree: boolean; limit: number };
+// settings: the Settings tab, which has no repository either
+export type Tab = { repo: string; parent: string; selected: string[]; msg: string; scroll: number; undo: UndoStep[]; redo: UndoStep[]; worktree: boolean; limit: number; settings: boolean };
 export const LOG_LIMIT = 3000;
 // ops that move HEAD, walked back with a reset or a checkout
 const UNDOABLE = new Set([
@@ -89,6 +91,9 @@ let graphKey = "", sideKey = "", panelKey = "";
 export const headHash = () => commits.find(isHead)?.hash ?? "";
 
 export const run = <T>(cmd: string, args: Record<string, unknown> = {}) => invoke<T>(cmd, { repo, ...args });
+export const DEFAULT_EDITOR = "code -g {file}:{line}";
+/** Open the working tree's `path` at `line` with the Settings tab's editor command. */
+export const openInEditor = (path: string, line: number) => run("open_in_editor", { path, line, editor: store("editor") || DEFAULT_EDITOR });
 
 // a commit never changes: the last answer per command about one is kept
 const fixed = new Map<string, { key: string; data: Promise<unknown> }>();
@@ -366,7 +371,7 @@ function childLabel(t: Tab) {
   const name = repoLabel(t.repo), lead = `${repoLabel(t.parent)}-`;
   return name.startsWith(lead) && name.length > lead.length ? name.slice(lead.length) : name;
 }
-export const tabName = (t: Tab) => (!t.repo ? "Home" : t.parent ? `${repoLabel(t.parent)} › ${childLabel(t)}` : repoLabel(t.repo));
+export const tabName = (t: Tab) => (t.settings ? "Settings" : !t.repo ? "Home" : t.parent ? `${repoLabel(t.parent)} › ${childLabel(t)}` : repoLabel(t.repo));
 // closed this session, for Ctrl+Shift+T
 const closedTabs: string[] = [];
 // a submodule shown in its parent's tab reopens as that parent
@@ -375,7 +380,7 @@ const closedRepo = (t: Tab) => (t.worktree ? t.repo : t.parent || t.repo);
 /** Reopen the last run's tabs, then the repository krill was started on. */
 export async function restoreTabs() {
   // a submodule opened in its parent's tab is saved as [parent, submodule]
-  tabs = (JSON.parse(store("tabs") ?? "[]") as (string | string[])[]).map((x) => (Array.isArray(x) ? newTab(x[1], x[0]) : newTab(x)));
+  tabs = (JSON.parse(store("tabs") ?? "[]") as (string | string[])[]).map((x) => (Array.isArray(x) ? newTab(x[1], x[0]) : x === SETTINGS ? settingsTab() : newTab(x)));
   if (!tabs.length) tabs.push(newTab(""));
   active = Math.min(Number(store("active-tab")) || 0, tabs.length - 1);
   const arg = await invoke<string>("initial_repo");
@@ -390,13 +395,17 @@ export async function restoreTabs() {
   }
 }
 
+// the Settings tab in the saved list: no folder is named so
+const SETTINGS = ":settings";
+const settingsTab = () => Object.assign(newTab(""), { settings: true });
+
 function saveTabs() {
-  store("tabs", JSON.stringify(tabs.map((t) => (t.parent ? [t.parent, t.repo] : t.repo))));
+  store("tabs", JSON.stringify(tabs.map((t) => (t.settings ? SETTINGS : t.parent ? [t.parent, t.repo] : t.repo))));
   store("active-tab", String(active));
 }
 
 export function newTab(repo: string, parent = ""): Tab {
-  const t: Tab = { repo, parent, selected: ["WIP"], msg: "", scroll: 0, undo: [], redo: [], worktree: false, limit: LOG_LIMIT };
+  const t: Tab = { repo, parent, selected: ["WIP"], msg: "", scroll: 0, undo: [], redo: [], worktree: false, limit: LOG_LIMIT, settings: false };
   // a linked worktree leads back to its main checkout, however it was opened
   if (repo)
     invoke<string>("worktree_main", { repo }).then((main) => {
@@ -427,7 +436,7 @@ function renderTabs() {
         // a worktree or a submodule wears its repository's badge
         t.repo
           ? h("span", { className: "tab-badge", textContent: tabName(t)[0]?.toUpperCase() ?? "", style: `--c: ${COLORS[colorIndex(t.parent || t.repo)]}` })
-          : ico(ICONS.home),
+          : ico(t.settings ? ICONS.settings : ICONS.home),
         h("span", { className: "tab-name", textContent: tabName(t) }),
         h("button", { className: "x", textContent: "×", title: "Close (Ctrl+W)", onclick: (e: Event) => (e.stopPropagation(), closeTab(i)) }),
       ),
@@ -506,7 +515,9 @@ function land() {
   resetGraph();
   $("sidebar").replaceChildren();
   document.body.classList.toggle("home", !repo);
-  $("home").hidden = !!repo;
+  $("home").hidden = !!repo || t.settings;
+  $("settings").hidden = !t.settings;
+  if (t.settings) renderSettings();
   paintRepoName();
 }
 
@@ -605,6 +616,14 @@ export function addTab() {
   switchTab(tabs.length - 1);
 }
 
+/** The Settings tab, opened once. */
+export function openSettings() {
+  const i = tabs.findIndex((t) => t.settings);
+  if (i >= 0) return switchTab(i);
+  tabs.push(settingsTab());
+  switchTab(tabs.length - 1);
+}
+
 /** Open `path` in its existing tab, the current Home tab, or a new tab. */
 export async function openRepo(path: string) {
   let root: string;
@@ -626,10 +645,10 @@ export async function openRepo(path: string) {
   const i = tabs.findIndex((t) => t.repo === root);
   if (i >= 0) {
     // a Home tab that only led to an already open repo has no reason to stay
-    const home = tabs[active].repo ? -1 : active;
+    const home = tabs[active].repo || tabs[active].settings ? -1 : active;
     await switchTab(i);
     if (home >= 0) closeTab(home);
-  } else if (tabs[active].repo) {
+  } else if (tabs[active].repo || tabs[active].settings) {
     tabs.push(newTab(root));
     await switchTab(tabs.length - 1);
   } else {
@@ -783,10 +802,12 @@ function loadRemoteTags() {
 const fetchedAt = new Map<string, number>();
 // repositories whose background fetch was told to need a passphrase or password, once a run
 const toldAuth = new Set<string>();
-/** A quiet fetch of the open repository, at most once a minute each: ahead/behind and remote branches stay fresh; failures (offline) stay silent. */
-export function autoFetch() {
+// the Settings tab's background fetch: on unless turned off, every few minutes
+export const fetchMinutes = () => Number(store("fetch-minutes")) || 5;
+/** A quiet fetch of the open repository, `gap` ms after its last at the soonest: ahead/behind and remote branches stay fresh; failures (offline) stay silent. */
+export function autoFetch(gap = 60_000) {
   const r = repo;
-  if (!r || Date.now() - (fetchedAt.get(r) ?? 0) < 60_000 || document.body.classList.contains("busy")) return;
+  if (!r || store("auto-fetch") === "off" || Date.now() - (fetchedAt.get(r) ?? 0) < gap || document.body.classList.contains("busy")) return;
   // never twice at once: on a dead network one can hang for minutes
   fetchedAt.set(r, Infinity);
   run<string>("git_op", { op: "auto-fetch", arg: "" }).then(

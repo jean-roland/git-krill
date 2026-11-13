@@ -1,5 +1,5 @@
 // The right panel: work in progress or a commit's details, the file lists, the commit box.
-import { Change, Commit, commits, fakeCommit, gitOp, headHash, isHead, lfsChip, opInfo, refresh, refs, repo, run, runFixed, selection, status } from "./repo";
+import { Change, Commit, commits, fakeCommit, gitOp, headHash, isHead, lfsChip, opInfo, openInEditor, refresh, refs, repo, run, runFixed, selection, status } from "./repo";
 import { $, ICONS, MenuItem, ask, avatar, basename, copy, dateTimeText, h, ico, input, onCtrlEnter, label, plural, popup, say, shaLink, short, store, svg, warnOnce } from "./ui";
 import { DiffSource, confirmDiscard, diffFile, merging, openDiff, openHistory } from "./diff";
 import { discardSubmodule, jumpTo, linkRemote, openSubmodule, webUrl } from "./graph";
@@ -58,7 +58,7 @@ function fileMenu(f: Change, kind: DiffSource, c?: Commit): MenuItem[] {
     null,
     ...(isSubmodule(f.path) ? ([["Open submodule", () => openSubmodule(f.path)]] as MenuItem[]) : []),
     ["File history", () => openHistory(f.path, c)],
-    ["Open in VS Code", () => run("open_in_editor", { path: f.path, line: 1 }).catch(neutral)],
+    ["Open in editor", () => openInEditor(f.path, 1).catch(neutral)],
     ["Open in default program", () => run("open_default", { path: f.path, folder: false }).catch(neutral)],
     ["Show in folder", () => run("open_default", { path: f.path, folder: true }).catch(neutral)],
     null,

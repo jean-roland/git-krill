@@ -6,7 +6,7 @@ import { rebaseKey } from "./rebase";
 import { SORTS, amending, commit, conflictCount, emptyStep, fileLists, filterFiles, foldAll, getMsg, openFile, paintFileOpts, renderCommitBtn, renderPanel, setMsg } from "./panel";
 import { $, ask, closeDialog, hideBanner, input, onCtrlEnter, pickDir, popup, say, store } from "./ui";
 import { closeFind, drawRows, findStep, findTyped, stepBack, openFind, paintSelection, showRow, shown } from "./graph";
-import { Change, active, addTab, autoFetch, cloneDialog, closeTab, gitOp, opInfo, newTabMenu, openPicked, openRepo, paintPull, pull, pullMenu, push, refresh, renderTabHits, reopenTab, repo, restoreTabs, run, selection, switchTab, tabs, undoRedo } from "./repo";
+import { Change, active, addTab, autoFetch, cloneDialog, closeTab, fetchMinutes, gitOp, opInfo, newTabMenu, openInEditor, openPicked, openRepo, openSettings, paintPull, pull, pullMenu, push, refresh, renderTabHits, reopenTab, repo, restoreTabs, run, selection, switchTab, tabs, undoRedo } from "./repo";
 import { terms, toggleTerm } from "./terminal";
 
 /** Up/Down walk the graph, or the files once Right opened one; Left goes back to the graph. */
@@ -63,7 +63,8 @@ document.querySelectorAll<HTMLElement>("[data-op]").forEach((b) => (b.onclick = 
 $("pull-mode").onclick = pullMenu;
 paintPull();
 addEventListener("focus", () => autoFetch());
-setInterval(() => autoFetch(), 5 * 60_000);
+// every minute, a fetch once the Settings tab's interval has passed
+setInterval(() => autoFetch(fetchMinutes() * 60_000), 60_000);
 document.querySelectorAll<HTMLElement>("[data-mode]").forEach((b) => (b.onclick = () => setMode(b.dataset.mode as Mode)));
 document.querySelectorAll<HTMLElement>("[data-svg]").forEach((b) => (b.onclick = () => setSvgView(b.dataset.svg!)));
 $("new-tab").onclick = addTab;
@@ -181,10 +182,11 @@ $("next-change").onclick = () => diffFile && editor().goToDiff("next");
 $("open-editor").onclick = () => {
   if (!diffFile) return;
   const line = editor().getModifiedEditor().getPosition()?.lineNumber ?? 1;
-  run("open_in_editor", { path: diffFile.f.path, line }).catch((e) => say(String(e), true));
+  openInEditor(diffFile.f.path, line).catch((e) => say(String(e), true));
 };
 $("diff-save").onclick = () => save().then(refresh);
 $("open-repo").onclick = openPicked;
+$("settings-btn").onclick = $("settings-home").onclick = openSettings;
 $("m-sync").classList.toggle("on", store("merge-sync") !== "off");
 $("m-sync").onclick = () => store("merge-sync", $("m-sync").classList.toggle("on") ? "on" : "off");
 $("init-repo").onclick = async () => {

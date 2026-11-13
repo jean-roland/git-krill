@@ -547,7 +547,7 @@ function paintOpenEditor() {
   run<boolean>("on_disk", { path: f.path }).then((ok) => {
     if (diffFile?.f.path !== f.path) return;
     ed.classList.toggle("off", !ok);
-    ed.title = ok ? "Open the working tree file in VS Code" : `${f.path} is not in the working tree (not on the checked out branch)`;
+    ed.title = ok ? "Open the working tree file in the editor set in Settings" : `${f.path} is not in the working tree (not on the checked out branch)`;
   });
 }
 

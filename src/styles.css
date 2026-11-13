@@ -248,6 +248,29 @@ body.home main { grid-template-columns: 1fr; }
 .home-actions .tinted:hover { background: color-mix(in srgb, var(--tint) 45%, var(--raised)); border-color: var(--tint); }
 .home-actions .tinted svg { color: var(--tint); }
 .home-box .head { padding: 18px 0 6px; }
+#settings-home { display: inline-flex; align-items: center; gap: 7px; }
+#settings-home svg { width: 15px; height: 15px; }
+/* the Settings tab: a label column, then each value with what to do about it */
+#settings { position: absolute; inset: 0; overflow: auto; }
+/* few settings on a wide page: everything a size up from the window's 13px */
+#settings-box { max-width: 760px; font-size: 15px; }
+/* a line above each section but the first */
+#settings-box .head { font-size: 13px; margin-top: 14px; padding-top: 16px; border-top: 1px solid var(--border); }
+#settings-box h1 + .head { margin-top: 0; padding-top: 6px; border-top: none; }
+#settings-box input[type="checkbox"] { width: 15px; height: 15px; vertical-align: -2px; }
+#settings-box input { font-size: inherit; padding: 4px 8px; }
+.set-pick { display: inline-flex; align-items: center; gap: 10px; padding: 4px 6px 4px 10px; }
+.set-pick svg { width: 14px; height: 14px; }
+.set-row { display: grid; grid-template-columns: 160px 1fr; gap: 14px; align-items: baseline; padding: 7px 0; }
+.set-label { color: var(--dim); }
+.set-row input:not([type="checkbox"]) { width: 100%; }
+.set-hint { display: block; margin-top: 3px; color: var(--dim); }
+.set-note { margin-left: 10px; color: var(--dim); }
+.set-ok { color: var(--add); }
+.set-bad { color: var(--del); }
+.set-wait { color: var(--dim); }
+.head .set-again { margin-left: 8px; padding: 1px 9px; font-size: 13px; }
+.set-again svg { width: 13px; height: 13px; margin-right: 5px; vertical-align: -2px; }
 .recent { display: flex; align-items: baseline; gap: 10px; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
 .recent:hover { background: var(--hover); }
 .recent b { font-weight: 600; }

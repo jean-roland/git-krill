@@ -1007,18 +1007,87 @@ fn is_merged(repo: String, branch: String) -> Result<bool, String> {
     Ok(git_cmd(&repo, &["merge-base", "--is-ancestor", &format!("refs/heads/{branch}"), into.trim()], None, true)?.status.success())
 }
 
-/// \brief Open `path` in VS Code at `line`, else in the desktop's default app.
+/// \brief Open `path` at `line` with `editor`, a command whose {file} and {line} are filled in, else in the desktop's default app.
 #[tauri::command(async)]
-fn open_in_editor(repo: String, path: String, line: u32) -> Result<(), String> {
+fn open_in_editor(repo: String, path: String, line: u32, editor: String) -> Result<(), String> {
     let p = existing_path(&repo, &path)?;
-    let child = Command::new("code")
-        .arg("-g")
-        .arg(format!("{}:{line}", p.display()))
-        .spawn()
-        .or_else(|_| Command::new("xdg-open").arg(&p).spawn())
-        .map_err(|e| e.to_string())?;
-    reap(child);
+    let file = p.to_string_lossy();
+    // split before filling in: a path with spaces stays one argument
+    let mut words = editor.split_whitespace().map(|w| w.replace("{file}", &file).replace("{line}", &line.to_string()));
+    let child = match words.next() {
+        Some(cmd) => Command::new(cmd).args(words).spawn().or_else(|_| Command::new("xdg-open").arg(&p).spawn()),
+        None => Command::new("xdg-open").arg(&p).spawn(),
+    };
+    reap(child.map_err(|e| e.to_string())?);
     Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Tools {
+    // the first line of each one's version, empty when it is not found
+    git: String,
+    lfs: String,
+    gh: String,
+    // git-lfs's filter in the user's or the system's config: `git lfs install` ran
+    lfs_set_up: bool,
+    // found when krill started: it looks for git-lfs once a run
+    lfs_in_use: bool,
+    // "host (account)" for each server gh is signed in to
+    gh_hosts: Vec<String>,
+}
+
+/// \brief The tools krill leans on, as they stand now.
+#[tauri::command(async)]
+fn tool_status() -> Tools {
+    // out of any repository: only the user's and the system's config count
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
+    let run = |cmd: &str, args: &[&str]| Command::new(cmd).args(args).current_dir(&home).stdin(Stdio::null()).output().ok();
+    let first_line = |o: Option<std::process::Output>| o.filter(|o| o.status.success()).map_or(String::new(), |o| String::from_utf8_lossy(&o.stdout).lines().next().unwrap_or("").trim().to_string());
+    let lfs = first_line(run("git", &["lfs", "version"]));
+    // gh says it on stdout or stderr depending on its version, as "Logged in to <host> account <user>" or "... as <user>"
+    let gh_hosts = run("gh", &["auth", "status"]).map_or(vec![], |o| {
+        let text = format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr));
+        text.lines()
+            .filter_map(|l| {
+                let words: Vec<&str> = l.split_once("Logged in to ")?.1.split_whitespace().collect();
+                let user = words.iter().position(|w| *w == "account" || *w == "as").and_then(|i| words.get(i + 1))?;
+                Some(format!("{} ({user})", words.first()?))
+            })
+            .collect()
+    });
+    Tools {
+        git: first_line(run("git", &["--version"])),
+        lfs_set_up: !lfs.is_empty() && run("git", &["config", "--get-regexp", r"^filter\.lfs\."]).is_some_and(|o| o.status.success()),
+        lfs_in_use: lfs_installed(),
+        lfs,
+        gh: first_line(run("gh", &["--version"])),
+        gh_hosts,
+    }
+}
+
+// the global git settings the Settings page edits, and nothing else
+const GLOBAL_KEYS: [&str; 4] = ["user.name", "user.email", "user.signingkey", "commit.gpgsign"];
+
+/// \brief The values of GLOBAL_KEYS in ~/.gitconfig, empty when unset.
+#[tauri::command(async)]
+fn global_config() -> Vec<String> {
+    GLOBAL_KEYS
+        .iter()
+        .map(|k| Command::new("git").args(["config", "--global", "--get", k]).stdin(Stdio::null()).output().map_or(String::new(), |o| String::from_utf8_lossy(&o.stdout).trim().to_string()))
+        .collect()
+}
+
+/// \brief Set `key`, one of GLOBAL_KEYS, in ~/.gitconfig; an empty `value` unsets it.
+#[tauri::command(async)]
+fn set_global_config(key: String, value: String) -> Result<(), String> {
+    if !GLOBAL_KEYS.contains(&key.as_str()) {
+        return Err(format!("{key} is not a setting krill edits"));
+    }
+    let args = if value.is_empty() { vec!["config", "--global", "--unset", &key] } else { vec!["config", "--global", &key, not_option(&value)?] };
+    let out = Command::new("git").args(&args).stdin(Stdio::null()).output().map_err(|e| e.to_string())?;
+    // 5: unsetting what was not set, nothing to do
+    if out.status.success() || (value.is_empty() && out.status.code() == Some(5)) { Ok(()) } else { Err(output_text(&out)) }
 }
 
 /// \brief Reword stash `name`: git cannot, so store it again under `message`, then drop the old entry.
@@ -1417,7 +1486,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, gh_verified, remote_tags, submodule_change, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, worktree_main,
-            is_merged, revert_hunk, open_default, open_version, file_bytes, delete_file, open_url, remote_urls, edit_remote,
+            is_merged, revert_hunk, open_default, open_version, file_bytes, tool_status, global_config, set_global_config, delete_file, open_url, remote_urls, edit_remote,
             pty::pty_spawn, pty::pty_write, pty::pty_resize, pty::pty_kill, askpass::askpass_reply
         ])
         .build(tauri::generate_context!())
