@@ -115,7 +115,8 @@ export function renderSide() {
     const here = w === thisWorktree();
     const extra = w.locked && !w.prunable ? "locked" : "";
     const open = () => (w.prunable ? prune(w) : openWorktree(w.path));
-    const el = sideItem(w.branch || `detached at ${short(w.head)}`, "worktree", w.head, extra, here ? "current" : "", () => worktreeMenu(w, k === 0), () => here || open());
+    // its eye is its branch's
+    const el = sideItem(w.branch || `detached at ${short(w.head)}`, "worktree", w.head, extra, here ? "current" : "", () => worktreeMenu(w, k === 0), () => here || open(), here || !w.branch ? undefined : `refs/heads/${w.branch}`);
     el.title = w.path;
     // the main checkout: a house, not a word that reads like its branch
     if (!k) el.append(ico(ICONS.home, "Main checkout"));
@@ -201,12 +202,14 @@ function worktreeMenu(w: Worktree, main: boolean): MenuItem[] {
   return [
     { title: w.branch || basename(w.path), icon: ICONS.worktree },
     ...(here || w.prunable ? [] : ([["Open worktree", () => openWorktree(w.path)]] as MenuItem[])),
-    ["Copy path", () => copy(w.path)],
     ...(w.prunable
       ? ([["Prune: its folder is gone", () => prune(w)]] as MenuItem[])
       : main || here
         ? []
         : ([["Remove worktree", () => removeWorktree(w)]] as MenuItem[])),
+    ...(here || !w.branch ? [] : [hideItem(`refs/heads/${w.branch}`)]),
+    null,
+    ["Copy path", () => copy(w.path)],
   ];
 }
 
@@ -222,16 +225,23 @@ async function openWorktree(path: string, parent = "") {
   await switchTab(active, false);
 }
 
-/** `git worktree add` of `branch`, or of a new branch from commit `from`, by default in a folder beside the repository's; this tab stays, the worktree joins the sidebar. */
+/** `git worktree add` of `branch`, or of a new branch from commit `from`, by default in a folder beside the repository's; this tab then shows it. */
 function createWorktree(branch: string, from = "", busy = "") {
   // a repo tool checkout keeps them out of its tree, where its build would find them: <top>/../wt
   const main = refs.worktrees[0]?.path ?? repo, top = refs.repoTop;
   const beside = (b: string) => `${top ? `${top.slice(0, top.lastIndexOf("/"))}/wt/${basename(main)}` : main}-${b.replace(/\//g, "-")}`;
-  if (!from) return dialog(`Create a worktree from ${branch}`, [["Folder", beside(branch)]], "Create", ([path]) => path && gitOp("worktree-add", [path, branch]));
+  if (!from) return dialog(`Create a worktree from ${branch}`, [["Folder", beside(branch)]], "Create", ([path]) => path && addWorktree("worktree-add", [path, branch]));
   const name = busy ? `New branch name (${busy} is checked out already, a branch goes in one worktree only)` : "New branch name";
   dialog(`Create a worktree from ${busy || short(from)}`, [[name, ""], ["Folder (empty: beside the repository, named after the branch)", ""]], "Create", ([b, path]) =>
-    b && gitOp("worktree-add-new", [path || beside(b), JSON.stringify([b, from])]),
+    b && addWorktree("worktree-add-new", [path || beside(b), JSON.stringify([b, from])]),
   );
+}
+
+async function addWorktree(op: string, args: [string, string]) {
+  const known = new Set(refs.worktrees.map((w) => w.path));
+  // git's own path for it: a typed folder may be relative or unnormalized
+  const added = (await gitOp(op, args)) && refs.worktrees.find((w) => !known.has(w.path));
+  if (added) openWorktree(added.path);
 }
 
 /** Back from a worktree or a submodule to its repository, in this tab. */
@@ -245,17 +255,19 @@ export async function stepBack() {
 
 /** `git worktree remove`, forced after a warning when it has changes; its branch can go too. */
 async function removeWorktree(w: Worktree) {
-  const s = await invoke<Status>("status", { repo: w.path }).catch(() => null);
+  const [s, merged] = await Promise.all([invoke<Status>("status", { repo: w.path }).catch(() => null), !w.branch || run<boolean>("is_merged", { branch: w.branch }).catch(() => false)]);
   const dirty = !!s && s.staged.length + s.unstaged.length > 0;
+  // this one question covers the branch too: unmerged commits are named in it
+  const unmerged = merged ? "" : ` ${w.branch} is not merged into ${findRef(`refs/heads/${w.branch}`)?.upstream || status?.branch || "HEAD"}.`;
   const remove = (andBranch: boolean) => async () => {
-    if ((await gitOp(dirty ? "worktree-force-remove" : "worktree-remove", w.path)) && andBranch) deleteBranch(w.branch, "");
+    if ((await gitOp(dirty ? "worktree-force-remove" : "worktree-remove", w.path)) && andBranch) gitOp(merged ? "branch-delete" : "branch-force-delete", w.branch);
   };
   dialog(
-    dirty ? `${basename(w.path)} has uncommitted changes. Remove it and lose them?` : `Remove worktree ${basename(w.path)}? Its folder is deleted, its branch stays.`,
+    (dirty ? `${basename(w.path)} has uncommitted changes. Remove it and lose them?` : `Remove worktree ${basename(w.path)}? Its folder is deleted, its branch stays.`) + unmerged,
     [],
     dirty ? "Force remove" : "Remove",
     remove(false),
-    w.branch ? [[`Remove and delete ${w.branch}`, remove(true)]] : [],
+    w.branch ? [[`Remove and ${merged ? "delete" : "force delete"} ${w.branch}`, remove(true)]] : [],
   );
 }
 

@@ -414,7 +414,17 @@ fn repo_root(path: String) -> Result<String, String> {
 fn log(repo: String, limit: u32, hide: Vec<String>, show: Vec<String>) -> Result<Vec<Commit>, String> {
     let n = format!("-n{limit}");
     // hidden remotes and branches (ref patterns) leave the graph, stash commits drag their index/untracked parents into it
-    let hidden: Vec<String> = hide.iter().map(|r| format!("--exclude={r}")).collect();
+    let mut hidden: Vec<String> = hide.iter().map(|r| format!("--exclude={r}")).collect();
+    // --all brings the other worktrees' HEADs too: a hidden branch checked out in one leaves with its HEAD
+    if hide.iter().any(|r| r.starts_with("refs/heads/")) {
+        let common = git(&repo, &["rev-parse", "--path-format=absolute", "--git-common-dir"])?;
+        for wt in std::fs::read_dir(Path::new(common.trim()).join("worktrees")).into_iter().flatten().flatten() {
+            let head = std::fs::read_to_string(wt.path().join("HEAD")).unwrap_or_default();
+            if head.strip_prefix("ref: ").is_some_and(|r| hide.iter().any(|h| h == r.trim())) {
+                hidden.push(format!("--exclude=worktrees/{}/HEAD", wt.file_name().to_string_lossy()));
+            }
+        }
+    }
     let mut args: Vec<&str> = vec!["log"];
     args.extend(hidden.iter().map(String::as_str));
     args.extend(["--exclude=refs/stash", "--all", "--topo-order", "--decorate=full", &n,
