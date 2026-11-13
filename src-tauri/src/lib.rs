@@ -1221,7 +1221,8 @@ fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         "push" => vec!["push"],
         // git-lfs globs its own pathspecs: under literal ones it fetches nothing, and still succeeds
         "lfs-pull" => vec!["--no-literal-pathspecs", "lfs", "pull"],
-        "stash-push" => vec!["stash", "push", "-u"],
+        // its own `git clean -- :/` of the untracked files it saved: under literal pathspecs it removes none
+        "stash-push" => vec!["--no-literal-pathspecs", "stash", "push", "-u"],
         "stage" => vec!["add", "-A", "--", &arg],
         "unstage" => vec!["reset", "-q", "--", &arg],
         "discard" => vec!["checkout", "--", &arg],
