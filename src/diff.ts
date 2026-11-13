@@ -3,7 +3,7 @@ import type * as Monaco from "monaco-editor/esm/vs/editor/edcore.main";
 import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import { applyChanges, allLines, pickLines, parseConflicts, mergeSides, pickedLines, parseBlame, toggleSide, toggleLine, hasSide, pickedOf } from "./core.js";
 import { Blob, Change, Commit, active, fakeCommit, gitOp, headHash, lfsChip, opInfo, recordUndo, refresh, run, status, tabs } from "./repo";
-import { $, COLORS, ICONS, MenuItem, ask, avatar, avatarSvg, basename, colorIndex, copy, cssVar, dateFmt, dayFmt, esc, h, hideBanner, input, megabytes, plural, popup, say, short, showBanner, store, svg, toast, whileLoading } from "./ui";
+import { $, COLORS, ICONS, MenuItem, ask, avatar, avatarSvg, basename, colorIndex, copy, cssVar, dateText, dateTimeText, esc, h, hideBanner, input, megabytes, plural, popup, say, short, showBanner, store, svg, toast, whileLoading } from "./ui";
 import { fileLists, isConflict, isSubmodule, markOpenFile, wipFiles } from "./panel";
 import { openSubmodule } from "./graph";
 
@@ -940,7 +940,7 @@ export async function openHistory(path: string, c?: Commit) {
     ...revs.map(([r, f], i) =>
       h("div", { className: "hist-row", title: f.old ? `${f.old} → ${f.path}` : f.path, onclick: () => showRev(i) },
         r.time ? avatar(r.author) : h("span", { className: "avatar wip" }),
-        h("div", {}, h("div", { textContent: r.subject }), h("small", { textContent: r.time ? `${dateFmt.format(r.time * 1000)} by ${r.author}` : "Working tree" })),
+        h("div", {}, h("div", { textContent: r.subject }), h("small", { textContent: r.time ? `${dateTimeText(r.time)} by ${r.author}` : "Working tree" })),
         h("code", { textContent: r.time ? short(r.hash) : "" }),
       ),
     ),
@@ -1040,7 +1040,7 @@ export function paintBlame() {
       const b = m.blame[n - 1], first = !!b && m.blame[n - 2]?.hash !== b.hash;
       const num = String(n).padStart(digits);
       if (!first) return `<span class="blame-av"></span> ${on ? " ".repeat(BLAME_W + 1) : ""} ${num}`;
-      const text = on ? `${b.summary.slice(0, BLAME_SUBJECT).padEnd(BLAME_SUBJECT)}  ${dayFmt.format(b.time * 1000).padEnd(10)} ` : "";
+      const text = on ? `${b.summary.slice(0, BLAME_SUBJECT).padEnd(BLAME_SUBJECT)}  ${dateText(b.time)} ` : "";
       return `${avatarSvg(b.author, "blame-av")} ${esc(text)} ${num}`;
     },
   });
@@ -1055,7 +1055,7 @@ export function paintBlame() {
       if (!b || m.blame[k - 1]?.hash === b.hash) return [];
       let end = k;
       while (m.blame[end + 1]?.hash === b.hash) end++;
-      const value = `**${escapeMarkdown(b.author)}**, ${dateFmt.format(b.time * 1000)} · \`${short(b.hash)}\`\n\n${escapeMarkdown(b.summary)}`;
+      const value = `**${escapeMarkdown(b.author)}**, ${dateTimeText(b.time)} · \`${short(b.hash)}\`\n\n${escapeMarkdown(b.summary)}`;
       const options = { lineNumberHoverMessage: { value }, linesDecorationsClassName: `blame-strip blame-c${color(b.hash)}` };
       return [{ range: new monaco.Range(k + 1, 1, end + 1, 1), options }];
     }),

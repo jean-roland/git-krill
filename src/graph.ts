@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { layoutGraph } from "./core.js";
 import { closeRebase, ontoRange, openRebase, rebaseRange } from "./rebase";
 import { Commit, LOG_LIMIT, Stash, Status, Submodule, Worktree, active, commits, dropEdits, fakeCommit, findRef, foldsKey, gitOp, headHash, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, newTab, opInfo, openRepo, paintRepoName, pull, push, redraw, refs, remoteTags, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
-import { $, COLORS, ICONS, MenuItem, ask, askName, basename, copy, dateFmt, dialog, h, ico, input, popup, say, short, spriteId, store, svg } from "./ui";
+import { $, COLORS, ICONS, MenuItem, ask, askName, basename, copy, dateTimeText, dialog, h, ico, input, popup, say, short, spriteId, store, svg } from "./ui";
 import { dropTerm } from "./terminal";
 import { conflictCount, conflictLine, fileCounts, opLine, renderPanel, wipFiles } from "./panel";
 
@@ -562,7 +562,7 @@ function graphRow(c: Commit, lane: string, nodeX: number) {
       ? h("span", { className: "subject", title: stash.name }, c.subject)
       : h(
           "span",
-          { className: "subject", title: `${c.author} · ${dateFmt.format(c.time * 1000)}` },
+          { className: "subject", title: `${c.author} · ${dateTimeText(c.time)}` },
           c.subject,
           h("span", { className: "body", textContent: c.body.replace(/\s*\n+\s*/g, " | ") }),
         ),

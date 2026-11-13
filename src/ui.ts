@@ -66,8 +66,10 @@ export function spriteId(name: string) {
 }
 export const avatarSvg = (name: string, cls = "") => `<svg class="${cls}" viewBox="0 0 9 9"><use href="#${spriteId(name)}"/></svg>`;
 export const esc = (s: string) => s.replace(/[<>&"]/g, (ch) => `&#${ch.charCodeAt(0)};`);
-export const dateFmt = new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeStyle: "short" });
-export const dayFmt = new Intl.DateTimeFormat(undefined, { dateStyle: "short" });
+const two = (n: number) => String(n).padStart(2, "0");
+// year first and 24 h whatever the locale: every date is as wide
+export const dateText = (t: number, d = new Date(t * 1000)) => `${d.getFullYear()}/${two(d.getMonth() + 1)}/${two(d.getDate())}`;
+export const dateTimeText = (t: number, d = new Date(t * 1000)) => `${dateText(t)} ${two(d.getHours())}:${two(d.getMinutes())}`;
 
 export const $ = (id: string) => document.getElementById(id)!;
 export const input = (id: string) => $(id) as HTMLInputElement;

@@ -1,6 +1,6 @@
 // The right panel: work in progress or a commit's details, the file lists, the commit box.
 import { Change, Commit, commits, fakeCommit, gitOp, headHash, isHead, lfsChip, opInfo, refresh, refs, repo, run, runFixed, selection, status } from "./repo";
-import { $, ICONS, MenuItem, ask, avatar, basename, copy, dateFmt, h, ico, input, onCtrlEnter, label, plural, popup, say, shaLink, short, store, svg, warnOnce } from "./ui";
+import { $, ICONS, MenuItem, ask, avatar, basename, copy, dateTimeText, h, ico, input, onCtrlEnter, label, plural, popup, say, shaLink, short, store, svg, warnOnce } from "./ui";
 import { DiffSource, confirmDiscard, diffFile, merging, openDiff, openHistory } from "./diff";
 import { discardSubmodule, jumpTo, linkRemote, openSubmodule, webUrl } from "./graph";
 import { planOpen } from "./rebase";
@@ -250,7 +250,7 @@ function panelCommit(): { c: Commit; message?: string; head: (Node | string)[]; 
 
 function authorBlock(c: Commit, email: string, sign: string) {
   const mail = h("small", { className: "email", textContent: email, title: `Copy ${email}`, onclick: () => copy(email) });
-  return [avatar(c.author), h("div", {}, c.author, mail, h("small", {}, `authored ${dateFmt.format(c.time * 1000)}`, ...signBadge(c.hash, sign)))];
+  return [avatar(c.author), h("div", {}, c.author, mail, h("small", {}, `authored ${dateTimeText(c.time)}`, ...signBadge(c.hash, sign)))];
 }
 
 // git's %G? letter of an unsigned commit: said without asking the server
