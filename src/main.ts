@@ -245,10 +245,5 @@ addEventListener("keydown", (e) => {
   else if (e.key.startsWith("Arrow") && !e.ctrlKey && !e.altKey && !e.shiftKey) (e.preventDefault(), arrow(e.key));
 });
 
-// warm Monaco and its diff worker up front: a cold first diff took ~0.5 s
-setTimeout(async () => {
-  await loadMonaco();
-  if (!diffEditor) warmDiff();
-}, 1000);
-
-restoreTabs();
+// Monaco and its diff worker warmed up under the splash: a cold first diff took ~0.5 s, and a file opened during the warm-up drew wrong
+restoreTabs(loadMonaco().then(() => (diffEditor ? undefined : warmDiff())).catch(() => {}));

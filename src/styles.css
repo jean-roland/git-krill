@@ -878,11 +878,14 @@ svg.blame-av { cursor: pointer; }
 .dlg-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .dlg-actions button { flex: 1 0 auto; padding: 7px 14px; white-space: nowrap; }
 /* the logo over a first view still drawing */
-#splash { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; background: var(--bg); transition: opacity 0.25s; }
+/* the logo a third of the way down, its 96px height centred there */
+#splash { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; align-items: center; padding-top: calc(33vh - 48px); gap: 18px; background: var(--bg); transition: opacity 0.25s; }
 #splash .lockup { display: flex; align-items: center; gap: 24px; }
 #splash img { width: 96px; height: 96px; }
 #splash span { font-size: 48px; font-weight: 600; }
-#splash small { min-height: 1.4em; font-size: 15px; color: var(--dim); }
+#splash small { font-size: 18px; color: color-mix(in srgb, var(--dim) 60%, var(--text)); }
+#splash .splash-load { display: flex; align-items: center; gap: 12px; }
+#splash .spinner { width: 20px; height: 20px; border-width: 2.5px; }
 #splash.gone { opacity: 0; pointer-events: none; }
 /* a big load: the window waits under it */
 #loading { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; font-size: 14px; background: #0009; cursor: progress; }

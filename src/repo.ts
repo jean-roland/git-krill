@@ -389,18 +389,17 @@ const closedTabs: string[] = [];
 // a submodule shown in its parent's tab reopens as that parent
 const closedRepo = (t: Tab) => (t.worktree ? t.repo : t.parent || t.repo);
 
-/** Reopen the last run's tabs, then the repository krill was started on. */
-export async function restoreTabs() {
+/** Reopen the last run's tabs, then the repository krill was started on; the splash stays until `ready` too. */
+export async function restoreTabs(ready: Promise<unknown>) {
   // a submodule opened in its parent's tab is saved as [parent, submodule]
   tabs = (JSON.parse(store("tabs") ?? "[]") as (string | string[])[]).map((x) => (Array.isArray(x) ? newTab(x[1], x[0]) : x === SETTINGS ? settingsTab() : newTab(x)));
   if (!tabs.length) tabs.push(newTab(""));
   active = Math.min(Number(store("active-tab")) || 0, tabs.length - 1);
   const arg = await invoke<string>("initial_repo");
-  const first = arg || tabs[active].repo;
-  $("splash-what").textContent = `${first ? (aliases()[first] ?? basename(first)) : "Home"} is loading…`;
   try {
     if (!arg || !(await openRepo(arg))) await switchTab(active, false);
   } finally {
+    await ready;
     // the first view is drawn: the splash fades away
     requestAnimationFrame(() => $("splash").classList.add("gone"));
     setTimeout(() => ($("splash").hidden = true), 400);
