@@ -407,8 +407,7 @@ function paintSides() {
   $("diff-editor").hidden = pane;
   $("diff-binary").hidden = !pane;
   $("diff-binary").classList.toggle("images", images);
-  $("svg-view").hidden = !isSvg;
-  document.querySelectorAll<HTMLElement>("[data-svg]").forEach((b) => b.classList.toggle("on", (b.dataset.svg === "image") === images));
+  paintSvgView(isSvg, images);
   $("diff-binary").replaceChildren(
     ...(sub
       ? submoduleCard(f.path, sub)
@@ -462,6 +461,18 @@ const IMAGE_UNASKED = 50 << 20;
 export function setSvgView(view: string) {
   store("svg-view", view);
   if (diffFile) paintSides();
+  // the history's File view: showRev only redraws another row
+  else if (hist) {
+    const at = hist.at;
+    hist.at = -1;
+    showRev(at);
+  }
+}
+
+/** The SVG switch: shown for an SVG, the half of its current view lit. */
+function paintSvgView(shown: boolean, image: boolean) {
+  $("svg-view").hidden = !shown;
+  document.querySelectorAll<HTMLElement>("[data-svg]").forEach((b) => b.classList.toggle("on", (b.dataset.svg === "image") === image));
 }
 const sideName = (at: string) => (at === "WORKTREE" ? "Working tree" : at === "INDEX" ? "Staged" : at === "HEAD" ? "HEAD" : short(at));
 const bytesText = (n: number) => (n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 1024).toFixed(1)} KB` : megabytes(n));
@@ -1061,8 +1072,10 @@ export async function showRev(i: number) {
   const blob = await run<Blob>("blob", { at: c.hash, path: f.path }).catch((e) => (say(String(e), true), null));
   if (hist !== m || m.at !== i || !blob) return;
   m.blame = [];
-  // an image shows as itself, in the diff's binary pane
-  if (IMAGE.test(f.path) && blob.binary && blob.lfs !== "missing") {
+  // an image, or an SVG asked as one, shows as itself in the diff's binary pane
+  const isSvg = SVG.test(f.path) && blob.exists && !blob.large, image = isSvg && store("svg-view") === "image";
+  paintSvgView(isSvg, image);
+  if (image || (IMAGE.test(f.path) && blob.binary && blob.lfs !== "missing" && (!blob.large || blob.large <= IMAGE_UNASKED))) {
     $("hist-file").hidden = true;
     $("diff-binary").hidden = false;
     $("diff-binary").classList.add("images");
