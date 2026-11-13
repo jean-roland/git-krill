@@ -220,6 +220,9 @@ addEventListener("keydown", (e) => {
   else if (e.ctrlKey && key === "t") (e.preventDefault(), addTab());
   else if (e.ctrlKey && key === "o") (e.preventDefault(), openPicked());
   else if (e.ctrlKey && key === "w") (e.preventDefault(), closeTab(active));
+  // fields and buttons answer Enter themselves: elsewhere in a dialog it means its main action
+  else if (e.key === "Enter" && !$("dialog").hidden && !(e.target as HTMLElement).closest?.("input, textarea, button, select"))
+    (e.preventDefault(), $("dialog").querySelector<HTMLElement>("button.primary")?.click());
   else if (e.key === "Escape") {
     if (!$("menu").hidden) $("menu").hidden = $("submenu").hidden = true;
     else if (!$("banner").hidden) hideBanner();

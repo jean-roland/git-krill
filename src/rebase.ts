@@ -142,7 +142,11 @@ function setAction(i: number, action: Action) {
   };
   summary.oninput = () => countLeft(summary, left);
   countLeft(summary, left);
-  onCtrlEnter([summary, desc], update);
+  onCtrlEnter([desc], update);
+  // a popup: Enter in its one-line field validates, like every other
+  summary.onkeydown = (e) => {
+    if (e.key === "Enter") update();
+  };
   showDialog(`Reword ${short(r.c.hash)}`, [h("div", { className: "summary" }, summary, left), desc], [h("button", { className: "primary", textContent: "Update message", onclick: update })], paint, "reword");
   summary.focus();
 }
