@@ -70,7 +70,7 @@ const LFS_CHIP_TIPS: Record<string, string> = {
 /** A chip marking a file git-lfs stores: struck out in red while git-lfs cannot serve the repository. */
 export function lfsChip() {
   const why = LFS_CHIP_TIPS[refs.lfsProblem];
-  return h("small", { className: why ? "lfs off" : "lfs", textContent: "LFS", title: why ?? "Stored with Git LFS" });
+  return h("small", { className: why ? "lfs broken" : "lfs", textContent: "LFS", title: why ?? "Stored with Git LFS" });
 }
 // what may change the remotes' tags, or the list of them
 const NET_OPS = new Set(["fetch", "fetch-remote", "pull", "push", "push-upstream", "tag-push", "push-delete", "tag-rename"]);
@@ -94,7 +94,8 @@ export const headHash = () => commits.find(isHead)?.hash ?? "";
 export const run = <T>(cmd: string, args: Record<string, unknown> = {}) => invoke<T>(cmd, { repo, ...args });
 export const DEFAULT_EDITOR = "code -g {file}:{line}";
 /** Open the working tree's `path` at `line` with the Settings tab's editor command. */
-export const openInEditor = (path: string, line: number) => run("open_in_editor", { path, line, editor: store("editor") || DEFAULT_EDITOR });
+// an emptied command means the desktop's default app
+export const openInEditor = (path: string, line: number) => run("open_in_editor", { path, line, editor: store("editor") ?? DEFAULT_EDITOR });
 
 // a commit never changes: the last answer per command about one is kept
 const fixed = new Map<string, { key: string; data: Promise<unknown> }>();
@@ -811,18 +812,20 @@ export const fetchMinutes = () => Number(store("fetch-minutes")) || 5;
 /** A quiet fetch of the open repository, `gap` ms after its last at the soonest: ahead/behind and remote branches stay fresh; failures (offline) stay silent. */
 export function autoFetch(gap = 60_000) {
   const r = repo;
-  if (!r || store("auto-fetch") === "off" || Date.now() - (fetchedAt.get(r) ?? 0) < gap || document.body.classList.contains("busy")) return;
+  // timed from its start, a few seconds early allowed: the minute tick would otherwise just miss it
+  if (!r || store("auto-fetch") === "off" || Date.now() - (fetchedAt.get(r) ?? 0) < gap - 5_000 || document.body.classList.contains("busy")) return;
+  const started = Date.now();
   // never twice at once: on a dead network one can hang for minutes
   fetchedAt.set(r, Infinity);
   run<string>("git_op", { op: "auto-fetch", arg: "" }).then(
     (out) => {
-      fetchedAt.set(r, Date.now());
+      fetchedAt.set(r, started);
       if (r === repo) loadRemoteTags();
       // with several remotes git names each one even when nothing came
       if (r === repo && out.split("\n").some((l) => l.trim() && !l.startsWith("Fetching "))) refresh();
     },
     (e) => {
-      fetchedAt.set(r, Date.now());
+      fetchedAt.set(r, started);
       if (!String(e).includes("krill: needs a passphrase or password") || toldAuth.has(r)) return;
       toldAuth.add(r);
       toast(`Auto-fetch skipped: ${aliases()[r] ?? basename(r)}`, "Its remote needs a passphrase or password, which a background fetch cannot ask for. Use Fetch to enter it.", "info");

@@ -284,7 +284,7 @@ function authorBlock(c: Commit, email: string, sign: string) {
 
 // git's %G? letter of an unsigned commit: said without asking the server
 const UNSIGNED = "N";
-// the host's verdicts by commit, asked once: "<host> true valid", a GH_HELP key when gh cannot ask, or ""
+// the host's verdicts by commit: "<host> true valid" kept, a GH_HELP key or "" (not pushed yet, offline) asked again next time
 const verdicts = new Map<string, Promise<string>>();
 const GH_HELP: Record<string, string> = {
   "gh-missing": "Install the GitHub CLI (gh) to have the remote server verify commit signatures.",
@@ -297,13 +297,13 @@ function verdict(hash: string) {
     verdicts.set(
       hash,
       (async () => {
-        const remote = linkRemote(), m = remote ? (await webUrl(remote)).match(/^https:\/\/([^/]+)\/(.+)$/) : null;
+        const remote = linkRemote(), m = remote ? (await webUrl(remote).catch(() => "")).match(/^https:\/\/([^/]+)\/(.+)$/) : null;
         if (!m) return "";
         return run<string>("gh_verified", { host: m[1], slug: m[2], hash }).then(
           (v) => `${m[1]} ${v}`,
           (e) => (GH_HELP[String(e)] ? (warnOnce(String(e), "Signatures not checked", GH_HELP[String(e)], "info"), String(e)) : ""),
         );
-      })(),
+      })().then((v) => (v.split(" ")[1] ? v : (verdicts.delete(hash), v))),
     );
   return verdicts.get(hash)!;
 }
@@ -313,14 +313,17 @@ function signBadge(hash: string, sign: string) {
   if (!sign) return [];
   if (sign === UNSIGNED) return [h("span", { className: "sig unsigned", textContent: "Unsigned", title: "Commit isn't signed" })];
   const b = h("span", { className: "sig unknown", textContent: "Verifying", title: "Asking the remote server about the commit signature" });
-  verdict(hash).then((v) => {
+  const paint = (v: string) => {
     const ok = v.split(" ")[1];
     const [cls, text, title] =
       ok === "true" ? ["good", "Verified", "Remote server verified the commit signature"]
       : ok === "false" ? ["warn", "Unverified", "Remote server couldn't verify the commit signature"]
       : ["unknown", "Not checked", GH_HELP[v] ?? "Remote server couldn't be asked about the commit signature"];
     Object.assign(b, { className: `sig ${cls}`, textContent: text, title });
-  });
+  };
+  if (verdicts.has(hash)) verdict(hash).then(paint);
+  // arrowing through the graph asks only where it stops
+  else setTimeout(() => b.isConnected && verdict(hash).then(paint), 300);
   return [b];
 }
 

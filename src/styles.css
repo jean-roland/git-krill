@@ -68,7 +68,7 @@ button.bad { color: var(--del); }
 /* line icons, stroked; no weight, so the rules below can set their stroke */
 :where(svg[viewBox="0 0 24 24"]) { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 /* an icon before a button's text */
-.toggle svg, #diff-history svg, #open-editor svg, #m-reset svg, #m-save svg, .force-load svg, .open-default svg, .lfs-fetch svg, .foot svg, #diff-save svg, #commit-btn svg, #op-btns svg, .edit-btns svg, #commit-msg .edit svg, .load-more svg { width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; }
+.toggle svg, #diff-history svg, #open-editor svg, .force-load svg, .open-default svg, .lfs-fetch svg, .foot svg, #diff-save svg, #commit-btn svg, #op-btns svg, .edit-btns svg, #commit-msg .edit svg, .load-more svg { width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; }
 
 /* header: repository, branch, toolbar */
 header {
@@ -118,9 +118,9 @@ header {
 /* its caret sits against it, a split button */
 #pull { min-width: 44px; }
 .tool.caret svg { width: 16px; height: 16px; }
-/* ahead/behind count as a badge on the icon */
 /* an empty one stays out of the column too, else its gap makes the toolbar 3px taller */
 .tool small:empty { display: none; }
+/* ahead/behind count as a badge on the icon */
 .tool small:not(:empty) {
   position: absolute;
   top: 1px;
@@ -500,10 +500,9 @@ body.home main { grid-template-columns: 1fr; }
 .file .path { flex: 1; display: flex; min-width: 0; }
 .file .dir { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--dim); }
 .file .name { flex: none; }
-.file .lfs { margin-left: 0; }
 /* a box of its own: as plain inline text the path's clipping cut its border */
 #diff-path .lfs { display: inline-block; vertical-align: 1px; margin: 0 8px 0 0; }
-.lfs.off { border-color: var(--del); color: var(--del); text-decoration: line-through; }
+.lfs.broken { border-color: var(--del); color: var(--del); text-decoration: line-through; }
 .file.same .name { color: var(--dim); }
 /* floats over the row's end: showing it does not squeeze the path */
 .file button { display: none; position: absolute; right: 10px; padding: 0 8px; font-size: 13px; font-weight: 600; }
@@ -629,7 +628,7 @@ textarea.msg-in { height: 104px; resize: vertical; }
 .bar button { flex: none; white-space: nowrap; }
 #diff-path { min-width: 40px; }
 /* capitals only: no descender below them, so the text sits a pixel lower */
-.lfs { flex: none; margin-left: 8px; padding: 2px 4px 0; border: 1px solid var(--accent); border-radius: 3px; color: var(--accent); font: 10px/12px var(--mono); }
+.lfs { flex: none; padding: 2px 4px 0; border: 1px solid var(--accent); border-radius: 3px; color: var(--accent); font: 10px/12px var(--mono); }
 #hist-path { min-width: 0; font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .seg { display: inline-flex; }
 .seg button { border-radius: 0; margin-left: -1px; }
@@ -640,7 +639,8 @@ textarea.msg-in { height: 104px; resize: vertical; }
 .seg button.on { position: relative; z-index: 1; background: var(--sel); border-color: var(--accent); }
 .seg button svg { width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; }
 #diff-editor { flex: 1; min-height: 0; }
-#diff-binary { padding: 20px; color: var(--dim); }
+/* a long submodule card scrolls */
+#diff-binary { flex: 1; min-height: 0; overflow: auto; padding: 20px; color: var(--dim); }
 /* a submodule's change: its old and new commit, the ones between */
 .sub-line { display: flex; align-items: baseline; gap: 12px; padding: 8px 12px; color: var(--text); }
 .sub-line.del { background: color-mix(in srgb, var(--del) 18%, transparent); }

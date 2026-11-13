@@ -79,20 +79,25 @@ function fetchRows() {
 }
 
 function editorRow() {
-  const cmd = h("input", { value: store("editor") || DEFAULT_EDITOR, spellcheck: false });
+  const cmd = h("input", { value: store("editor") ?? DEFAULT_EDITOR, spellcheck: false });
   cmd.onchange = () => (store("editor", cmd.value.trim()), say("Editor command saved"));
-  return row("Open in editor", cmd, hint(`{file} and {line} are filled in; the default is ${DEFAULT_EDITOR}. Without it, the desktop's default app opens the file.`));
+  return row("Open in editor", cmd, hint(`{file} and {line} are filled in; the default is ${DEFAULT_EDITOR}. Left empty, the desktop's default app opens the file.`));
 }
 
 /** ~/.gitconfig's identity, saved field by field. */
 function identityRows() {
-  const set = (key: string, value: string) => invoke("set_global_config", { key, value }).then(() => say(`Saved ${key}`), (e) => say(String(e), true));
   const fields = IDENTITY.map(([key]) => h("input", { spellcheck: false, onchange: (e: Event) => set(key, (e.target as HTMLInputElement).value.trim()) }));
   const sign = h("input", { type: "checkbox", onchange: () => set("commit.gpgsign", sign.checked ? "true" : "") });
-  invoke<string[]>("global_config").then((values) => {
-    fields.forEach((f, i) => (f.value = values[i]));
-    sign.checked = values[3] === "true";
-  });
+  const load = () =>
+    invoke<string[]>("global_config").then((values) => {
+      fields.forEach((f, i) => (f.value = values[i]));
+      sign.checked = values[3] === "true";
+    });
+  // one write at a time: two would fight over the config's lock; a failed one shows what is really saved
+  let writing = Promise.resolve();
+  const set = (key: string, value: string) =>
+    (writing = writing.then(() => invoke("set_global_config", { key, value }).then(() => say(`Saved ${key}`), (e) => (say(String(e), true), load()))));
+  load();
   return [
     ...IDENTITY.map(([, label], i) => row(label, fields[i])),
     row("Sign commits", h("label", {}, sign, " Sign every commit with the signing key"), hint("A repository's own settings win over these.")),

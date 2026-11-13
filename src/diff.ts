@@ -72,10 +72,9 @@ export const loadMonaco = () =>
     },
   });
   }));
-// full: loaded past the size a diff loads unasked
 type SubCommit = { hash: string; subject: string };
 type SubmoduleChange = { old: SubCommit | null; new: SubCommit | null; added: SubCommit[]; removed: SubCommit[]; changed: number; untracked: number; initialized: boolean };
-// sub: what a submodule went through, shown instead of a text diff
+// full: loaded past the size a diff loads unasked; sub: what a submodule went through, shown instead of a text diff
 export let diffFile: { kind: DiffSource; f: Change; c?: Commit; orig: Blob; mod: Blob; dirty: boolean; full: boolean; sub?: SubmoduleChange } | null = null;
 export let diffEditor: Monaco.editor.IStandaloneDiffEditor | null = null;
 // hunk header bars, as view zone ids per side
@@ -283,9 +282,10 @@ function updateHunkBars() {
   hunks = diffFile ? lineChanges() : [];
   // a deletion marks the line it follows; a changed hunk splits the lane, removed left and added right
   const { Left, Right, Full } = monaco.editor.OverviewRulerLane;
+  const colors: Record<string, string> = { "--add": `${cssVar("--add")}99`, "--del": `${cssVar("--del")}99` };
   const mark = (c: LineChange, color: string, position: Monaco.editor.OverviewRulerLane) => ({
     range: new monaco.Range(Math.max(c.ms, 1), 1, Math.max(c.me, c.ms, 1), 1),
-    options: { overviewRuler: { color: `${cssVar(color)}99`, position } },
+    options: { overviewRuler: { color: colors[color], position } },
   });
   changeMarks.set(hunks.flatMap((c) => (!c.oe ? [mark(c, "--add", Full)] : !c.me ? [mark(c, "--del", Full)] : [mark(c, "--del", Left), mark(c, "--add", Right)])));
   // bars head the hunks between folds; in the whole file the line numbers say where a change is
@@ -338,7 +338,17 @@ async function fetchSides(kind: DiffSource, f: Change, c?: Commit, full = false)
 export const confirmDrop = async () =>
   (!diffFile?.dirty || (await ask(`Drop unsaved edits to ${diffFile.f.path}?`, "Drop edits"))) && (!merging?.dirty || (await ask(`Drop the merge of ${merging.f.path}?`, "Drop")));
 
+/** What submodule `f` went through between the diff's two sides. */
+function submoduleChange(kind: DiffSource, f: Change, c?: Commit) {
+  const [from, to] = kind === "unstaged" ? ["INDEX", "WORKTREE"] : kind === "staged" ? ["HEAD", "INDEX"] : [c!.parents[0] ?? "", c!.hash];
+  return run<SubmoduleChange>("submodule_change", { path: f.path, from, to });
+}
+
+// the latest file asked for: an earlier one still loading gives way
+let openSeq = 0;
+
 export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistory = false) {
+  const seq = ++openSeq;
   await loadMonaco();
   // a file picked outside the history leaves it
   if (hist && !inHistory) await closeHistory();
@@ -349,13 +359,13 @@ export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistor
   let orig: Blob, mod: Blob, sub: SubmoduleChange | undefined;
   try {
     if (isSubmodule(f.path)) {
-      const [from, to] = kind === "unstaged" ? ["INDEX", "WORKTREE"] : kind === "staged" ? ["HEAD", "INDEX"] : [c!.parents[0] ?? "", c!.hash];
-      sub = await run<SubmoduleChange>("submodule_change", { path: f.path, from, to });
+      sub = await submoduleChange(kind, f, c);
       orig = mod = { text: "", exists: false, binary: false, large: null, lfs: "" };
     } else [orig, mod] = await fetchSides(kind, f, c);
   } catch (e) {
     return say(String(e), true);
   }
+  if (seq !== openSeq) return;
   // what is on screen stays until the new diff is drawn: the graph under a see-through pane, a merge or diff under a still copy
   const gen = ++opening, fresh = $("diff").hidden && !merging;
   const copy = document.querySelector(".still") ?? still(merging ? $("merge") : [$("diff-editor"), $("diff-binary")].find((e) => !$("diff").hidden && !e.hidden));
@@ -363,7 +373,6 @@ export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistor
   diffFile = { kind, f, c, orig, mod, dirty: false, full: false, sub };
   if (fresh) $("diff").classList.add("blank");
   $("diff").hidden = false;
-  document.body.classList.add("diffing");
   const range = c ? `  ·  ${c.parents[0] ? short(c.parents[0]) : "root"}..${short(c.hash)}` : "";
   $("diff-path").replaceChildren(...(orig.lfs || mod.lfs ? [lfsChip()] : []), (f.old ? `${f.old} → ${f.path}` : f.path) + range);
   paintOpenEditor();
@@ -395,7 +404,7 @@ function still(el?: HTMLElement) {
 // lib.rs MAX_ASKED: past it a file does not load even when asked
 const MAX_ASKED = 200 << 20;
 
-/** The open diff's sides in the editor, or why not: binary, or too big to load unasked. */
+/** The open diff's sides in the editor, or in their place a submodule's card, the images, or why not: binary, not downloaded, too big. */
 function paintSides() {
   const { kind, f, c, orig, mod, sub } = diffFile!;
   const binary = orig.binary || mod.binary, large = Math.max(orig.large ?? 0, mod.large ?? 0);
@@ -426,7 +435,7 @@ function paintSides() {
   dimDiffOpts(pane && !images);
   if (images) [$("prev-change"), $("next-change")].forEach((b) => b.classList.add("off"));
   applyMode();
-  if (pane) return Promise.resolve();
+  if (pane) return Promise.resolve(dropModels());
   // Monaco gives up on a diff after 5 s and marks the whole file changed: a file loaded on request gets the time it takes
   setOptions({ maxComputationTime: diffFile!.full ? 0 : 5000 });
   setModels(false);
@@ -458,9 +467,14 @@ const SVG = /\.svg$/i;
 const IMAGE_UNASKED = 50 << 20;
 
 /** An SVG's diff as its text or as drawn, remembered for the next ones. */
-export function setSvgView(view: string) {
+export async function setSvgView(view: string) {
+  // the text comes back from the file: edits to it would be lost
+  if (!(await confirmDrop())) return;
   store("svg-view", view);
-  if (diffFile) paintSides();
+  if (diffFile) {
+    diffFile.dirty = false;
+    paintSides();
+  }
   // the history's File view: showRev only redraws another row
   else if (hist) {
     const at = hist.at;
@@ -477,7 +491,7 @@ function paintSvgView(shown: boolean, image: boolean) {
 const sideName = (at: string) => (at === "WORKTREE" ? "Working tree" : at === "INDEX" ? "Staged" : at === "HEAD" ? "HEAD" : short(at));
 const bytesText = (n: number) => (n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 1024).toFixed(1)} KB` : megabytes(n));
 
-/** The open image's old and new versions, each as big as fits. */
+/** The open image's old and new versions, side by side. */
 function imageSides() {
   const { kind, f, c, orig, mod } = diffFile!;
   const sides = sideSources(kind, f, c).flatMap(([at, path], i) => ((i ? mod : orig).exists ? [imageSide(at, path, i ? "add" : "del")] : []));
@@ -492,8 +506,9 @@ function imageSide(at: string, path: string, cls = "") {
       // Blob here is git's, from ./repo
       // an SVG draws only with its type; the others are recognised by their bytes
       const url = URL.createObjectURL(new globalThis.Blob([bytes], { type: SVG.test(path) ? "image/svg+xml" : "" }));
-      const pixels = () => (img.naturalWidth ? ` · ${img.naturalWidth}×${img.naturalHeight}` : "");
-      img.onload = () => (URL.revokeObjectURL(url), (caption.textContent = `${sideName(at)}${pixels()} · ${bytesText(bytes.byteLength)}`));
+      const size = bytesText(bytes.byteLength), pixels = () => (img.naturalWidth ? ` · ${img.naturalWidth}×${img.naturalHeight}` : "");
+      img.onload = () => (URL.revokeObjectURL(url), (caption.textContent = `${sideName(at)}${pixels()} · ${size}`));
+      img.onerror = () => (URL.revokeObjectURL(url), (caption.textContent = `${sideName(at)} · ${size}: cannot be shown`));
       img.src = url;
     },
     (e) => (caption.textContent = String(e)),
@@ -507,9 +522,10 @@ function lfsFetchButton() {
   // uncommitted versions are local once staged: what can be missing comes with HEAD
   const revs = d.kind === "commit" ? [d.c!.hash, ...d.c!.parents.slice(0, 1)].filter((r) => r !== "WORKTREE") : ["HEAD"];
   const fetchLfs = async () => {
-    if (!(await gitOp("lfs-fetch", revs.join(" "), false)) || diffFile !== d) return;
-    const [orig, mod] = await fetchSides(d.kind, d.f, d.c, d.full);
-    if (diffFile !== d) return;
+    if (!(await gitOp("lfs-fetch", [revs.join(" "), [d.f.path, d.f.old].filter(Boolean).join(",")], false)) || diffFile !== d) return;
+    const sides = await fetchSides(d.kind, d.f, d.c, d.full).catch((e) => void say(String(e), true));
+    if (diffFile !== d || !sides) return;
+    const [orig, mod] = sides;
     Object.assign(d, { orig, mod });
     paintSides();
   };
@@ -601,34 +617,52 @@ function moveOn(kind: "staged" | "unstaged", f: Change, row: number) {
 
 /** Refresh the open diff; `row` is where its WIP file was before the lists changed. */
 export async function reloadDiff(row = -1) {
-  if (!diffFile || diffFile.dirty || !status) return;
-  const { kind, f } = diffFile;
+  const d = diffFile;
+  if (!d || d.dirty || !status) return;
+  const { kind, f } = d;
   if (kind !== "commit" && !status[kind].some((x) => x.path === f.path)) return moveOn(kind, f, row);
   // the file may have changed status code
-  if (kind !== "commit") diffFile.f = status[kind].find((x) => x.path === f.path)!;
+  if (kind !== "commit") d.f = status[kind].find((x) => x.path === f.path)!;
   // a commit's sides never change, the uncommitted row of a file history aside
-  else if (diffFile.c?.hash !== "WORKTREE") return paintOpenEditor();
-  const [orig, mod] = await fetchSides(diffFile.kind, diffFile.f, diffFile.c, diffFile.full);
-  if (!diffFile || diffFile.dirty) return;
+  else if (d.c?.hash !== "WORKTREE") return paintOpenEditor();
+  if (d.sub) {
+    const sub = await submoduleChange(d.kind, d.f, d.c).catch(() => d.sub);
+    if (diffFile !== d || JSON.stringify(sub) === JSON.stringify(d.sub)) return;
+    d.sub = sub;
+    return paintSides();
+  }
+  const [orig, mod] = await fetchSides(d.kind, d.f, d.c, d.full);
+  // another file opened meanwhile, or edits began
+  if (diffFile !== d || d.dirty) return;
   paintOpenEditor();
-  if (orig.text === diffFile.orig.text && mod.text === diffFile.mod.text && orig.binary === diffFile.orig.binary) return;
-  Object.assign(diffFile, { orig, mod });
-  if (orig.binary || mod.binary) return;
-  // an SVG shown drawn redraws its images
-  if ($("diff-editor").hidden) return paintSides();
+  const same = (a: Blob, b: Blob) => a.text === b.text && a.exists === b.exists && a.binary === b.binary && a.large === b.large && a.lfs === b.lfs;
+  if (same(orig, d.orig) && same(mod, d.mod)) return;
+  Object.assign(d, { orig, mod });
+  // no text diff before or now: its pane is painted again
+  if ($("diff-editor").hidden || orig.binary || mod.binary || orig.large || mod.large) return paintSides();
   // the old diff stays on screen until the new one is drawn
-  const gen = opening, copy = $("diff-editor").hidden ? null : still($("diff-editor"));
+  const gen = opening, copy = still($("diff-editor"));
   setModels(true);
   await diffDrawn();
   // a file opened meanwhile took the copy over
   requestAnimationFrame(() => gen === opening && copy?.remove());
 }
 
+/** The text diff's models freed: a file loaded on request can be hundreds of MB. */
+function dropModels() {
+  if (!diffView) return;
+  editor().setModel(null);
+  diffView.dispose();
+  diffView.model.original.dispose();
+  diffView.model.modified.dispose();
+  diffView = null;
+}
+
 export async function closeDiff(force = false) {
   if (!force && diffFile?.dirty && !(await ask(`Drop unsaved edits to ${diffFile.f.path}?`, "Drop edits"))) return;
   diffFile = null;
   $("diff").hidden = true;
-  document.body.classList.remove("diffing");
+  dropModels();
   markOpenFile();
 }
 
@@ -805,7 +839,6 @@ async function openConflict(f: Change) {
   if (!text || text.binary) return closeMerge(true).then(() => conflictBanner(f));
   merging = { f, chunks: parseConflicts(text.text), picks: [], spans: [], ids: [], at: 0, dirty: false, hover: "" };
   $("merge").hidden = false;
-  document.body.classList.add("diffing");
   $("m-path").textContent = f.path;
   $("m-a-name").textContent = opInfo?.current ?? "";
   $("m-b-name").textContent = opInfo?.incoming ?? "";
@@ -977,7 +1010,6 @@ export async function closeMerge(force = false) {
   if (!force && merging.dirty && !(await ask(`Drop the merge of ${merging.f.path}?`, "Drop"))) return false;
   merging = null;
   $("merge").hidden = true;
-  document.body.classList.remove("diffing");
   markOpenFile();
   return true;
 }
@@ -1060,6 +1092,8 @@ export async function showRev(i: number) {
     // openDiff closes a diff opened again
     const opening = diffFile?.c?.hash !== c.hash;
     if (opening) await openDiff("commit", f, c, true);
+    // back on the shown commit: a diff still loading for another gives way
+    else openSeq++;
     if (hist !== m || m.at !== i) return;
     histPane(false);
     return reveal(opening ? diffDrawn() : undefined);
@@ -1070,7 +1104,8 @@ export async function showRev(i: number) {
   // the file shows first, its blame (slower) fills the gutter when it comes
   const blame = run<string>("blame", { at: c.hash, path: f.path }).catch(() => "");
   const blob = await run<Blob>("blob", { at: c.hash, path: f.path }).catch((e) => (say(String(e), true), null));
-  if (hist !== m || m.at !== i || !blob) return;
+  if (hist !== m || m.at !== i) return;
+  if (!blob) return reveal();
   m.blame = [];
   // an image, or an SVG asked as one, shows as itself in the diff's binary pane
   const isSvg = SVG.test(f.path) && blob.exists && !blob.large, image = isSvg && store("svg-view") === "image";
@@ -1103,15 +1138,17 @@ export async function showRev(i: number) {
 function histPane(file: boolean) {
   $("diff").hidden = false;
   $("hist-file").hidden = !file;
-  if (file) $("diff-editor").hidden = $("diff-binary").hidden = $("svg-view").hidden = true;
-  dimDiffOpts(file);
+  if (!file) return;
+  $("diff-editor").hidden = $("diff-binary").hidden = $("svg-view").hidden = true;
+  // the diff's own state undims them
+  dimDiffOpts(true);
 }
 
 const dimDiffOpts = (dim: boolean) =>
   [$("prev-change"), $("next-change"), ...document.querySelectorAll<HTMLElement>("[data-mode]")].forEach((b) => b.classList.toggle("off", dim));
 
 /** Show the history's pane once `drawn` settles, a frame later so it is painted. */
-export const reveal = (drawn?: Promise<unknown>) => (drawn ?? Promise.resolve()).then(() => requestAnimationFrame(() => $("hist-main").classList.remove("blank")));
+const reveal = (drawn?: Promise<unknown>) => (drawn ?? Promise.resolve()).then(() => requestAnimationFrame(() => $("hist-main").classList.remove("blank")));
 
 // a diff's hunks and folds land a moment after its text
 const diffDrawn = (ms = 500) =>
