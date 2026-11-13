@@ -411,7 +411,7 @@ function paintSides() {
     ...(sub
       ? submoduleCard(f.path, sub)
       : missing
-        ? [`${basename(f.path)} is stored with Git LFS and this version is not downloaded: whole-file actions only.`]
+        ? [`${basename(f.path)} is stored with Git LFS and this version is not downloaded: whole-file actions only.`, lfsFetchButton()]
         : images
           ? [imageSides()]
           : binary && large && IMAGE.test(f.path)
@@ -478,6 +478,21 @@ function imageSide(at: string, path: string, cls = "") {
     (e) => (caption.textContent = String(e)),
   );
   return h("figure", { className: `img-side ${cls}` }, h("div", { className: "frame" }, img), caption);
+}
+
+/** Download the open diff's LFS versions from the remote, then show them. */
+function lfsFetchButton() {
+  const d = diffFile!;
+  // uncommitted versions are local once staged: what can be missing comes with HEAD
+  const revs = d.kind === "commit" ? [d.c!.hash, ...d.c!.parents.slice(0, 1)].filter((r) => r !== "WORKTREE") : ["HEAD"];
+  const fetchLfs = async () => {
+    if (!(await gitOp("lfs-fetch", revs.join(" "), false)) || diffFile !== d) return;
+    const [orig, mod] = await fetchSides(d.kind, d.f, d.c, d.full);
+    if (diffFile !== d) return;
+    Object.assign(d, { orig, mod });
+    paintSides();
+  };
+  return h("button", { className: "lfs-fetch", innerHTML: `${svg(ICONS.load)}Download from LFS`, onclick: fetchLfs });
 }
 
 /** Open version `at` of `path` in the desktop's app for its type. */

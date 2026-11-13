@@ -786,6 +786,7 @@ fn git_blob(repo: &str, spec: &str, max: usize) -> Result<Blob, String> {
         return Ok(MISSING);
     }
     match lfs_object(repo, &bytes) {
+        Some((object, _)) if !object.exists() => Ok(Blob { lfs: "missing", ..BINARY }),
         Some((object, size)) if size > max as u64 => Ok(Blob { lfs: "here", binary: looks_binary(&file_head(&object)), ..large(size) }),
         Some((object, _)) => Ok(std::fs::read(object).map_or(Blob { lfs: "missing", ..BINARY }, |b| Blob { lfs: "here", ..blob_of(b) })),
         None => Ok(blob_of(bytes)),
@@ -1287,6 +1288,15 @@ fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         "rebase-interactive" => return rebase_interactive(&repo, &arg, &arg2),
         "tag-rename" => return tag_rename(&repo, &arg, &arg2),
         "submodule-discard" => return submodule_discard(&repo, &arg),
+        // the LFS objects of the commits in `arg`; git-lfs takes refs only after a remote: the branch's own, else origin
+        "lfs-fetch" => {
+            let up = git(&repo, &["rev-parse", "--abbrev-ref", "@{u}"]).unwrap_or_default();
+            let mut args = vec!["--no-literal-pathspecs", "lfs", "fetch", up.split_once('/').map_or("origin", |(r, _)| r)];
+            for rev in arg.split_whitespace() {
+                args.push(not_option(rev)?);
+            }
+            return git_with_stderr(&repo, &args);
+        }
         // arg2: JSON [new branch, commit it starts from]
         "worktree-add-new" => {
             let [branch, from]: [String; 2] = serde_json::from_str(&arg2).map_err(|e| e.to_string())?;

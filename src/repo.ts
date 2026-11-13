@@ -51,6 +51,7 @@ const DONE: Record<string, (arg: string, arg2: string, branch: string, upstream:
   "worktree-force-remove": (path) => `Removed worktree ${basename(path)}`,
   "worktree-prune": () => "Pruned the worktrees whose folder is gone",
   "lfs-pull": () => "Pulled the LFS files",
+  "lfs-fetch": () => "Downloaded the LFS files",
   "submodule-add": (_url, path) => `Added submodule ${path}: commit to record it`,
 };
 // what to do when git-lfs cannot serve a repository that uses it, by refs' lfsProblem

@@ -68,7 +68,7 @@ button.bad { color: var(--del); }
 /* line icons, stroked; no weight, so the rules below can set their stroke */
 :where(svg[viewBox="0 0 24 24"]) { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 /* an icon before a button's text */
-.toggle svg, #diff-history svg, #open-editor svg, #m-reset svg, #m-save svg, .force-load svg, .open-default svg, .foot svg, #diff-save svg, #commit-btn svg, #op-btns svg, .edit-btns svg, #commit-msg .edit svg, .load-more svg { width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; }
+.toggle svg, #diff-history svg, #open-editor svg, #m-reset svg, #m-save svg, .force-load svg, .open-default svg, .lfs-fetch svg, .foot svg, #diff-save svg, #commit-btn svg, #op-btns svg, .edit-btns svg, #commit-msg .edit svg, .load-more svg { width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; }
 
 /* header: repository, branch, toolbar */
 header {
