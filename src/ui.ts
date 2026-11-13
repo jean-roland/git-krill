@@ -6,7 +6,8 @@ import { sprite } from "./core.js";
 // null draws a separator
 // an entry with items opens them beside it on hover
 // a title heads the menu with what its items act on, so they need not name it
-export type MenuItem = [string, (() => unknown) | MenuItem[]] | { title: string; icon: string } | null;
+// a null action greys the entry out
+export type MenuItem = [string, (() => unknown) | MenuItem[] | null] | { title: string; icon: string } | null;
 export const COLORS = ["#46b1ab", "#5d88d9", "#9c5dd9", "#5bc78e", "#d9ba5d", "#d95d96", "#d97d5d", "#d95d72"];
 export const ICONS: Record<string, string> = {
   m: "M4 20h4L19 9l-4-4L4 16z",
@@ -283,7 +284,8 @@ function fillMenu(m: HTMLElement, items: MenuItem[]) {
       if (!Array.isArray(it)) return h("div", { className: "menu-title", title: it.title }, ico(it.icon), h("span", { textContent: it.title }));
       const [label, act] = it;
       // a very long name (a branch, a remote) is cut in its middle: the action around it stays readable
-      const b = h("button", { textContent: label.replace(/\S{33,}/g, (w) => `${w.slice(0, 16)}…${w.slice(-12)}`) });
+      const b = h("button", { textContent: label.replace(/\S{33,}/g, (w) => `${w.slice(0, 16)}…${w.slice(-12)}`), disabled: !act });
+      if (!act) return b;
       if (typeof act === "function") {
         b.onclick = act;
         // leaving for another row of the main menu closes the side one

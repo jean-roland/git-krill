@@ -4,9 +4,9 @@ import "@xterm/xterm/css/xterm.css";
 import { Mode, closeDiff, closeHistory, closeMerge, diffEditor, diffFile, editor, goConflict, hist, histEd, histView, loadMerge, loadMonaco, merging, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setMode, showRev, warmDiff } from "./diff";
 import { rebaseKey } from "./rebase";
 import { SORTS, amending, commit, conflictCount, emptyStep, fileLists, filterFiles, foldAll, getMsg, openFile, paintFileOpts, renderCommitBtn, renderPanel, setMsg } from "./panel";
-import { $, ask, closeDialog, hideBanner, input, onCtrlEnter, pickDir, say, store } from "./ui";
+import { $, ask, closeDialog, hideBanner, input, onCtrlEnter, pickDir, popup, say, store } from "./ui";
 import { closeFind, drawRows, findStep, findTyped, stepBack, openFind, paintSelection, showRow, shown } from "./graph";
-import { Change, active, addTab, autoFetch, cloneDialog, closeTab, gitOp, opInfo, openPicked, openRepo, paintPull, pull, pullMenu, push, refresh, renderTabHits, reopenTab, repo, restoreTabs, run, selection, switchTab, tabs, undoRedo } from "./repo";
+import { Change, active, addTab, autoFetch, cloneDialog, closeTab, gitOp, opInfo, newTabMenu, openPicked, openRepo, paintPull, pull, pullMenu, push, refresh, renderTabHits, reopenTab, repo, restoreTabs, run, selection, switchTab, tabs, undoRedo } from "./repo";
 import { terms, toggleTerm } from "./terminal";
 
 /** Up/Down walk the graph, or the files once Right opened one; Left goes back to the graph. */
@@ -66,6 +66,7 @@ addEventListener("focus", () => autoFetch());
 setInterval(() => autoFetch(), 5 * 60_000);
 document.querySelectorAll<HTMLElement>("[data-mode]").forEach((b) => (b.onclick = () => setMode(b.dataset.mode as Mode)));
 $("new-tab").onclick = addTab;
+$("new-tab").oncontextmenu = (e) => popup(e, newTabMenu());
 // past their narrowest, tabs scroll sideways under the wheel
 $("tablist").onwheel = (e) => ($("tablist").scrollLeft += e.deltaY + e.deltaX);
 $("graph").addEventListener("scroll", () => drawRows(), { passive: true });

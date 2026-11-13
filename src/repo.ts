@@ -344,6 +344,8 @@ function childLabel(t: Tab) {
 export const tabName = (t: Tab) => (!t.repo ? "Home" : t.parent ? `${repoLabel(t.parent)} › ${childLabel(t)}` : repoLabel(t.repo));
 // closed this session, for Ctrl+Shift+T
 const closedTabs: string[] = [];
+// a submodule shown in its parent's tab reopens as that parent
+const closedRepo = (t: Tab) => (t.worktree ? t.repo : t.parent || t.repo);
 
 /** Reopen the last run's tabs, then the repository krill was started on. */
 export async function restoreTabs() {
@@ -486,7 +488,7 @@ function land() {
 export async function closeTab(i: number) {
   if (i === active && !(await dropEdits())) return;
   dropTerm(tabs[i]);
-  if (tabs[i].repo) closedTabs.push(tabs[i].repo);
+  if (tabs[i].repo) closedTabs.push(closedRepo(tabs[i]));
   tabs.splice(i, 1);
   if (!tabs.length) tabs.push(newTab(""));
   if (i === active) return switchTab(Math.min(i, tabs.length - 1), false);
@@ -503,7 +505,7 @@ async function closeTabs(i: number, keep: (k: number) => boolean) {
   const gone = tabs.filter((_, k) => !keep(k));
   for (const t of gone) {
     dropTerm(t);
-    if (t.repo) closedTabs.push(t.repo);
+    if (t.repo) closedTabs.push(closedRepo(t));
   }
   tabs = tabs.filter((_, k) => keep(k));
   active = tabs.indexOf(kept);
@@ -519,9 +521,11 @@ function tabMenu(i: number): MenuItem[] {
     ["Close tabs to the right", () => closeTabs(i, (k) => k <= i)],
   ];
   if (t.repo) items.push(["Rename tab", () => renameTab(i)]);
-  if (closedTabs.length) items.push(["Reopen closed tab (Ctrl+Shift+T)", reopenTab]);
-  return items;
+  return [...items, reopenItem()];
 }
+
+const reopenItem = (): MenuItem => ["Reopen closed tab", closedTabs.length ? reopenTab : null];
+export const newTabMenu = (): MenuItem[] => [["New tab", addTab], reopenItem()];
 
 /** Rename a tab in place: Enter or leaving the field keeps it, Esc cancels, empty resets. */
 function renameTab(i: number) {
