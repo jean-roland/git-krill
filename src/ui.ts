@@ -275,6 +275,9 @@ export function popup(e: MouseEvent, items: MenuItem[]) {
 
 export function showMenu(items: MenuItem[], x: number, y: number) {
   const m = $("menu");
+  // its button clicked again: the menu closes
+  if (!m.hidden && m.dataset.at === `${x},${y}`) return void (m.hidden = true);
+  m.dataset.at = `${x},${y}`;
   fillMenu(m, items);
   $("submenu").hidden = true;
   m.hidden = false;
