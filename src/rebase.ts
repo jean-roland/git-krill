@@ -124,8 +124,9 @@ function pick(i: number) {
 function setAction(i: number, action: Action) {
   const r = plan!.rows[i];
   if (action === "squash" && target(i) < 0) return paint();
+  // any other action drops the new message: back to the commit's own
   if (action !== "reword") {
-    r.action = action;
+    Object.assign(r, { action, message: "" });
     return paint();
   }
   // reword asks the new message first; cancelling keeps the old action
