@@ -127,7 +127,7 @@ struct Refs {
     repo_top: String,
     // it stores files with git-lfs
     lfs: bool,
-    // why git-lfs cannot serve it: "missing" (not installed), "unset" (no `git lfs install`), else empty
+    // why git-lfs cannot serve it: "missing" (not installed, told for any repository: no Track), "unset" (no `git lfs install`), else empty
     lfs_problem: &'static str,
 }
 
@@ -352,7 +352,7 @@ fn refs(repo: String) -> Result<Refs, String> {
     let superproject = git(&repo, &["rev-parse", "--show-superproject-working-tree"])?.trim().to_string();
     // a clone made without git-lfs has no lfs folder yet, only the attributes
     let lfs = lfs_dir(&repo).is_ok_and(|d| d.is_dir()) || std::fs::read_to_string(Path::new(&repo).join(".gitattributes")).is_ok_and(|a| a.contains("filter=lfs"));
-    let lfs_problem = if lfs { lfs_problem(&repo) } else { "" };
+    let lfs_problem = if lfs || !lfs_installed() { lfs_problem(&repo) } else { "" };
     Ok(Refs { refs, stashes, remotes, worktrees, submodules: submodules(&repo)?, superproject, repo_top, lfs, lfs_problem })
 }
 
@@ -805,6 +805,54 @@ fn lfs_object(repo: &str, bytes: &[u8]) -> Option<(PathBuf, u64)> {
 /// \brief git-lfs's folder, which every worktree of the repository shares.
 fn lfs_dir(repo: &str) -> Result<PathBuf, String> {
     Ok(PathBuf::from(git(repo, &["rev-parse", "--path-format=absolute", "--git-common-dir"])?.trim()).join("lfs"))
+}
+
+/// \brief The patterns of a .gitattributes that store files with git-lfs, each with its line.
+fn lfs_rules(attributes: &str) -> Vec<(usize, &str)> {
+    let rules = attributes.split_inclusive('\n').enumerate().filter_map(|(i, line)| {
+        let mut words = line.split_whitespace();
+        let pattern = words.next().filter(|p| !p.starts_with('#') && !p.starts_with("[attr]"))?;
+        words.any(|w| w == "filter=lfs").then_some((i, pattern))
+    });
+    rules.collect()
+}
+
+/// \brief The LFS patterns of the top .gitattributes that match `path`, as written there: what untracking it takes.
+#[tauri::command(async)]
+fn lfs_patterns(repo: String, path: String) -> Result<Vec<String>, String> {
+    let attributes = std::fs::read_to_string(Path::new(&repo).join(".gitattributes")).unwrap_or_default();
+    let rules = lfs_rules(&attributes);
+    // git matches them itself: each pattern sets an attribute of its own in a probe file
+    let probe = git_dir(&repo)?.join("krill-attributes");
+    std::fs::write(&probe, rules.iter().map(|(i, p)| format!("{p} krill-lfs-{i}\n")).collect::<String>()).map_err(|e| e.to_string())?;
+    let out = git_bytes(&repo, &["-c", &format!("core.attributesFile={}", probe.display()), "check-attr", "-z", "-a", "--", &path], None);
+    let _ = std::fs::remove_file(&probe);
+    let out = out?;
+    // path, attribute, value, each NUL-ended
+    let fields: Vec<&[u8]> = out.split(|&b| b == 0).collect();
+    let hits: HashSet<String> = fields.chunks(3).filter(|f| f.len() == 3 && f[2] == b"set").map(|f| String::from_utf8_lossy(f[1]).into_owned()).collect();
+    Ok(rules.into_iter().filter(|(i, _)| hits.contains(&format!("krill-lfs-{i}"))).map(|(_, p)| p.to_string()).collect())
+}
+
+/// \brief Drop `patterns`, one a line, from the top .gitattributes; the files they stored show as changed.
+fn lfs_untrack(repo: &str, patterns: &str) -> Result<String, String> {
+    let file = Path::new(repo).join(".gitattributes");
+    let attributes = std::fs::read_to_string(&file).map_err(|e| e.to_string())?;
+    // `git lfs untrack` misses the patterns it escaped itself: `--filename` ones
+    let gone: Vec<usize> = lfs_rules(&attributes).into_iter().filter(|(_, p)| patterns.lines().any(|q| q == *p)).map(|(i, _)| i).collect();
+    let kept: String = attributes.split_inclusive('\n').enumerate().filter(|(i, _)| !gone.contains(i)).map(|(_, l)| l).collect();
+    std::fs::write(&file, kept).map_err(|e| e.to_string())?;
+    // the index keeps their pointers and git trusts the file times: newer ones make it read the files again
+    let pointers = git(repo, &["lfs", "ls-files", "-n"])?.lines().collect::<Vec<_>>().join("\0");
+    let out = git_bytes(repo, &["check-attr", "-z", "--stdin", "filter"], Some(pointers.as_bytes()))?;
+    let fields: Vec<&[u8]> = out.split(|&b| b == 0).collect();
+    let now = std::time::SystemTime::now();
+    for f in fields.chunks(3).filter(|f| f.len() == 3 && f[2] != b"lfs") {
+        if let Ok(file) = std::fs::File::options().write(true).open(Path::new(repo).join(String::from_utf8_lossy(f[0]).as_ref())) {
+            let _ = file.set_modified(now);
+        }
+    }
+    Ok(format!("Untracked {}", patterns.lines().collect::<Vec<_>>().join(", ")))
 }
 
 /// \brief File content `at` a commit, "INDEX" or "WORKTREE"; past MAX_TEXT bytes only its size, unless `full`.
@@ -1357,6 +1405,7 @@ fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         "rebase-interactive" => return rebase_interactive(&repo, &arg, &arg2),
         "tag-rename" => return tag_rename(&repo, &arg, &arg2),
         "submodule-discard" => return submodule_discard(&repo, &arg),
+        "lfs-untrack" => return lfs_untrack(&repo, &arg),
         // the LFS objects of the commits in `arg`; git-lfs takes refs only after a remote: the branch's own, else origin
         "lfs-fetch" => {
             let up = git(&repo, &["rev-parse", "--abbrev-ref", "@{u}"]).unwrap_or_default();
@@ -1401,6 +1450,10 @@ fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         "push" => vec!["push"],
         // git-lfs globs its own pathspecs: under literal ones it fetches nothing, and still succeeds
         "lfs-pull" => vec!["--no-literal-pathspecs", "lfs", "pull"],
+        // arg2 "file": the path itself, its glob characters escaped
+        "lfs-track" if arg2 == "file" => vec!["lfs", "track", "--filename", "--", &arg],
+        "lfs-track" => vec!["lfs", "track", "--", &arg],
+        "lfs-prune" => vec!["lfs", "prune"],
         // its own `git clean -- :/` of the untracked files it saved: under literal pathspecs it removes none
         "stash-push" => vec!["--no-literal-pathspecs", "stash", "push", "-u"],
         "stage" => vec!["add", "-A", "--", &arg],
@@ -1485,7 +1538,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, gh_verified, remote_tags, submodule_change, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, worktree_main,
+            initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, gh_verified, remote_tags, submodule_change, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, worktree_main, lfs_patterns,
             is_merged, revert_hunk, open_default, open_version, file_bytes, tool_status, global_config, set_global_config, delete_file, open_url, remote_urls, edit_remote,
             pty::pty_spawn, pty::pty_write, pty::pty_resize, pty::pty_kill, askpass::askpass_reply
         ])

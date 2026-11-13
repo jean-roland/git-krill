@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { repoName } from "./core.js";
-import { $, COLORS, ICONS, MenuItem, basename, colorIndex, dialog, h, hideBanner, hideDialog, hint, ico, input, pickDir, popup, say, showBanner, showDialog, showMenu, store, svg, toast, warnOnce } from "./ui";
+import { $, COLORS, ICONS, MenuItem, ask, basename, colorIndex, dialog, h, hideBanner, hideDialog, hint, ico, input, pickDir, popup, say, showBanner, showDialog, showMenu, store, svg, toast, warnOnce } from "./ui";
 import { closeHistory, closeMerge, closeResolvedMerge, confirmDrop, diffFile, openRow, reloadDiff } from "./diff";
 import { conflictCount, getMsg, renderPanel, setMsg } from "./panel";
 import { stepBack, paintWipRow, renderGraph, renderSide, resetGraph } from "./graph";
@@ -54,6 +54,7 @@ const DONE: Record<string, (arg: string, arg2: string, branch: string, upstream:
   "worktree-prune": () => "Pruned the worktrees whose folder is gone",
   "lfs-pull": () => "Pulled the LFS files",
   "lfs-fetch": () => "Downloaded the LFS files",
+  "lfs-prune": () => "Pruned the LFS files",
   "submodule-add": (_url, path) => `Added submodule ${path}: commit to record it`,
 };
 // what to do when git-lfs cannot serve a repository that uses it, by refs' lfsProblem
@@ -182,12 +183,15 @@ export function pullMenu(e: MouseEvent) {
     [
       ...Object.entries(PULLS).map(([k, label]): MenuItem => [`Pull, ${label}${k === mode ? "  ✓" : ""}`, () => (store("pull-mode", k), paintPull(), pull())]),
       // the files a clone or checkout left as pointers
-      ...(refs.lfs ? [null, ["Pull LFS files", () => gitOp("lfs-pull")] as MenuItem] : []),
+      ...(refs.lfs ? ([null, ["Pull LFS files", () => gitOp("lfs-pull")], ["Prune LFS files", pruneLfs]] as MenuItem[]) : []),
     ],
     r.left,
     r.bottom,
   );
 }
+
+/** git-lfs keeps what is checked out, recent or not pushed yet: the rest can download again. */
+const pruneLfs = () => ask("Delete the local copies of old LFS file versions? The checked out, recent and unpushed ones stay; the others download again when needed.", "Prune").then((ok) => ok && gitOp("lfs-prune"));
 
 export const paintPull = () => ($("pull").title = `Pull, ${PULLS[store("pull-mode") ?? ""]}`);
 
@@ -272,7 +276,7 @@ async function reload() {
     if (r !== repo) return;
     status = s;
     refs = rf;
-    if (rf.lfsProblem) warnOnce(`lfs:${r}`, `${basename(r)} uses Git LFS`, LFS_PROBLEMS[rf.lfsProblem], "err");
+    if (rf.lfs && rf.lfsProblem) warnOnce(`lfs:${r}`, `${basename(r)} uses Git LFS`, LFS_PROBLEMS[rf.lfsProblem], "err");
     opInfo = info;
     const landed = landing;
     if (landed) land();

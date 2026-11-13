@@ -62,6 +62,8 @@ function fileMenu(f: Change, kind: DiffSource, c?: Commit): MenuItem[] {
     ["Open in default program", () => run("open_default", { path: f.path, folder: false }).catch(neutral)],
     ["Show in folder", () => run("open_default", { path: f.path, folder: true }).catch(neutral)],
     null,
+    ...(kind === "commit" ? [] : lfsItems(f)),
+    null,
     ...(c
       ? ([
           [
@@ -79,6 +81,33 @@ function fileMenu(f: Change, kind: DiffSource, c?: Commit): MenuItem[] {
     null,
     ["Copy file path", () => copy(`${repo}/${f.path}`)],
   ];
+}
+
+/** Track a work file with git-lfs: itself, its extension or its folder; or untrack the pattern that stores it. */
+function lfsItems(f: Change): MenuItem[] {
+  if (refs.lfsProblem === "missing" || f.code === "D" || isConflict(f) || f.path === ".gitattributes" || isSubmodule(f.path)) return [];
+  if (f.lfs) return [["Untrack from LFS", () => untrackLfs(f.path)]];
+  const name = basename(f.path), ext = name.slice(name.lastIndexOf(".") + 1 || name.length), dir = f.path.slice(0, -name.length - 1);
+  return [
+    [
+      "Track with LFS",
+      [
+        ["This file", () => gitOp("lfs-track", [f.path, "file"])],
+        ...(ext && ext !== name.slice(1) ? [[`All .${ext} files`, () => gitOp("lfs-track", `*.${ext}`)] as MenuItem] : []),
+        ...(dir ? [[`All files in ${dir}`, () => gitOp("lfs-track", `${dir}/**`)] as MenuItem] : []),
+      ],
+    ],
+  ];
+}
+
+/** Untrack asks first: the pattern may store many more files than this one. */
+async function untrackLfs(path: string) {
+  const patterns = await run<string[]>("lfs_patterns", { path }).catch((e) => void say(String(e), true));
+  if (!patterns) return;
+  if (!patterns.length) return say(`No LFS pattern of the top .gitattributes matches ${path}: the one in its folder does`, true);
+  // as git-lfs wrote them: `my[[:space:]]file.png`, `we\[ir\]d.png`
+  const list = patterns.map((p) => p.replace(/\[\[:space:\]\]/g, " ").replace(/\\(.)/g, "$1")).join(", ");
+  if (await ask(`Stop tracking ${list} with LFS? Its files then show as changed, to commit as plain git files.`, "Untrack")) gitOp("lfs-untrack", patterns.join("\n"));
 }
 
 /* file lists */
