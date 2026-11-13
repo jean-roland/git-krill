@@ -61,7 +61,6 @@ function fileMenu(f: Change, kind: DiffSource, c?: Commit): MenuItem[] {
     ["Open in VS Code", () => run("open_in_editor", { path: f.path, line: 1 }).catch(neutral)],
     ["Open in default program", () => run("open_default", { path: f.path, folder: false }).catch(neutral)],
     ["Show in folder", () => run("open_default", { path: f.path, folder: true }).catch(neutral)],
-    ["Copy file path", () => copy(`${repo}/${f.path}`)],
     null,
     ...(c
       ? ([
@@ -77,6 +76,8 @@ function fileMenu(f: Change, kind: DiffSource, c?: Commit): MenuItem[] {
             () => ask(`Delete ${f.path} from the working tree?`, "Delete").then((ok) => (ok ? run("delete_file", { path: f.path }).then(refresh, (e) => say(String(e), true)) : undefined)),
           ],
         ] as MenuItem[])),
+    null,
+    ["Copy file path", () => copy(`${repo}/${f.path}`)],
   ];
 }
 
