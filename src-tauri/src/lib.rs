@@ -5,6 +5,7 @@ use serde::Serialize;
 use std::collections::HashSet;
 use std::sync::OnceLock;
 use std::io::{Read, Write};
+use std::os::unix::fs::DirBuilderExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -155,7 +156,10 @@ fn git_command(repo: &str, args: &[&str], ask: bool) -> Command {
         .env("GIT_EDITOR", "true")
         .env("GIT_TERMINAL_PROMPT", "0")
         // paths from the UI are names, not globs: `f[12].c` must not also match f1.c
-        .env("GIT_LITERAL_PATHSPECS", "1");
+        .env("GIT_LITERAL_PATHSPECS", "1")
+        // its messages are read here: in English whatever the user's language
+        .env_remove("LC_ALL")
+        .env("LC_MESSAGES", "C");
     askpass::env(&mut git, ask);
     // its own session, off the terminal krill may run from: ssh would wait there for a key passphrase
     unsafe { git.pre_exec(|| (libc::setsid() >= 0).then_some(()).ok_or_else(std::io::Error::last_os_error)) };
@@ -174,7 +178,9 @@ fn git_cmd(repo: &str, args: &[&str], input: Option<&[u8]>, ask: bool) -> Result
     git.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = git.spawn().map_err(|e| e.to_string())?;
     if let Some(data) = input {
-        child.stdin.take().unwrap().write_all(data).map_err(|e| e.to_string())?;
+        // fed from aside: git answers as it reads, and with its output unread it would stop reading
+        let (mut stdin, data) = (child.stdin.take().unwrap(), data.to_vec());
+        std::thread::spawn(move || stdin.write_all(&data));
     }
     // off the async pool while it waits: a fetch can hang for minutes on a dead network
     tokio::task::block_in_place(|| child.wait_with_output()).map_err(|e| e.to_string())
@@ -281,13 +287,18 @@ fn init(path: String) -> Result<String, String> {
     git(&path, &["init"])
 }
 
+/// \brief `p` with a leading `~/` meaning the home folder, as in a shell.
+fn home_path(p: &str) -> String {
+    p.strip_prefix("~/").map_or(p.to_string(), |r| format!("{}/{r}", std::env::var("HOME").unwrap_or_default()))
+}
+
 /// \brief Clone `url` into `parent`/`name`, creating `parent` if needed; returns the new work tree.
 #[tauri::command(async)]
 fn clone(parent: String, url: String, name: String) -> Result<String, String> {
     if name.is_empty() || name == "." || name == ".." || name.contains('/') {
         return Err(format!("bad folder name {name}"));
     }
-    let parent = parent.strip_prefix("~/").map_or(parent.clone(), |p| format!("{}/{p}", std::env::var("HOME").unwrap_or_default()));
+    let parent = home_path(&parent);
     std::fs::create_dir_all(&parent).map_err(|e| format!("{parent}: {e}"))?;
     git(&parent, &["clone", "--", &url, &name])?;
     Ok(Path::new(&parent).join(&name).to_string_lossy().into_owned())
@@ -383,9 +394,9 @@ fn submodules(repo: &str) -> Result<Vec<Submodule>, String> {
         return Ok(Vec::new());
     }
     let mut subs: Vec<Submodule> = Vec::new();
-    // submodule.<name>.path / .url, the name may hold dots
-    for l in git(repo, &["config", "-f", ".gitmodules", "--get-regexp", r"^submodule\..*\.(path|url)$"])?.lines() {
-        let Some((key, value)) = l.split_once(' ') else { continue };
+    // "submodule.<name>.path\n<value>", the name may hold dots and spaces; none at all fails
+    for l in git(repo, &["config", "-z", "-f", ".gitmodules", "--get-regexp", r"^submodule\..*\.(path|url)$"]).unwrap_or_default().split('\0') {
+        let Some((key, value)) = l.split_once('\n') else { continue };
         let Some((name, field)) = key.strip_prefix("submodule.").and_then(|k| k.rsplit_once('.')) else { continue };
         let i = subs.iter().position(|s| s.name == name).unwrap_or_else(|| {
             subs.push(Submodule { name: name.into(), path: String::new(), url: String::new(), recorded: String::new(), head: String::new(), modified: false, untracked: false, ahead: None, behind: None });
@@ -409,8 +420,10 @@ fn submodules(repo: &str) -> Result<Vec<Submodule>, String> {
     // "1 XY S<c><m><u> ..." for a changed submodule: c its commit moved, m tracked changes, u untracked files
     let status = git(repo, &args)?;
     for e in status.split('\0').filter(|e| e.starts_with("1 ") || e.starts_with("2 ")) {
-        let f: Vec<&str> = e.splitn(9, ' ').collect();
-        let Some(sub) = f.get(8).and_then(|p| subs.iter_mut().find(|s| s.path == *p)) else { continue };
+        // a rename has its score before the path
+        let n = if e.starts_with("2 ") { 10 } else { 9 };
+        let f: Vec<&str> = e.splitn(n, ' ').collect();
+        let Some(sub) = f.get(n - 1).and_then(|p| subs.iter_mut().find(|s| s.path == *p)) else { continue };
         let (xy, flags) = (f[1], f[2].as_bytes());
         sub.modified = flags.get(2) == Some(&b'M');
         sub.untracked = flags.get(3) == Some(&b'U');
@@ -677,7 +690,6 @@ static BLAME: Mutex<Option<u32>> = Mutex::new(None);
 /// \brief `git blame --porcelain` of `path` at commit `at`, or of the working tree file; ends the one still running.
 #[tauri::command(async)]
 fn blame(repo: String, at: String, path: String) -> Result<String, String> {
-    stop_blame();
     let mut args = vec!["blame", "--porcelain"];
     if at != "WORKTREE" {
         args.push(not_option(&at)?);
@@ -685,9 +697,15 @@ fn blame(repo: String, at: String, path: String) -> Result<String, String> {
     args.extend(["--", &path]);
     let mut git = git_command(&repo, &args, true);
     git.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    let child = git.spawn().map_err(|e| e.to_string())?;
-    let id = child.id();
-    *BLAME.lock().unwrap() = Some(id);
+    // one at a time: the one before stops under the same lock this one starts
+    let (child, id) = {
+        let mut running = BLAME.lock().unwrap();
+        kill_group(running.take());
+        let child = git.spawn().map_err(|e| e.to_string())?;
+        *running = Some(child.id());
+        (child, *running)
+    };
+    let id = id.unwrap();
     let out = tokio::task::block_in_place(|| child.wait_with_output()).map_err(|e| e.to_string());
     let mut running = BLAME.lock().unwrap();
     if *running == Some(id) {
@@ -732,8 +750,12 @@ fn gh_verified(host: String, slug: String, hash: String) -> Result<String, Strin
 /// \brief End the running blame, if any.
 #[tauri::command]
 fn stop_blame() {
-    // git runs in its own session: the group is git and whatever it started
-    if let Some(id) = BLAME.lock().unwrap().take() {
+    kill_group(BLAME.lock().unwrap().take());
+}
+
+/// \brief Stop process `id` and what it started: git runs in its own session, the group is git's.
+fn kill_group(id: Option<u32>) {
+    if let Some(id) = id {
         unsafe { libc::kill(-(id as i32), libc::SIGTERM) };
     }
 }
@@ -795,8 +817,8 @@ fn git_blob(repo: &str, spec: &str, max: usize) -> Result<Blob, String> {
 
 /// \brief The local object and size a git-lfs pointer stands for; None when `bytes` is no pointer.
 fn lfs_object(repo: &str, bytes: &[u8]) -> Option<(PathBuf, u64)> {
-    // the spec caps a pointer at 1024 bytes
-    let text = std::str::from_utf8(bytes.get(..bytes.len().min(1024))?).ok()?.strip_prefix("version https://git-lfs.github.com/spec/v1\n")?;
+    // the spec keeps a pointer under 1024 bytes
+    let text = std::str::from_utf8((bytes.len() < 1024).then_some(bytes)?).ok()?.strip_prefix("version https://git-lfs.github.com/spec/v1\n")?;
     let oid = text.lines().find_map(|l| l.strip_prefix("oid sha256:")).filter(|o| o.len() == 64 && o.bytes().all(|b| b.is_ascii_hexdigit()))?;
     let size = text.lines().find_map(|l| l.strip_prefix("size "))?.parse().ok()?;
     Some((lfs_dir(repo).ok()?.join("objects").join(&oid[..2]).join(&oid[2..4]).join(oid), size))
@@ -902,23 +924,30 @@ fn open_version(repo: String, at: String, path: String) -> Result<(), String> {
         return open_default(repo, path, false);
     }
     let spec = if at == "INDEX" { format!(":{path}") } else { format!("{}:{path}", not_option(&at)?) };
-    let dir = std::env::temp_dir().join("git-krill");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    // the version first, the name whole: the app is picked by its extension
-    let version: String = at.chars().filter(char::is_ascii_alphanumeric).take(8).collect();
-    let file = dir.join(format!("{version}-{}", Path::new(&path).file_name().ok_or(format!("bad path {path}"))?.to_string_lossy()));
-    // streamed to disk, not read whole: a video can be gigabytes
-    let out = std::fs::File::create(&file).map_err(|e| e.to_string())?;
-    let mut git = git_command(&repo, &["cat-file", "blob", &spec], false);
-    if !tokio::task::block_in_place(|| git.stdin(Stdio::null()).stdout(out).stderr(Stdio::null()).status()).map_err(|e| e.to_string())?.success() {
-        return Err(format!("{path} is not in {at}"));
-    }
-    // a git-lfs pointer is small: the object it stands for goes in its place
-    if std::fs::metadata(&file).map_or(0, |m| m.len()) <= 1024 {
-        if let Some((object, _)) = lfs_object(&repo, &std::fs::read(&file).unwrap_or_default()) {
-            tokio::task::block_in_place(|| std::fs::copy(object, &file)).map_err(|_| format!("{path} is stored with Git LFS and this version is not downloaded"))?;
+    // the user's own folder, not everyone's /tmp; one per repository and version, the file under its own name for the app picked by its extension
+    let mut key = std::hash::DefaultHasher::new();
+    std::hash::Hash::hash(&repo, &mut key);
+    let version: String = at.chars().filter(char::is_ascii_alphanumeric).take(12).collect();
+    let dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("git-krill").join(format!("{:x}", std::hash::Hasher::finish(&key))).join(version);
+    let file = work_path(&dir.to_string_lossy(), &path)?;
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(file.parent().unwrap_or(&dir)).map_err(|e| e.to_string())?;
+    let copy = || -> Result<(), String> {
+        // streamed to disk, not read whole: a video can be gigabytes
+        let out = std::fs::File::create(&file).map_err(|e| e.to_string())?;
+        let mut git = git_command(&repo, &["cat-file", "blob", &spec], false);
+        if !tokio::task::block_in_place(|| git.stdin(Stdio::null()).stdout(out).stderr(Stdio::null()).status()).map_err(|e| e.to_string())?.success() {
+            return Err(format!("{path} is not in {at}"));
         }
-    }
+        // a git-lfs pointer is small: the object it stands for goes in its place
+        if std::fs::metadata(&file).map_or(0, |m| m.len()) < 1024 {
+            if let Some((object, _)) = lfs_object(&repo, &std::fs::read(&file).unwrap_or_default()) {
+                tokio::task::block_in_place(|| std::fs::copy(object, &file)).map_err(|_| format!("{path} is stored with Git LFS and this version is not downloaded"))?;
+            }
+        }
+        Ok(())
+    };
+    // no half copy left behind under the real name
+    copy().inspect_err(|_| drop(std::fs::remove_file(&file)))?;
     xdg_open(&file)
 }
 
@@ -1011,12 +1040,17 @@ fn delete_file(repo: String, path: String) -> Result<(), String> {
 /// \brief The main worktree's folder when `repo` is a linked worktree, else empty.
 #[tauri::command(async)]
 fn worktree_main(repo: String) -> String {
-    // a submodule's .git is a file too, pointing into its parent's .git/modules
-    if !std::fs::read_to_string(Path::new(&repo).join(".git")).is_ok_and(|g| g.contains("/worktrees/")) {
+    // a linked worktree's git dir sits in the shared one; a submodule's is its own
+    let dirs = git(&repo, &["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"]).unwrap_or_default();
+    let mut dirs = dirs.lines();
+    if dirs.next() == dirs.next() {
         return String::new();
     }
     let listed = git(&repo, &["worktree", "list", "--porcelain"]).unwrap_or_default();
-    listed.lines().next().and_then(|l| l.strip_prefix("worktree ")).map_or(String::new(), |p| main_folder(p).0)
+    let mut main = listed.split("\n\n").next().unwrap_or("").lines();
+    let path = main.next().and_then(|l| l.strip_prefix("worktree ")).unwrap_or("");
+    // a bare repository has no checkout to go back to
+    if main.any(|l| l == "bare") { String::new() } else { main_folder(path).0 }
 }
 
 /// \brief Whether `path` exists in the work tree.
@@ -1088,6 +1122,11 @@ struct Tools {
 /// \brief The tools krill leans on, as they stand now.
 #[tauri::command(async)]
 fn tool_status() -> Tools {
+    // gh asks its server: off the async pool while it waits
+    tokio::task::block_in_place(tool_status_now)
+}
+
+fn tool_status_now() -> Tools {
     // out of any repository: only the user's and the system's config count
     let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
     let run = |cmd: &str, args: &[&str]| Command::new(cmd).args(args).current_dir(&home).stdin(Stdio::null()).output().ok();
@@ -1122,7 +1161,8 @@ const GLOBAL_KEYS: [&str; 4] = ["user.name", "user.email", "user.signingkey", "c
 fn global_config() -> Vec<String> {
     GLOBAL_KEYS
         .iter()
-        .map(|k| Command::new("git").args(["config", "--global", "--get", k]).stdin(Stdio::null()).output().map_or(String::new(), |o| String::from_utf8_lossy(&o.stdout).trim().to_string()))
+        // included files count, and a yes/on/1 reads as true
+        .map(|k| Command::new("git").args(["config", "--global", "--includes", if k.contains("gpgsign") { "--type=bool" } else { "--no-type" }, "--get", k]).stdin(Stdio::null()).output().map_or(String::new(), |o| String::from_utf8_lossy(&o.stdout).trim().to_string()))
         .collect()
 }
 
@@ -1185,11 +1225,15 @@ fn tag_rename(repo: &str, old: &str, to: &str) -> Result<String, String> {
     let (old, new) = (not_option(old)?, not_option(new)?);
     let tag = format!("refs/tags/{old}");
     if git(repo, &["cat-file", "-t", &tag])?.trim() == "tag" {
-        let info = git(repo, &["for-each-ref", "--format=%(taggername)%00%(taggeremail:trim)%00%(taggerdate:raw)%00%(contents:subject)%0a%0a%(contents:body)", &tag])?;
-        let f: Vec<&str> = info.splitn(4, '\0').collect();
-        let [name, email, date, msg] = f[..] else { return Err(format!("unreadable tag {old}")) };
+        let info = git(repo, &["for-each-ref", "--format=%(taggername)%00%(taggeremail:trim)%00%(taggerdate:raw)%00%(contents)%00%(contents:signature)", &tag])?;
+        let f: Vec<&str> = info.splitn(5, '\0').collect();
+        let [name, email, date, contents, signature] = f[..] else { return Err(format!("unreadable tag {old}")) };
+        // the message as written, its signature dropped: the new tag is not signed
+        let msg = contents.strip_suffix(signature.trim_end_matches('\n')).unwrap_or(contents);
+        // a tag without a tagger gets the user's own
+        let tagger = [("GIT_COMMITTER_NAME", name), ("GIT_COMMITTER_EMAIL", email), ("GIT_COMMITTER_DATE", date)].into_iter().filter(|(_, v)| !v.is_empty());
         let out = git_command(repo, &["tag", "-a", new, "-F", "-", &format!("{tag}^{{}}")], true)
-            .envs([("GIT_COMMITTER_NAME", name), ("GIT_COMMITTER_EMAIL", email), ("GIT_COMMITTER_DATE", date)])
+            .envs(tagger)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -1212,6 +1256,10 @@ fn tag_rename(repo: &str, old: &str, to: &str) -> Result<String, String> {
 /// \brief Drop what changed in submodule `path`: its files, its untracked ones, then back on the recorded commit.
 fn submodule_discard(repo: &str, path: &str) -> Result<String, String> {
     let dir = work_path(repo, path)?;
+    // not checked out, git would find the parent and reset it instead
+    if path.is_empty() || !dir.join(".git").exists() || !git(repo, &["ls-files", "-s", "--", path])?.starts_with("160000 ") {
+        return Err(format!("{path} is not a checked out submodule"));
+    }
     let d = dir.to_string_lossy();
     git(&d, &["reset", "-q", "--hard"])?;
     git(&d, &["clean", "-fdq"])?;
@@ -1306,6 +1354,10 @@ fn rebase_interactive(repo: &str, base: &str, steps: &str) -> Result<String, Str
     let steps: Vec<Vec<String>> = serde_json::from_str(steps).map_err(|e| e.to_string())?;
     // the messages are read as the rebase goes, after a conflict too: they stay until the next plan
     let dir = git_dir(repo)?.join("krill-rebase");
+    // a stopped rebase still reads its messages from there
+    if !op_state(repo)?.is_empty() {
+        return Err("Finish or abort the operation in progress first".into());
+    }
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let mut todo = String::new();
@@ -1314,8 +1366,12 @@ fn rebase_interactive(repo: &str, base: &str, steps: &str) -> Result<String, Str
         if !matches!(verb.as_str(), "pick" | "fixup" | "drop") {
             return Err(format!("bad rebase step {verb}"));
         }
-        todo += &format!("{verb} {}\n", not_option(hash)?);
-        if let [msg] = msg {
+        if hash.is_empty() || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(format!("bad rebase step {hash}"));
+        }
+        todo += &format!("{verb} {hash}\n");
+        // a dropped commit has no message to set: it would amend the one before
+        if let ([msg], false) = (msg, verb == "drop") {
             let file = dir.join(format!("{i}.msg"));
             std::fs::write(&file, msg).map_err(|e| e.to_string())?;
             todo += &format!("exec git commit --amend --only -q -F {}\n", sh_quote(&file.to_string_lossy()));
@@ -1366,6 +1422,8 @@ fn autostash(repo: &str) -> Result<(), String> {
 
 /// \brief Once nothing is in progress, pop the kept changes back, staged as they were; None when there is nothing to bring back yet.
 fn restore_autostash(repo: &str) -> Option<Result<String, String>> {
+    static RESTORING: Mutex<()> = Mutex::new(());
+    let _one = RESTORING.lock().unwrap();
     let marker = git_dir(repo).ok()?.join("krill-autostash");
     let sha = std::fs::read_to_string(&marker).ok()?;
     if !op_state(repo).ok()?.is_empty() {
@@ -1382,9 +1440,11 @@ fn git_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
     if AUTOSTASH_OPS.contains(&op.as_str()) && op_state(&repo)?.is_empty() {
         autostash(&repo)?;
     }
+    // a fetch runs beside the others: it would bring the changes back under a pull
+    let fetching = op.contains("fetch");
     let out = run_op(repo.clone(), op, arg, arg2);
     // after this op or a later one (continue, abort): the changes come back when the tree is free again
-    match (out, restore_autostash(&repo)) {
+    match (out, if fetching { None } else { restore_autostash(&repo) }) {
         (Ok(o), Some(Ok(back))) => Ok(format!("{o}\n{back}").trim().to_string()),
         (Ok(_), Some(Err(e))) => Err(e),
         (out, _) => out,
@@ -1392,6 +1452,8 @@ fn git_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
 }
 
 fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result<String, String> {
+    // a typed folder
+    let arg = if op.starts_with("worktree-add") { home_path(&arg) } else { arg };
     let state = op_state(&repo)?;
     let arg2 = arg2.unwrap_or_default();
     let upstream = format!("HEAD:refs/heads/{arg2}");
@@ -1406,10 +1468,11 @@ fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         "tag-rename" => return tag_rename(&repo, &arg, &arg2),
         "submodule-discard" => return submodule_discard(&repo, &arg),
         "lfs-untrack" => return lfs_untrack(&repo, &arg),
-        // the LFS objects of the commits in `arg`; git-lfs takes refs only after a remote: the branch's own, else origin
+        // the LFS objects of the commits in `arg` for the files in `arg2`, comma separated; git-lfs takes refs only after a remote: the branch's own, else origin
         "lfs-fetch" => {
             let up = git(&repo, &["rev-parse", "--abbrev-ref", "@{u}"]).unwrap_or_default();
-            let mut args = vec!["--no-literal-pathspecs", "lfs", "fetch", up.split_once('/').map_or("origin", |(r, _)| r)];
+            let include = format!("--include={arg2}");
+            let mut args = vec!["--no-literal-pathspecs", "lfs", "fetch", &include, up.split_once('/').map_or("origin", |(r, _)| r)];
             for rev in arg.split_whitespace() {
                 args.push(not_option(rev)?);
             }

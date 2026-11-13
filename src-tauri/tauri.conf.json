@@ -33,7 +33,8 @@
     "homepage": "https://github.com/jean-roland/git-krill",
     "linux": {
       "deb": {
-        "depends": ["git"]
+        "depends": ["git"],
+        "recommends": ["git-lfs", "xdg-desktop-portal-gtk | zenity"]
       }
     },
     "targets": [
