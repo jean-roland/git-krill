@@ -390,8 +390,8 @@ fn submodules(repo: &str) -> Result<Vec<Submodule>, String> {
         let (xy, flags) = (f[1], f[2].as_bytes());
         sub.modified = flags.get(2) == Some(&b'M');
         sub.untracked = flags.get(3) == Some(&b'U');
-        // its checkout left the recorded commit: in the index (staged) or in its own folder
-        if xy.starts_with('M') || flags.get(1) == Some(&b'C') {
+        // its checkout left the recorded commit: in the index (staged, or newly added) or in its own folder
+        if xy.starts_with(['M', 'A']) || flags.get(1) == Some(&b'C') {
             sub.head = "?".into();
         }
     }
@@ -1267,6 +1267,7 @@ fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         // a branch only on a remote gets its local tracking one
         "worktree-add" => vec!["worktree", "add", not_option(&arg)?, not_option(&arg2)?],
         "submodule-update" => vec!["submodule", "update", "--init", "--", not_option(&arg)?],
+        "submodule-add" => vec!["submodule", "add", "--", &arg, not_option(&arg2)?],
         "submodule-set-url" => vec!["submodule", "set-url", "--", not_option(&arg)?, not_option(&arg2)?],
         "stash-drop" => vec!["stash", "drop", not_option(&arg)?],
         "continue" if state == "merge" && !arg.is_empty() => vec!["commit", "-m", &arg],

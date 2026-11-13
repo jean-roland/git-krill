@@ -297,6 +297,10 @@ body.home main { grid-template-columns: 1fr; }
 #sidebar .eye:hover { color: var(--accent); }
 #sidebar .item:hover > .eye, #sidebar summary:hover > .eye, #sidebar .eye.on { visibility: visible; }
 #sidebar .eye svg { width: 14px; height: 14px; }
+#sidebar summary .add { float: right; margin-right: 6px; padding: 0 2px; border: none; background: none; color: var(--dim); line-height: 0; visibility: hidden; }
+#sidebar summary .add:hover { color: var(--accent); }
+#sidebar summary:hover > .add { visibility: visible; }
+#sidebar summary .add svg { width: 14px; height: 14px; }
 #sidebar details.hidden-remote > summary, #sidebar .item.hidden-ref { opacity: 0.5; }
 
 /* graph */
@@ -608,12 +612,12 @@ textarea.msg-in { height: 104px; resize: vertical; }
 #diff-editor { flex: 1; min-height: 0; }
 #diff-binary { padding: 20px; color: var(--dim); }
 /* a submodule's change: its old and new commit, the ones between */
-.sub-line { display: flex; gap: 12px; padding: 8px 12px; color: var(--text); }
+.sub-line { display: flex; align-items: baseline; gap: 12px; padding: 8px 12px; color: var(--text); }
 .sub-line.del { background: color-mix(in srgb, var(--del) 18%, transparent); }
 .sub-line.add { background: color-mix(in srgb, var(--add) 18%, transparent); }
 .sub-line code, .sub-commit code { font: 12px var(--mono); color: var(--dim); }
 #diff-binary h4 { margin: 18px 0 6px; font-weight: 600; color: var(--text); }
-.sub-commit { display: flex; gap: 12px; padding: 3px 12px; color: var(--text); }
+.sub-commit { display: flex; align-items: baseline; gap: 12px; padding: 3px 12px; color: var(--text); }
 #diff-binary .sub-open { margin: 16px 0 0; }
 .sub-open svg { width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; }
 #diff-binary button { margin-left: 8px; }

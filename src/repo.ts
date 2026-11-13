@@ -51,6 +51,7 @@ const DONE: Record<string, (arg: string, arg2: string, branch: string, upstream:
   "worktree-force-remove": (path) => `Removed worktree ${basename(path)}`,
   "worktree-prune": () => "Pruned the worktrees whose folder is gone",
   "lfs-pull": () => "Pulled the LFS files",
+  "submodule-add": (_url, path) => `Added submodule ${path}: commit to record it`,
 };
 // what may change the remotes' tags, or the list of them
 const NET_OPS = new Set(["fetch", "fetch-remote", "pull", "push", "push-upstream", "tag-push", "push-delete", "tag-rename"]);
@@ -703,8 +704,8 @@ listen<string>("askpass", ({ payload: prompt }) => {
 export const hiddenRemotes = (): string[] => JSON.parse(store(`hidden-remotes:${repo}`) ?? "[]");
 // refs and stash hashes flipped one by one: hidden, or for a hidden remote's branch, shown again
 const flippedRefs = (): string[] => JSON.parse(store(`hidden-refs:${repo}`) ?? "[]");
-// one per repository: its worktrees share the main checkout's
-export const foldsKey = () => `sidebar-folds:${refs.worktrees[0]?.path ?? repo}`;
+// one per repository: its worktrees share the main checkout's, a submodule opened in its tab the parent's
+export const foldsKey = () => `sidebar-folds:${tabs[active]?.parent || refs.worktrees[0]?.path || repo}`;
 export const sideFolds = (): Record<string, boolean> => JSON.parse(store(foldsKey()) ?? "{}");
 const remoteOf = (ref: string) => (ref.startsWith("refs/remotes/") ? ref.slice("refs/remotes/".length).split("/")[0] : "");
 

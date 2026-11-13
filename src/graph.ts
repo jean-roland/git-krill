@@ -2,7 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { layoutGraph } from "./core.js";
 import { closeRebase, ontoRange, openRebase, rebaseRange } from "./rebase";
-import { Commit, LOG_LIMIT, Stash, Status, Submodule, Worktree, active, commits, dropEdits, fakeCommit, findRef, foldsKey, gitOp, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, newTab, opInfo, openRepo, paintRepoName, pull, push, redraw, refs, remoteTags, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
+import { Commit, LOG_LIMIT, Stash, Status, Submodule, Worktree, active, commits, dropEdits, fakeCommit, findRef, foldsKey, gitOp, headHash, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, newTab, opInfo, openRepo, paintRepoName, pull, push, redraw, refs, remoteTags, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
 import { $, COLORS, ICONS, MenuItem, ask, askName, basename, copy, dateFmt, dialog, h, ico, input, popup, say, short, spriteId, store, svg } from "./ui";
 import { dropTerm } from "./terminal";
 import { conflictCount, conflictLine, fileCounts, opLine, renderPanel, wipFiles } from "./panel";
@@ -143,9 +143,23 @@ export function renderSide() {
     section("remote", "Remote", remotes.size, () => [...remotes].map(([name, rows]) => remoteSection(section(`remote/${name}`, name, rows.length, () => rows.map(remoteRow), false, "globe"), name)), true, "remote"),
     section("tags", "Tags", tags.length, () => tags.map(tagRow), false, "tag"),
     section("stashes", "Stashes", refs.stashes.length, () => refs.stashes.map(stashRow), false, "stash"),
-    // optional sections, last and only when there is something: the checkout alone is no list of worktrees
-    ...(refs.worktrees.length > 1 ? [section("worktrees", "Worktrees", refs.worktrees.length, () => refs.worktrees.map(worktreeRow), false, "worktree")] : []),
-    ...(refs.submodules.length ? [section("submodules", "Submodules", refs.submodules.length, () => refs.submodules.map(submoduleRow), false, "submodule")] : []),
+    // shown even empty, for their +: folded until opened
+    addButton(section("worktrees", "Worktrees", refs.worktrees.length, () => refs.worktrees.map(worktreeRow), false, "worktree"), "Create a worktree", () => createWorktree("", headHash(), status?.branch ?? "")),
+    addButton(section("submodules", "Submodules", refs.submodules.length, () => refs.submodules.map(submoduleRow), false, "submodule"), "Add a submodule", addSubmodule),
+  );
+}
+
+/** A section's + on hover, adding one more of what it lists. */
+function addButton(d: HTMLElement, title: string, add: () => unknown) {
+  // the fold stays as it is
+  d.querySelector("summary")!.append(h("button", { className: "add", title, innerHTML: svg(ICONS.a), onclick: (e: Event) => (e.preventDefault(), e.stopPropagation(), add()) }));
+  return d;
+}
+
+/** `git submodule add`, by default in a folder named after the repository it clones. */
+function addSubmodule() {
+  dialog("Add a submodule", [["URL", ""], ["Folder (empty: named after the repository)", ""]], "Add", ([url, path]) =>
+    url && gitOp("submodule-add", [url, path || url.replace(/(\.git)?\/*$/, "").split(/[/:]/).pop()!]),
   );
 }
 
@@ -153,6 +167,7 @@ export function renderSide() {
 function submoduleState(s: Submodule): [string, string, string] {
   const here = basename(repo);
   if (!s.head) return ["warn", "out", "Not initialized: double-click to check it out"];
+  if (!s.recorded) return ["sync", "out", `Added, not in a commit of ${here} yet`];
   if (s.head !== s.recorded) return ["sync", "out", `Out of sync: checked out on another commit than ${here} records`];
   if (s.modified || s.untracked) return ["sync", "out", "Uncommitted changes in it"];
   return ["check", "ok", `In sync with ${here}`];
