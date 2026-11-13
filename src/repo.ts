@@ -28,8 +28,8 @@ export type Blob = { text: string; exists: boolean; binary: boolean; large: numb
 type UndoStep = { op: string; branch: [string, string]; head: [string, string]; file?: [string, string | null, string | null] };
 // limit: how many commits the graph loads, raised by "Load more"
 // parent: what this tab steps back to, the main checkout of a worktree or the repository a submodule was opened from in it; one level only
-// settings: the Settings tab, which has no repository either
-export type Tab = { repo: string; parent: string; selected: string[]; msg: string; scroll: number; undo: UndoStep[]; redo: UndoStep[]; worktree: boolean; limit: number; settings: boolean };
+// settings: the Settings tab, which has no repository either; back: the tab as it was before stepping into a worktree or submodule
+export type Tab = { repo: string; parent: string; selected: string[]; msg: string; scroll: number; undo: UndoStep[]; redo: UndoStep[]; worktree: boolean; limit: number; settings: boolean; back?: Tab };
 export const LOG_LIMIT = 3000;
 // ops that move HEAD, walked back with a reset or a checkout
 const UNDOABLE = new Set([
@@ -481,11 +481,15 @@ function dragTab(e: PointerEvent, i: number) {
 /** Whether the open diff's and merge's unsaved edits may go, asking first; the merge closes. */
 export const dropEdits = async () => (await confirmDrop()) && (await closeMerge(true));
 
+/** What the open tab shows, kept in it for its return; a tab left before its graph came keeps its old scroll and draft. */
+export const keepTab = () => Object.assign(tabs[active], { selected: selection.hashes, msg: status ? getMsg() : tabs[active].msg, scroll: commits.length ? $("graph").scrollTop : tabs[active].scroll });
+
 export async function switchTab(i: number, save = true) {
   if (save && !(await dropEdits())) return;
-  // a tab left before its graph came keeps its old scroll
-  if (save) Object.assign(tabs[active], { selected: selection.hashes, msg: getMsg(), scroll: commits.length ? $("graph").scrollTop : tabs[active].scroll });
+  if (save) keepTab();
   closeHistory();
+  // its Push is for the tab it was asked in
+  hideBanner();
   active = i;
   const t = tabs[active];
   repo = t.repo;
@@ -572,7 +576,7 @@ export const newTabMenu = (): MenuItem[] => [["New tab", addTab], reopenItem()];
 function renameTab(i: number) {
   const t = tabs[i];
   let done = false;
-  const box = h("input", { className: "tab-alias", value: tabName(t), spellcheck: false, onclick: (e: Event) => e.stopPropagation() });
+  const box = h("input", { className: "tab-alias", value: repoLabel(t.repo), spellcheck: false, onclick: (e: Event) => e.stopPropagation() });
   const finish = (keep: boolean) => {
     if (done) return;
     done = true;
@@ -785,7 +789,7 @@ export function toggleRemote(name: string) {
 /** A row that is no commit of the log (WIP, a stash, uncommitted lines), shaped like one. */
 export const fakeCommit = (hash: string, parents: string[], subject: string): Commit => ({ hash, parents, author: "", time: 0, refs: [], subject, body: "" });
 export const findRef = (name: string) => refs.refs.find((r) => r.name === name);
-// this checkout's entry: the repo tool's checkouts list their git dir, not their folder, as the main worktree
+// this checkout's entry, else the main one
 export const thisWorktree = () => refs.worktrees.find((w) => w.path === repo) ?? refs.worktrees[0];
 
 export const isHead = (c: Commit) => c.refs.some((r) => r === "HEAD" || r.startsWith("HEAD -> "));

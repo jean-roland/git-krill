@@ -1,5 +1,5 @@
-import { Commit, commits, gitOp, headHash, isHead, selection } from "./repo";
-import { jumpTo } from "./graph";
+import { Commit, commits, gitOp, headHash, isHead, opInfo, repo, selection } from "./repo";
+import { jumpTo, paintSelection } from "./graph";
 import { $, ICONS, avatar, h, ico, say, short, showDialog, showMenu, hideDialog, onCtrlEnter, svg } from "./ui";
 import { countLeft, joinMsg, renderPanel, splitMsg } from "./panel";
 
@@ -8,8 +8,8 @@ type Action = "pick" | "reword" | "squash" | "drop";
 type Row = { c: Commit; action: Action; message: string };
 
 const ACTIONS: [Action, string][] = [["pick", "Pick"], ["reword", "Reword"], ["squash", "Squash"], ["drop", "Drop"]];
-// the plan on screen: the commits replayed onto `base`, newest first, the picked row `at`
-let plan: { base: string; rows: Row[]; at: number } | null = null;
+// the plan on screen: the commits replayed onto `base`, newest first, the picked row `at`, made in `repo` with HEAD at `head`
+let plan: { base: string; rows: Row[]; at: number; repo: string; head: string } | null = null;
 
 const message = (c: Commit) => joinMsg(c.subject, c.body);
 
@@ -24,10 +24,10 @@ export function rebaseRange(base: Commit) {
   return rows.length && rows[rows.length - 1].parents[0] === base.hash ? rows : null;
 }
 
-/** HEAD's own commits, those `target` lacks, newest first: what rebasing onto it replays; null when a merge is among them. */
+/** HEAD's own commits, those `target` lacks, newest first: what rebasing onto it replays; null when a merge is among them, undefined when they go past the loaded ones. */
 export function ontoRange(target: string) {
   const byHash = new Map(commits.map((c) => [c.hash, c]));
-  if (!byHash.has(target)) return null;
+  if (!byHash.has(target)) return undefined;
   const theirs = new Set<string>(), todo = [target];
   while (todo.length) {
     const at = todo.pop()!;
@@ -40,14 +40,18 @@ export function ontoRange(target: string) {
     if (c.parents.length > 1) return null;
     rows.push(c);
   }
-  return rows;
+  // the walk ran off the loaded commits before meeting the target's
+  const last = rows[rows.length - 1];
+  return last?.parents.length && !theirs.has(last.parents[0]) ? undefined : rows;
 }
 
 /** Open the plan replaying `range` onto commit `base`. */
-export function openRebase(base: string, range: Commit[] | null) {
+export function openRebase(base: string, range: Commit[] | null | undefined) {
+  if (opInfo) return say("Interactive rebase: finish or abort the operation in progress first", true);
+  if (range === undefined) return say("Interactive rebase: the commits to replay go past the loaded ones, load more commits first", true);
   if (!range) return say("Interactive rebase: the commits to replay include a merge", true);
   if (!range.length) return say("Interactive rebase: nothing to replay, the branch has no commit this one lacks", true);
-  plan = { base, rows: range.map((c) => ({ c, action: "pick", message: "" })), at: 0 };
+  plan = { base, rows: range.map((c) => ({ c, action: "pick", message: "" })), at: 0, repo, head: headHash() };
   $("rebase").hidden = false;
   pick(0);
 }
@@ -58,6 +62,9 @@ export function closeRebase() {
   if (!plan) return;
   plan = null;
   $("rebase").hidden = true;
+  // the graph's selection follows the row the plan showed
+  selection.anchor = selection.hashes[0];
+  paintSelection();
   // the panel's message editing comes back
   renderPanel();
 }
@@ -72,12 +79,15 @@ function target(i: number) {
 /** The message row `i` ends with: its own or reworded one, then those squashed into it. */
 function finalMessage(i: number) {
   const rows = plan!.rows, own = rows[i].message || message(rows[i].c);
-  const squashed = rows.flatMap((r, k) => (r.action === "squash" && target(k) === i ? [message(r.c)] : []));
+  // oldest first, as git folds them
+  const squashed = [...rows.keys()].reverse().flatMap((k) => (rows[k].action === "squash" && target(k) === i ? [message(rows[k].c)] : []));
   return rows[i].message ? own : [own, ...squashed].join("\n\n");
 }
 
 function paint() {
-  const p = plan!;
+  // a reword dialog can outlive the plan
+  if (!plan) return;
+  const p = plan;
   $("rebase-what").replaceChildren(`Rebasing ${p.rows.length} commits onto `, h("code", { textContent: short(p.base) }));
   $("rebase-rows").replaceChildren(
     ...p.rows.map((r, i) => {
@@ -127,6 +137,7 @@ function setAction(i: number, action: Action) {
   // any other action drops the new message: back to the commit's own
   if (action !== "reword") {
     Object.assign(r, { action, message: "" });
+    unsquashOrphans();
     return paint();
   }
   // reword asks the new message first; cancelling keeps the old action
@@ -138,6 +149,7 @@ function setAction(i: number, action: Action) {
     const m = joinMsg(summary.value, desc.value);
     if (!m) return say("empty commit message", true);
     hideDialog();
+    if (!plan) return;
     Object.assign(r, { action: "reword", message: m });
     paint();
   };
@@ -152,17 +164,17 @@ function setAction(i: number, action: Action) {
   summary.focus();
 }
 
-/** A squash left at the bottom has nothing to fold into: it is picked. */
-function unsquashBottom() {
+/** A squash left with nothing older to fold into is picked, oldest first: a newer one may then fold into it. */
+function unsquashOrphans() {
   const rows = plan!.rows;
-  for (let k = rows.length - 1; k >= 0 && rows[k].action === "squash"; k--) if (target(k) < 0) rows[k].action = "pick";
+  for (let k = rows.length - 1; k >= 0; k--) if (rows[k].action === "squash" && target(k) < 0) rows[k].action = "pick";
 }
 
 function move(i: number, by: number) {
   const rows = plan!.rows, j = i + by;
   if (j < 0 || j >= rows.length) return;
   [rows[i], rows[j]] = [rows[j], rows[i]];
-  unsquashBottom();
+  unsquashOrphans();
   pick(j);
 }
 
@@ -172,6 +184,8 @@ function drag(e: PointerEvent, i: number) {
   const y0 = e.clientY;
   let at = i, moved = false;
   const follow = (m: PointerEvent) => {
+    // released outside the window: no pointerup came
+    if (!m.buttons) return up();
     if (!plan || (!moved && Math.abs(m.clientY - y0) < 5)) return;
     moved = true;
     const els = [...$("rebase-rows").children] as HTMLElement[];
@@ -186,7 +200,7 @@ function drag(e: PointerEvent, i: number) {
   const up = () => {
     removeEventListener("pointermove", follow);
     if (!moved || !plan) return;
-    unsquashBottom();
+    unsquashOrphans();
     pick(at);
   };
   addEventListener("pointermove", follow);
@@ -196,6 +210,13 @@ function drag(e: PointerEvent, i: number) {
 /** Run the plan: git's own steps, oldest first, with a new message after the last commit of each rewritten one. */
 async function start() {
   const p = plan!, rows = p.rows;
+  // a pull, an undo or a tab switch since: the plan no longer says what the branch holds
+  if (repo !== p.repo || headHash() !== p.head) {
+    closeRebase();
+    return say("Interactive rebase: the branch moved since the plan was made, open it again", true);
+  }
+  // by hash: a refresh brings new commit objects
+  const at = new Map(commits.map((c, k) => [c.hash, k])), index = (r: Row) => at.get(r.c.hash) ?? -1;
   const steps: string[][] = [];
   for (let i = rows.length - 1; i >= 0; i--) {
     const r = rows[i];
@@ -207,7 +228,7 @@ async function start() {
     if (lastOfGroup && rewritten) steps[steps.length - 1].push(finalMessage(t));
   }
   // commits newest first, as the graph has them, when nothing moved
-  const inPlace = rows.every((r, i) => !i || commits.indexOf(rows[i - 1].c) < commits.indexOf(r.c));
+  const inPlace = rows.every((r, i) => !i || index(rows[i - 1]) < index(r));
   // an untouched plan onto another base is still a plain rebase
   const onBase = rows[rows.length - 1].c.parents[0] === p.base;
   closeRebase();
@@ -216,12 +237,18 @@ async function start() {
 }
 
 $("rebase-cancel").onclick = $("rebase-close").onclick = closeRebase;
-$("rebase-reset").onclick = () => plan && ((plan.rows = plan.rows.sort((a, b) => commits.indexOf(a.c) - commits.indexOf(b.c)).map((r) => ({ ...r, action: "pick", message: "" }))), pick(0));
+$("rebase-reset").onclick = () => {
+  if (!plan) return;
+  const at = new Map(commits.map((c, k) => [c.hash, k]));
+  plan.rows = plan.rows.sort((a, b) => at.get(a.c.hash)! - at.get(b.c.hash)!).map((r) => ({ ...r, action: "pick", message: "" }));
+  pick(0);
+};
 $("rebase-start").onclick = () => plan && start();
 
 /** The plan's keys while it is open: p r s d set the action, arrows pick a row, Ctrl+arrows move it. */
 export function rebaseKey(e: KeyboardEvent) {
-  if (!plan || $("rebase").hidden) return false;
+  // the merge tool over the plan has the keys
+  if (!plan || $("rebase").hidden || !$("merge").hidden) return false;
   const i = plan.at, key = e.key.toLowerCase();
   if (e.key === "Escape") closeRebase();
   else if (e.ctrlKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) move(i, e.key === "ArrowUp" ? -1 : 1);

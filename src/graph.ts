@@ -2,7 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { layoutGraph } from "./core.js";
 import { closeRebase, ontoRange, openRebase, rebaseRange } from "./rebase";
-import { Commit, LOG_LIMIT, Stash, Status, Submodule, Worktree, active, commits, dropEdits, fakeCommit, findRef, foldsKey, gitOp, headHash, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, newTab, opInfo, openRepo, paintRepoName, pull, push, redraw, refs, remoteTags, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
+import { Commit, LOG_LIMIT, Stash, Status, Submodule, Worktree, active, closeTab, commits, dropEdits, fakeCommit, findRef, foldsKey, gitOp, headHash, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, keepTab, newTab, opInfo, openRepo, paintRepoName, pull, push, redraw, refs, remoteTags, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
 import { $, COLORS, ICONS, MenuItem, ask, askName, basename, copy, dateTimeText, dialog, h, ico, input, popup, say, short, spriteId, store, svg } from "./ui";
 import { dropTerm } from "./terminal";
 import { conflictCount, conflictLine, fileCounts, opLine, renderPanel, wipFiles } from "./panel";
@@ -23,9 +23,13 @@ let graphLayout: { width: number; nodes: number[]; edges: { row: number; lane: n
 
 /* branches sidebar */
 
+// each remote's tag list as a set, made once per answer: thousands of tag rows look into it
+const tagSets = new WeakMap<string[], Set<string>>();
+const hasTag = (tags: string[] | undefined, name: string) => !!tags && (tagSets.get(tags) ?? tagSets.set(tags, new Set(tags)).get(tags)!).has(name);
+
 /** The cloud on a tag the remotes have, none when no remote has it or none answered. */
 function tagCloud(name: string) {
-  const on = refs.remotes.filter((r) => remoteTags.get(repo)?.[r]?.includes(name));
+  const on = refs.remotes.filter((r) => hasTag(remoteTags.get(repo)?.[r], name));
   return on.length ? [ico(ICONS.remote, on.map((r) => `${name} on ${r} (remote tag)`).join("\n"))] : [];
 }
 
@@ -236,7 +240,8 @@ async function openWorktree(path: string, parent = "") {
   if (!(await dropEdits())) return;
   // the shell ran in the old folder
   dropTerm(tabs[active]);
-  tabs[active] = newTab(path, parent);
+  // the tab as it was comes back on the way out: its draft, undo steps, selection
+  tabs[active] = { ...newTab(path, parent), back: keepTab() };
   await switchTab(active, false);
 }
 
@@ -253,18 +258,21 @@ function createWorktree(branch: string, from = "", busy = "") {
 }
 
 async function addWorktree(op: string, args: [string, string]) {
-  const known = new Set(refs.worktrees.map((w) => w.path));
-  // git's own path for it: a typed folder may be relative or unnormalized
-  const added = (await gitOp(op, args)) && refs.worktrees.find((w) => !known.has(w.path));
+  const r = repo, known = new Set(refs.worktrees.map((w) => w.path));
+  // git's own path for it: a typed folder may be relative or unnormalized; another tab's refs would not have it
+  const added = (await gitOp(op, args)) && repo === r && refs.worktrees.find((w) => !known.has(w.path));
   if (added) openWorktree(added.path);
 }
 
 /** Back from a worktree or a submodule to its repository, in this tab. */
 export async function stepBack() {
-  const parent = tabs[active].parent;
+  const t = tabs[active], parent = t.parent;
   if (!parent || !(await dropEdits())) return;
-  dropTerm(tabs[active]);
-  tabs[active] = newTab(parent);
+  // already open in a tab of its own: that one, this one closing
+  const open = tabs.find((o) => o !== t && o.repo === parent);
+  if (open) return closeTab(active).then(() => switchTab(tabs.indexOf(open)));
+  dropTerm(t);
+  tabs[active] = t.back?.repo === parent ? t.back : newTab(parent);
   await switchTab(active, false);
 }
 
@@ -274,8 +282,10 @@ async function removeWorktree(w: Worktree) {
   const dirty = !!s && s.staged.length + s.unstaged.length > 0;
   // this one question covers the branch too: unmerged commits are named in it
   const unmerged = merged ? "" : ` ${w.branch} is not merged into ${findRef(`refs/heads/${w.branch}`)?.upstream || status?.branch || "HEAD"}.`;
+  const r = repo;
   const remove = (andBranch: boolean) => async () => {
-    if ((await gitOp(dirty ? "worktree-force-remove" : "worktree-remove", w.path)) && andBranch) gitOp(merged ? "branch-delete" : "branch-force-delete", w.branch);
+    // still in the tab it was asked from
+    if ((await gitOp(dirty ? "worktree-force-remove" : "worktree-remove", w.path)) && andBranch && repo === r) gitOp(merged ? "branch-delete" : "branch-force-delete", w.branch);
   };
   dialog(
     (dirty ? `${basename(w.path)} has uncommitted changes. Remove it and lose them?` : `Remove worktree ${basename(w.path)}? Its folder is deleted, its branch stays.`) + unmerged,

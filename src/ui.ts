@@ -270,6 +270,8 @@ export const ico = (d: string, title = "") => h("span", { className: "ico", titl
 
 export function popup(e: MouseEvent, items: MenuItem[]) {
   e.preventDefault();
+  // at the pointer: never the toggle of a button's menu
+  delete $("menu").dataset.at;
   if (items.some(Boolean)) showMenu(items, e.clientX, e.clientY);
 }
 

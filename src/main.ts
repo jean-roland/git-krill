@@ -209,21 +209,22 @@ addEventListener("click", (e) => {
 // WebKit's Reload/Back menu means nothing here; inputs and Monaco keep theirs
 addEventListener("contextmenu", (e) => !(e.target as HTMLElement).closest("input, textarea, #diff-editor") && e.preventDefault());
 addEventListener("keydown", (e) => {
-  const key = e.key.toLowerCase();
+  // a dialog's answer acts on the tab it was asked in: no leaving it meanwhile
+  const key = e.key.toLowerCase(), asking = !$("dialog").hidden;
   if (e.ctrlKey && e.code === "Backquote") (e.preventDefault(), toggleTerm());
   // GTK turns Shift+Tab into ISO_Left_Tab: the physical key is the sure one
-  else if (e.ctrlKey && e.code === "Tab") (e.preventDefault(), switchTab((active + (e.shiftKey ? tabs.length - 1 : 1)) % tabs.length));
+  else if (e.ctrlKey && e.code === "Tab") (e.preventDefault(), asking || switchTab((active + (e.shiftKey ? tabs.length - 1 : 1)) % tabs.length));
   // the shell owns every other key
   else if ((e.target as HTMLElement).closest?.("#term")) return;
   // back from a worktree or a submodule to its repository, from anywhere but the shell
-  else if (e.altKey && e.key === "ArrowLeft" && tabs[active].parent) (e.preventDefault(), stepBack());
+  else if (e.altKey && e.key === "ArrowLeft" && tabs[active].parent && !asking) (e.preventDefault(), stepBack());
   // the rebase plan's keys, unless a dialog, a menu, a diff over it or a field has them
   else if ($("dialog").hidden && $("menu").hidden && $("diff").hidden && !(e.target as HTMLElement).closest?.("select, input, textarea") && rebaseKey(e)) e.preventDefault();
   else if (e.key === "F5") (e.preventDefault(), refresh());
-  else if (e.ctrlKey && e.shiftKey && key === "t") (e.preventDefault(), reopenTab());
-  else if (e.ctrlKey && key === "t") (e.preventDefault(), addTab());
-  else if (e.ctrlKey && key === "o") (e.preventDefault(), openPicked());
-  else if (e.ctrlKey && key === "w") (e.preventDefault(), closeTab(active));
+  else if (e.ctrlKey && e.shiftKey && key === "t") (e.preventDefault(), asking || reopenTab());
+  else if (e.ctrlKey && key === "t") (e.preventDefault(), asking || addTab());
+  else if (e.ctrlKey && key === "o") (e.preventDefault(), asking || openPicked());
+  else if (e.ctrlKey && key === "w") (e.preventDefault(), asking || closeTab(active));
   // fields and buttons answer Enter themselves: elsewhere in a dialog it means its main action
   else if (e.key === "Enter" && !$("dialog").hidden && !(e.target as HTMLElement).closest?.("input, textarea, button, select"))
     (e.preventDefault(), $("dialog").querySelector<HTMLElement>("button.primary")?.click());
