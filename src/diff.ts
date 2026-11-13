@@ -2,8 +2,8 @@
 import type * as Monaco from "monaco-editor/esm/vs/editor/edcore.main";
 import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import { applyChanges, allLines, pickLines, parseConflicts, mergeSides, pickedLines, parseBlame, toggleSide, toggleLine, hasSide, pickedOf } from "./core.js";
-import { Blob, Change, Commit, active, fakeCommit, gitOp, headHash, opInfo, recordUndo, refresh, run, status, tabs } from "./repo";
-import { $, COLORS, ICONS, MenuItem, ask, avatar, avatarSvg, basename, colorIndex, copy, cssVar, dateFmt, dayFmt, esc, h, hideBanner, input, lfsChip, megabytes, plural, popup, say, short, showBanner, store, svg, toast, whileLoading } from "./ui";
+import { Blob, Change, Commit, active, fakeCommit, gitOp, headHash, lfsChip, opInfo, recordUndo, refresh, run, status, tabs } from "./repo";
+import { $, COLORS, ICONS, MenuItem, ask, avatar, avatarSvg, basename, colorIndex, copy, cssVar, dateFmt, dayFmt, esc, h, hideBanner, input, megabytes, plural, popup, say, short, showBanner, store, svg, toast, whileLoading } from "./ui";
 import { fileLists, isConflict, isSubmodule, markOpenFile, wipFiles } from "./panel";
 import { openSubmodule } from "./graph";
 
@@ -341,7 +341,7 @@ export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistor
   $("diff").hidden = false;
   document.body.classList.add("diffing");
   const range = c ? `  ·  ${c.parents[0] ? short(c.parents[0]) : "root"}..${short(c.hash)}` : "";
-  $("diff-path").replaceChildren((f.old ? `${f.old} → ${f.path}` : f.path) + range, ...(orig.lfs || mod.lfs ? [lfsChip()] : []));
+  $("diff-path").replaceChildren(...(orig.lfs || mod.lfs ? [lfsChip()] : []), (f.old ? `${f.old} → ${f.path}` : f.path) + range);
   paintOpenEditor();
   markOpenFile();
   // Monaco normalizes line endings, so a CRLF<->LF rewrite would not show at all

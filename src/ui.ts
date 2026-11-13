@@ -151,8 +151,6 @@ export function say(msg: string, err = false) {
 export const svg = (d: string) => `<svg viewBox="0 0 24 24"><path d="${d}"/></svg>`;
 /** Set a button's icon and text. */
 export const label = (b: HTMLElement, d: string, text: string) => ((b.innerHTML = svg(d)), b.append(text));
-/** A chip marking a file git-lfs stores. */
-export const lfsChip = () => h("small", { className: "lfs", textContent: "LFS", title: "Stored with Git LFS" });
 
 /** A next step for the failures with a known cause. */
 export function hint(msg: string) {
@@ -160,6 +158,11 @@ export function hint(msg: string) {
     return "\n\nThis https remote needs credentials krill can use: run `gh auth setup-git` once, or switch the remote to ssh.";
   return "";
 }
+
+// what warnOnce said this run
+const warned = new Set<string>();
+/** A toast for `key`, once a run: a missing tool is said once, not on every refresh. */
+export const warnOnce = (key: string, title: string, body: string, kind: "err" | "info") => warned.has(key) || (warned.add(key), toast(title, body, kind));
 
 /** A pop-up in the corner: errors stay until dismissed, info fades out. */
 export function toast(title: string, body: string, kind: "err" | "info") {

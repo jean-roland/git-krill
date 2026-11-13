@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { repoName } from "./core.js";
-import { $, COLORS, ICONS, MenuItem, basename, colorIndex, dialog, h, hideBanner, hideDialog, hint, ico, input, pickDir, popup, say, showBanner, showDialog, showMenu, store, svg, toast } from "./ui";
+import { $, COLORS, ICONS, MenuItem, basename, colorIndex, dialog, h, hideBanner, hideDialog, hint, ico, input, pickDir, popup, say, showBanner, showDialog, showMenu, store, svg, toast, warnOnce } from "./ui";
 import { closeHistory, closeMerge, closeResolvedMerge, confirmDrop, diffFile, openRow, reloadDiff } from "./diff";
 import { conflictCount, getMsg, renderPanel, setMsg } from "./panel";
 import { stepBack, paintWipRow, renderGraph, renderSide, resetGraph } from "./graph";
@@ -19,7 +19,7 @@ export type Stash = { name: string; hash: string; parents: string[]; subject: st
 export type Worktree = { path: string; head: string; branch: string; locked: boolean; prunable: boolean };
 // head: the commit checked out in it, empty when not initialized
 export type Submodule = { name: string; path: string; url: string; recorded: string; head: string; modified: boolean; untracked: boolean; ahead: number | null; behind: number | null };
-type Refs = { refs: Ref[]; stashes: Stash[]; remotes: string[]; worktrees: Worktree[]; submodules: Submodule[]; superproject: string; repoTop: string; lfs: boolean };
+type Refs = { refs: Ref[]; stashes: Stash[]; remotes: string[]; worktrees: Worktree[]; submodules: Submodule[]; superproject: string; repoTop: string; lfs: boolean; lfsProblem: string };
 // large: too big to load unasked, its size in bytes
 // lfs: a git-lfs pointer in git, "here" when its object was read instead, "missing" when it is not downloaded
 export type Blob = { text: string; exists: boolean; binary: boolean; large: number | null; lfs: "" | "here" | "missing" };
@@ -53,6 +53,21 @@ const DONE: Record<string, (arg: string, arg2: string, branch: string, upstream:
   "lfs-pull": () => "Pulled the LFS files",
   "submodule-add": (_url, path) => `Added submodule ${path}: commit to record it`,
 };
+// what to do when git-lfs cannot serve a repository that uses it, by refs' lfsProblem
+const LFS_PROBLEMS: Record<string, string> = {
+  missing: "git-lfs is not installed: its large files show as small pointer files. Install git-lfs, run `git lfs install` once, then Pull LFS files.",
+  unset: "git-lfs is installed but not set up: run `git lfs install` once, then Pull LFS files.",
+};
+// the chip's short take on LFS_PROBLEMS; git-lfs is looked for once per run
+const LFS_CHIP_TIPS: Record<string, string> = {
+  missing: "This file uses Git LFS, which is not installed: install it and restart Git Krill",
+  unset: "This file uses Git LFS, which is not set up: run `git lfs install` once",
+};
+/** A chip marking a file git-lfs stores: struck out in red while git-lfs cannot serve the repository. */
+export function lfsChip() {
+  const why = LFS_CHIP_TIPS[refs.lfsProblem];
+  return h("small", { className: why ? "lfs off" : "lfs", textContent: "LFS", title: why ?? "Stored with Git LFS" });
+}
 // what may change the remotes' tags, or the list of them
 const NET_OPS = new Set(["fetch", "fetch-remote", "pull", "push", "push-upstream", "tag-push", "push-delete", "tag-rename"]);
 // how Pull reconciles a diverged branch, by git_op's pull argument
@@ -63,7 +78,7 @@ export let active = 0;
 export let repo = "";
 export let commits: Commit[] = [];
 export let status: Status | null = null;
-export let refs: Refs = { refs: [], stashes: [], remotes: [], worktrees: [], submodules: [], superproject: "", repoTop: "", lfs: false };
+export let refs: Refs = { refs: [], stashes: [], remotes: [], worktrees: [], submodules: [], superproject: "", repoTop: "", lfs: false, lfsProblem: "" };
 // the picked graph rows ("WIP" or hashes), where a Shift range starts, whether it is one, or the stash shown instead
 export const selection = { hashes: ["WIP"], anchor: "", isRange: false, stash: null as Stash | null };
 // the merge, rebase... in progress, and the step whose message the commit box holds
@@ -251,6 +266,7 @@ async function reload() {
     if (r !== repo) return;
     status = s;
     refs = rf;
+    if (rf.lfsProblem) warnOnce(`lfs:${r}`, `${basename(r)} uses Git LFS`, LFS_PROBLEMS[rf.lfsProblem], "err");
     opInfo = info;
     const landed = landing;
     if (landed) land();

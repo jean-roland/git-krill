@@ -1,6 +1,6 @@
 // The right panel: work in progress or a commit's details, the file lists, the commit box.
-import { Change, Commit, commits, fakeCommit, gitOp, headHash, isHead, opInfo, refresh, refs, repo, run, runFixed, selection, status } from "./repo";
-import { $, ICONS, MenuItem, ask, avatar, basename, copy, dateFmt, h, ico, input, lfsChip, onCtrlEnter, label, plural, popup, say, shaLink, short, store, svg } from "./ui";
+import { Change, Commit, commits, fakeCommit, gitOp, headHash, isHead, lfsChip, opInfo, refresh, refs, repo, run, runFixed, selection, status } from "./repo";
+import { $, ICONS, MenuItem, ask, avatar, basename, copy, dateFmt, h, ico, input, onCtrlEnter, label, plural, popup, say, shaLink, short, store, svg, warnOnce } from "./ui";
 import { DiffSource, confirmDiscard, diffFile, merging, openDiff, openHistory } from "./diff";
 import { discardSubmodule, jumpTo, linkRemote, openSubmodule, webUrl } from "./graph";
 import { planOpen } from "./rebase";
@@ -113,8 +113,9 @@ function fileList(
       },
       // a submodule is no file: its own icon, in the colour of its change
       h("span", { className: `code code-${code}`, innerHTML: code ? svg(isSubmodule(f.path) ? ICONS.submodule : ICONS[code]) : "", title: f.code }),
-      h("span", { className: "path" }, h("span", { className: "dir", textContent: dir }), h("span", { className: "name", textContent: f.path.slice(slash) })),
+      // before the name: at the end the row's buttons cover it
       ...(f.lfs ? [lfsChip()] : []),
+      h("span", { className: "path" }, h("span", { className: "dir", textContent: dir }), h("span", { className: "name", textContent: f.path.slice(slash) })),
       ...actions.filter(([, , when]) => !when || when(f)).map(([label, fn]) => h("button", { textContent: label, onclick: (e: Event) => (e.stopPropagation(), fn(f)) })),
     );
     row.dataset.path = f.path;
@@ -254,8 +255,12 @@ function authorBlock(c: Commit, email: string, sign: string) {
 
 // git's %G? letter of an unsigned commit: said without asking the server
 const UNSIGNED = "N";
-// the host's verdicts by commit, asked once: "<host> true valid", or "" when gh cannot ask
+// the host's verdicts by commit, asked once: "<host> true valid", a GH_HELP key when gh cannot ask, or ""
 const verdicts = new Map<string, Promise<string>>();
+const GH_HELP: Record<string, string> = {
+  "gh-missing": "Install the GitHub CLI (gh) to have the remote server verify commit signatures.",
+  "gh-auth": "Sign in to the GitHub CLI (`gh auth login`) to have the remote server verify commit signatures.",
+};
 
 /** What the remote's host says of signed commit `hash`, through gh. */
 function verdict(hash: string) {
@@ -265,7 +270,10 @@ function verdict(hash: string) {
       (async () => {
         const remote = linkRemote(), m = remote ? (await webUrl(remote)).match(/^https:\/\/([^/]+)\/(.+)$/) : null;
         if (!m) return "";
-        return run<string>("gh_verified", { host: m[1], slug: m[2], hash }).then((v) => `${m[1]} ${v}`, () => "");
+        return run<string>("gh_verified", { host: m[1], slug: m[2], hash }).then(
+          (v) => `${m[1]} ${v}`,
+          (e) => (GH_HELP[String(e)] ? (warnOnce(String(e), "Signatures not checked", GH_HELP[String(e)], "info"), String(e)) : ""),
+        );
       })(),
     );
   return verdicts.get(hash)!;
@@ -281,7 +289,7 @@ function signBadge(hash: string, sign: string) {
     const [cls, text, title] =
       ok === "true" ? ["good", "Verified", "Remote server verified the commit signature"]
       : ok === "false" ? ["warn", "Unverified", "Remote server couldn't verify the commit signature"]
-      : ["unknown", "Not checked", "Remote server couldn't be asked about the commit signature"];
+      : ["unknown", "Not checked", GH_HELP[v] ?? "Remote server couldn't be asked about the commit signature"];
     Object.assign(b, { className: `sig ${cls}`, textContent: text, title });
   });
   return [b];

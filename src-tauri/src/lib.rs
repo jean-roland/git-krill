@@ -3,6 +3,7 @@ mod pty;
 
 use serde::Serialize;
 use std::collections::HashSet;
+use std::sync::OnceLock;
 use std::io::{Read, Write};
 use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
@@ -124,8 +125,10 @@ struct Refs {
     superproject: String,
     // the repo tool's top folder when this is one of its checkouts, else empty
     repo_top: String,
-    // git-lfs has run here
+    // it stores files with git-lfs
     lfs: bool,
+    // why git-lfs cannot serve it: "missing" (not installed), "unset" (no `git lfs install`), else empty
+    lfs_problem: &'static str,
 }
 
 #[derive(Serialize)]
@@ -142,8 +145,12 @@ struct Blob {
 /// \brief A git command in `repo`; with `ask`, ssh and https prompts reach krill's dialog, without they fail at once and say so.
 fn git_command(repo: &str, args: &[&str], ask: bool) -> Command {
     let mut git = Command::new("git");
-    git.current_dir(repo)
-        .args(args)
+    git.current_dir(repo);
+    // git-lfs set up but gone: its filter would fail every command, without it LFS files read as their pointers
+    if !lfs_installed() {
+        git.args(["-c", "filter.lfs.process=", "-c", "filter.lfs.smudge=", "-c", "filter.lfs.clean=", "-c", "filter.lfs.required=false"]);
+    }
+    git.args(args)
         // never block on an editor or a credential prompt: there is no tty
         .env("GIT_EDITOR", "true")
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -153,6 +160,12 @@ fn git_command(repo: &str, args: &[&str], ask: bool) -> Command {
     // its own session, off the terminal krill may run from: ssh would wait there for a key passphrase
     unsafe { git.pre_exec(|| (libc::setsid() >= 0).then_some(()).ok_or_else(std::io::Error::last_os_error)) };
     git
+}
+
+/// \brief Whether git-lfs runs here, asked once a run: an install while krill runs shows after a restart.
+fn lfs_installed() -> bool {
+    static INSTALLED: OnceLock<bool> = OnceLock::new();
+    *INSTALLED.get_or_init(|| Command::new("git").args(["lfs", "version"]).stdin(Stdio::null()).output().is_ok_and(|o| o.status.success()))
 }
 
 /// \brief Run git, `input` on its stdin.
@@ -337,8 +350,19 @@ fn refs(repo: String) -> Result<Refs, String> {
         (main.path, repo_top) = main_folder(&main.path);
     }
     let superproject = git(&repo, &["rev-parse", "--show-superproject-working-tree"])?.trim().to_string();
-    let lfs = lfs_dir(&repo).is_ok_and(|d| d.is_dir());
-    Ok(Refs { refs, stashes, remotes, worktrees, submodules: submodules(&repo)?, superproject, repo_top, lfs })
+    // a clone made without git-lfs has no lfs folder yet, only the attributes
+    let lfs = lfs_dir(&repo).is_ok_and(|d| d.is_dir()) || std::fs::read_to_string(Path::new(&repo).join(".gitattributes")).is_ok_and(|a| a.contains("filter=lfs"));
+    let lfs_problem = if lfs { lfs_problem(&repo) } else { "" };
+    Ok(Refs { refs, stashes, remotes, worktrees, submodules: submodules(&repo)?, superproject, repo_top, lfs, lfs_problem })
+}
+
+/// \brief Why git-lfs cannot serve `repo`: "missing", "unset" or "" when it can.
+fn lfs_problem(repo: &str) -> &'static str {
+    if !lfs_installed() {
+        return "missing";
+    }
+    // `git lfs install` sets its filter, for the user or this repository
+    if git(repo, &["config", "--get-regexp", r"^filter\.lfs\."]).is_err() { "unset" } else { "" }
 }
 
 /// \brief The main worktree's folder from what `git worktree list` names, and the repo tool's top folder when it is one of its checkouts.
@@ -696,9 +720,13 @@ fn gh_verified(host: String, slug: String, hash: String) -> Result<String, Strin
         .env("GH_PROMPT_DISABLED", "1")
         .env("GH_NO_UPDATE_NOTIFIER", "1")
         .stdin(Stdio::null());
-    // off the async pool while the network answers
-    let out = tokio::task::block_in_place(|| gh.output()).map_err(|e| e.to_string())?;
-    if out.status.success() { Ok(String::from_utf8_lossy(&out.stdout).trim().to_string()) } else { Err(output_text(&out)) }
+    // off the async pool while the network answers; gh missing or signed out is told apart, for the badge to say what to do
+    let out = tokio::task::block_in_place(|| gh.output()).map_err(|e| if e.kind() == std::io::ErrorKind::NotFound { "gh-missing".to_string() } else { e.to_string() })?;
+    if out.status.success() {
+        return Ok(String::from_utf8_lossy(&out.stdout).trim().to_string());
+    }
+    let err = output_text(&out);
+    Err(if err.contains("gh auth login") { "gh-auth".into() } else { err })
 }
 
 /// \brief End the running blame, if any.

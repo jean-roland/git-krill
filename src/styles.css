@@ -475,6 +475,9 @@ body.home main { grid-template-columns: 1fr; }
 .file .path { flex: 1; display: flex; min-width: 0; }
 .file .dir { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--dim); }
 .file .name { flex: none; }
+.file .lfs { margin-left: 0; }
+#diff-path .lfs { margin: 0 8px 0 0; }
+.lfs.off { border-color: var(--del); color: var(--del); text-decoration: line-through; }
 .file.same .name { color: var(--dim); }
 /* floats over the row's end: showing it does not squeeze the path */
 .file button { display: none; position: absolute; right: 10px; padding: 0 8px; font-size: 13px; font-weight: 600; }
