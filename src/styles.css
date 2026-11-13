@@ -476,7 +476,8 @@ body.home main { grid-template-columns: 1fr; }
 .file .dir { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--dim); }
 .file .name { flex: none; }
 .file .lfs { margin-left: 0; }
-#diff-path .lfs { margin: 0 8px 0 0; }
+/* a box of its own: as plain inline text the path's clipping cut its border */
+#diff-path .lfs { display: inline-block; vertical-align: 1px; margin: 0 8px 0 0; }
 .lfs.off { border-color: var(--del); color: var(--del); text-decoration: line-through; }
 .file.same .name { color: var(--dim); }
 /* floats over the row's end: showing it does not squeeze the path */
@@ -602,7 +603,8 @@ textarea.msg-in { height: 104px; resize: vertical; }
 #diff-path { font: 12px var(--mono); margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bar button { flex: none; white-space: nowrap; }
 #diff-path { min-width: 40px; }
-.lfs { flex: none; margin-left: 8px; padding: 0 4px; border: 1px solid var(--accent); border-radius: 3px; color: var(--accent); font: 10px/14px var(--mono); }
+/* capitals only: no descender below them, so the text sits a pixel lower */
+.lfs { flex: none; margin-left: 8px; padding: 2px 4px 0; border: 1px solid var(--accent); border-radius: 3px; color: var(--accent); font: 10px/12px var(--mono); }
 #hist-path { min-width: 0; font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .seg { display: inline-flex; }
 .seg button { border-radius: 0; margin-left: -1px; }
