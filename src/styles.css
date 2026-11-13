@@ -637,6 +637,18 @@ textarea.msg-in { height: 104px; resize: vertical; }
 .img-side.add .frame { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--add) 60%, transparent); }
 /* centred at its own size, shrunk to fit inside the frame's border: grid centring let a tall one spill over it */
 .img-side img { position: absolute; inset: 8px; margin: auto; max-width: calc(100% - 16px); max-height: calc(100% - 16px); }
+/* floats over the diff's top: the bar keeps one layout for every file */
+#diff > .bar { position: relative; }
+/* a round pair of icons, faint, opening to its labels when pointed at */
+#svg-view { position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%); z-index: 15; background: var(--raised); border-radius: 999px; box-shadow: 0 2px 8px #0009; opacity: 0.7; transition: opacity 0.15s; }
+#svg-view:hover { opacity: 1; }
+#svg-view button { padding: 3px 8px; }
+#svg-view button:first-child { border-radius: 999px 0 0 999px; }
+#svg-view button:last-child { border-radius: 0 999px 999px 0; }
+#svg-view svg { margin-right: 0; transition: margin-right 0.15s; }
+#svg-view span { display: inline-block; max-width: 0; overflow: hidden; vertical-align: bottom; transition: max-width 0.15s; }
+#svg-view:hover svg { margin-right: 5px; }
+#svg-view:hover span { max-width: 4em; }
 /* a tooltip at once, under its element: the native one waits a second */
 [data-tip] { position: relative; }
 [data-tip]:hover::after {

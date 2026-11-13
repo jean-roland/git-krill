@@ -399,14 +399,16 @@ const MAX_ASKED = 200 << 20;
 function paintSides() {
   const { kind, f, c, orig, mod, sub } = diffFile!;
   const binary = orig.binary || mod.binary, large = Math.max(orig.large ?? 0, mod.large ?? 0);
-  const missing = orig.lfs === "missing" || mod.lfs === "missing";
-  const images = binary && !missing && (!large || large <= IMAGE_UNASKED) && IMAGE.test(f.path);
+  const missing = orig.lfs === "missing" || mod.lfs === "missing", isSvg = SVG.test(f.path) && !sub && !missing && !large;
+  const images = (binary && !missing && (!large || large <= IMAGE_UNASKED) && IMAGE.test(f.path)) || (isSvg && store("svg-view") === "image");
   // the version a file opens in its app: the new one, the old when the file is gone
   const shown = sideSources(kind, f, c)[mod.exists ? 1 : 0];
   const pane = binary || !!large || !!sub || images;
   $("diff-editor").hidden = pane;
   $("diff-binary").hidden = !pane;
   $("diff-binary").classList.toggle("images", images);
+  $("svg-view").hidden = !isSvg;
+  document.querySelectorAll<HTMLElement>("[data-svg]").forEach((b) => b.classList.toggle("on", (b.dataset.svg === "image") === images));
   $("diff-binary").replaceChildren(
     ...(sub
       ? submoduleCard(f.path, sub)
@@ -451,9 +453,16 @@ function submoduleCard(path: string, s: SubmoduleChange) {
 
 // shown in krill; other binary files open in their own app
 const IMAGE = /\.(png|jpe?g|gif|webp|bmp|ico|avif)$/i;
+// text, also shown drawn when asked
+const SVG = /\.svg$/i;
 // raw bytes the window decodes itself, far cheaper than text in the editor: shown unasked up to this
 const IMAGE_UNASKED = 50 << 20;
 
+/** An SVG's diff as its text or as drawn, remembered for the next ones. */
+export function setSvgView(view: string) {
+  store("svg-view", view);
+  if (diffFile) paintSides();
+}
 const sideName = (at: string) => (at === "WORKTREE" ? "Working tree" : at === "INDEX" ? "Staged" : at === "HEAD" ? "HEAD" : short(at));
 const bytesText = (n: number) => (n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 1024).toFixed(1)} KB` : megabytes(n));
 
@@ -470,7 +479,8 @@ function imageSide(at: string, path: string, cls = "") {
   run<ArrayBuffer>("file_bytes", { at, path }).then(
     (bytes) => {
       // Blob here is git's, from ./repo
-      const url = URL.createObjectURL(new globalThis.Blob([bytes]));
+      // an SVG draws only with its type; the others are recognised by their bytes
+      const url = URL.createObjectURL(new globalThis.Blob([bytes], { type: SVG.test(path) ? "image/svg+xml" : "" }));
       const pixels = () => (img.naturalWidth ? ` · ${img.naturalWidth}×${img.naturalHeight}` : "");
       img.onload = () => (URL.revokeObjectURL(url), (caption.textContent = `${sideName(at)}${pixels()} · ${bytesText(bytes.byteLength)}`));
       img.src = url;
@@ -593,6 +603,8 @@ export async function reloadDiff(row = -1) {
   if (orig.text === diffFile.orig.text && mod.text === diffFile.mod.text && orig.binary === diffFile.orig.binary) return;
   Object.assign(diffFile, { orig, mod });
   if (orig.binary || mod.binary) return;
+  // an SVG shown drawn redraws its images
+  if ($("diff-editor").hidden) return paintSides();
   // the old diff stays on screen until the new one is drawn
   const gen = opening, copy = $("diff-editor").hidden ? null : still($("diff-editor"));
   setModels(true);
@@ -1078,7 +1090,7 @@ export async function showRev(i: number) {
 function histPane(file: boolean) {
   $("diff").hidden = false;
   $("hist-file").hidden = !file;
-  if (file) $("diff-editor").hidden = $("diff-binary").hidden = true;
+  if (file) $("diff-editor").hidden = $("diff-binary").hidden = $("svg-view").hidden = true;
   dimDiffOpts(file);
 }
 

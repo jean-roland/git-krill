@@ -1,7 +1,7 @@
 // Entry: wires the buttons and keys to the features, then reopens the tabs.
 import { invoke } from "@tauri-apps/api/core";
 import "@xterm/xterm/css/xterm.css";
-import { Mode, closeDiff, closeHistory, closeMerge, diffEditor, diffFile, editor, goConflict, hist, histEd, histView, loadMerge, loadMonaco, merging, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setMode, showRev, warmDiff } from "./diff";
+import { Mode, closeDiff, closeHistory, closeMerge, diffEditor, diffFile, editor, goConflict, hist, histEd, histView, loadMerge, loadMonaco, merging, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setMode, setSvgView, showRev, warmDiff } from "./diff";
 import { rebaseKey } from "./rebase";
 import { SORTS, amending, commit, conflictCount, emptyStep, fileLists, filterFiles, foldAll, getMsg, openFile, paintFileOpts, renderCommitBtn, renderPanel, setMsg } from "./panel";
 import { $, ask, closeDialog, hideBanner, input, onCtrlEnter, pickDir, popup, say, store } from "./ui";
@@ -65,6 +65,7 @@ paintPull();
 addEventListener("focus", () => autoFetch());
 setInterval(() => autoFetch(), 5 * 60_000);
 document.querySelectorAll<HTMLElement>("[data-mode]").forEach((b) => (b.onclick = () => setMode(b.dataset.mode as Mode)));
+document.querySelectorAll<HTMLElement>("[data-svg]").forEach((b) => (b.onclick = () => setSvgView(b.dataset.svg!)));
 $("new-tab").onclick = addTab;
 $("new-tab").oncontextmenu = (e) => popup(e, newTabMenu());
 // past their narrowest, tabs scroll sideways under the wheel

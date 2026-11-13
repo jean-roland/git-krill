@@ -81,6 +81,9 @@
               <span id="diff-path"></span>
               <button class="icon" id="prev-change" title="Previous change"><svg data-icon="up"></svg></button>
               <button class="icon" id="next-change" title="Next change"><svg data-icon="down"></svg></button>
+              <span class="seg" id="svg-view" hidden>
+                <button data-svg="text" title="Display SVG as text"><svg viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5"/></svg><span>Text</span></button><button data-svg="image" title="Display SVG as image"><svg viewBox="0 0 24 24"><path d="M3 5h18v14H3zM3 16l5-5 4 4 3-3 6 6"/></svg><span>Image</span></button>
+              </span>
               <span class="seg">
                 <button data-mode="hunk" title="Changed hunks only"><svg viewBox="0 0 24 24"><path d="M4 5h16M4 9h11M4 15h16M4 19h11"/></svg>Hunk</button><button data-mode="inline" title="Whole file, one column"><svg viewBox="0 0 24 24"><path d="M4 5h16M4 10h16M4 15h16M4 20h16"/></svg>Inline</button><button data-mode="split" title="Whole file, side by side"><svg viewBox="0 0 24 24"><path d="M3 4h18v16H3zM12 4v16"/></svg>Split</button>
               </span>
