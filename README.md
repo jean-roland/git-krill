@@ -7,12 +7,17 @@ A lean desktop git client for Linux: a commit graph, diffs you can stage from, a
 ## Features
 
 - **Graph**: every branch in lanes, with branch and tag labels, generated author avatars, and search (Ctrl+F). Branches, tags, remotes and stashes can be hidden one by one.
-- **Changes**: stage and unstage whole files, hunks or single lines; commit; discard with undo (Ctrl+Z).
+- **Changes**: stage and unstage whole files, hunks or single lines; commit, amend, reword; discard with undo (Ctrl+Z).
 - **Diffs**: hunk, inline or side-by-side views; the working tree file can be edited and saved in place; a commit's hunk can be reverted.
-- **Conflicts**: a three-pane merge tool with picks per hunk or per line, then finish or abort the merge or rebase.
+- **Images**: old and new side by side; an SVG as its text or drawn. Other binary files open in their default program.
+- **Conflicts**: a three-pane merge tool with picks per hunk or per line, then finish or abort the merge or rebase; recorded resolutions can be reused (git rerere).
+- **Interactive rebase**: pick, reword, squash or drop commits, and reorder them by dragging.
 - **File history**: each version of a file, as a diff or in full with blame.
-- **Branches and remotes**: checkout, create, merge, rebase, reset, delete (local and upstream); fetch, pull and push, with a fetch in the background every 5 minutes.
-- **Stashes, tags and worktrees** from the sidebar.
+- **Branches and remotes**: checkout, create, merge, rebase, reset, delete (local and upstream); fetch, pull and push, with a fetch in the background.
+- **Stashes, tags, worktrees and submodules** from the sidebar; a worktree or a submodule opens in the same tab, Esc steps back.
+- **Git LFS**: files diffed by their content, missing versions downloaded on demand; track, untrack and prune from the menus.
+- **Commits** show whether the server verified their signature (with the GitHub CLI).
+- **Settings**: tool status, background fetch, the editor command, and the global git identity.
 - **Tabs**, one repository each, and a terminal in each tab (Ctrl+`).
 - SSH passphrase and HTTPS password prompts show in the window.
 
@@ -49,6 +54,7 @@ npm test
 | Ctrl+T, Ctrl+W, Ctrl+Shift+T | New tab, close it, reopen the last closed |
 | Ctrl+Tab, Ctrl+Shift+Tab | Next, previous tab |
 | Ctrl+O | Open a repository |
+| Alt+← | Back from a worktree or a submodule to its repository |
 | Ctrl+F | Search the graph |
 | Ctrl+Z, Ctrl+Y | Undo, redo |
 | Ctrl+` | Terminal |
