@@ -214,8 +214,36 @@ fn git_spawn_error(e: std::io::Error) -> String {
     if e.kind() == std::io::ErrorKind::NotFound { format!("Git is not installed. {GIT_HELP}") } else { e.to_string() }
 }
 
+/// \brief The file KRILL_TRACE names, opened once: git runs and the window's calls are timed into it.
+fn trace_file() -> Option<&'static Mutex<std::fs::File>> {
+    static FILE: OnceLock<Option<Mutex<std::fs::File>>> = OnceLock::new();
+    FILE.get_or_init(|| std::env::var_os("KRILL_TRACE").and_then(|p| std::fs::OpenOptions::new().create(true).append(true).open(p).ok()).map(Mutex::new)).as_ref()
+}
+
+/// \brief A line of the trace, after the milliseconds since krill started.
+fn trace(line: &str) {
+    static START: OnceLock<std::time::Instant> = OnceLock::new();
+    let at = START.get_or_init(std::time::Instant::now).elapsed().as_millis();
+    if let Some(Ok(mut f)) = trace_file().map(|f| f.lock()) {
+        let _ = writeln!(f, "{at:>8} {line}");
+    }
+}
+
+/// \brief Whether KRILL_TRACE is on: the window then sends its own timings.
+#[tauri::command]
+fn tracing() -> bool {
+    trace_file().is_some()
+}
+
+/// \brief A line of the window's timings into the trace.
+#[tauri::command]
+fn trace_line(line: String) {
+    trace(&line);
+}
+
 /// \brief Run git, `input` on its stdin.
 fn git_cmd(repo: &str, args: &[&str], input: Option<&[u8]>, ask: bool) -> Result<Output, String> {
+    let started = std::time::Instant::now();
     let mut git = git_command(repo, args, ask);
     git.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = git.spawn().map_err(git_spawn_error)?;
@@ -225,7 +253,11 @@ fn git_cmd(repo: &str, args: &[&str], input: Option<&[u8]>, ask: bool) -> Result
         std::thread::spawn(move || stdin.write_all(&data));
     }
     // off the async pool while it waits: a fetch can hang for minutes on a dead network
-    tokio::task::block_in_place(|| child.wait_with_output()).map_err(|e| e.to_string())
+    let out = tokio::task::block_in_place(|| child.wait_with_output()).map_err(|e| e.to_string());
+    if trace_file().is_some() {
+        trace(&format!("{:>6}ms git {}", started.elapsed().as_millis(), args.join(" ").chars().take(160).collect::<String>()));
+    }
+    out
 }
 
 /// \brief All git said, stdout then stderr.
@@ -1782,6 +1814,9 @@ fn mac_menu(h: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     askpass::helper();
+    if trace_file().is_some() {
+        trace(&format!("Git Krill {} started", env!("CARGO_PKG_VERSION")));
+    }
     #[cfg(target_os = "macos")]
     login_path();
     tauri::Builder::default()
@@ -1799,7 +1834,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, gh_verified, remote_tags, submodule_change, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, worktree_main, lfs_patterns, version_ids, keeps_crlf,
-            is_merged, revert_lines, open_default, open_version, file_bytes, tool_status, global_config, set_global_config, trust_folder, delete_file, open_url, remote_urls, edit_remote,
+            is_merged, revert_lines, tracing, trace_line, open_default, open_version, file_bytes, tool_status, global_config, set_global_config, trust_folder, delete_file, open_url, remote_urls, edit_remote,
             pty::pty_spawn, pty::pty_write, pty::pty_resize, pty::pty_kill, askpass::askpass_reply
         ])
         .build(tauri::generate_context!())

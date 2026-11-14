@@ -95,7 +95,17 @@ let opStep = "";
 let graphKey = "", sideKey = "", panelKey = "";
 export const headHash = () => commits.find(isHead)?.hash ?? "";
 
-export const run = <T>(cmd: string, args: Record<string, unknown> = {}) => invoke<T>(cmd, { repo, ...args });
+// KRILL_TRACE set: the window's calls, refreshes and operations are timed into its file too
+let tracing = false;
+invoke<boolean>("tracing").then((on) => (tracing = on), () => {});
+const ms = (since: number) => `${String(Math.round(performance.now() - since)).padStart(6)}ms`;
+export const trace = (line: string) => void (tracing && invoke("trace_line", { line }).catch(() => {}));
+
+export function run<T>(cmd: string, args: Record<string, unknown> = {}) {
+  if (!tracing) return invoke<T>(cmd, { repo, ...args });
+  const started = performance.now();
+  return invoke<T>(cmd, { repo, ...args }).finally(() => trace(`${ms(started)} call ${cmd}`));
+}
 export const DEFAULT_EDITOR = "code -g {file}:{line}";
 /** Open the working tree's `path` at `line` with the Settings tab's editor command. */
 // an emptied command means the desktop's default app
@@ -116,7 +126,7 @@ export function runFixed<T>(cmd: string, args: Record<string, unknown>) {
 /** Run git op `name`; a pair passes a second argument (new name, start point, remote branch). */
 export async function gitOp(name: string, arg: string | [string, string] = "", record = true) {
   const [arg1, arg2] = Array.isArray(arg) ? arg : [arg, ""];
-  const tab = tabs[active], branch = status?.branch ?? "", head = headHash();
+  const tab = tabs[active], branch = status?.branch ?? "", head = headHash(), started = performance.now();
   say(`${name}…`);
   document.body.classList.add("busy");
   // the spinning pointer past 300 ms, as the toolbar dims: a quick stage does not flicker it
@@ -158,6 +168,7 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
   clearTimeout(slow);
   document.body.classList.remove("busy", "slow");
   await refresh();
+  trace(`${ms(started)} op ${name}, its refresh included`);
   if (ok && NET_OPS.has(name)) loadRemoteTags();
   if (ok && record && UNDOABLE.has(name) && tab === tabs[active]) {
     const what = MAKE_COMMIT.has(name) ? `"${commits.find(isHead)?.subject ?? ""}"` : name === "pull" ? "" : short(arg1);
@@ -318,11 +329,12 @@ export function redraw() {
 }
 
 async function reload() {
-  const r = repo;
+  const r = repo, started = performance.now();
   if (!r) return;
   try {
     const [s, log, rf] = await Promise.all([run<Status>("status"), run<Commit[]>("log", { limit: tabs[active].limit, ...graphFilter() }), run<Refs>("refs")]);
     const info = s.state ? await run<OpInfo>("op_info").catch(() => null) : null;
+    const loaded = performance.now();
     if (r !== repo) return;
     status = s;
     refs = rf;
@@ -370,6 +382,8 @@ async function reload() {
       await renderPanel();
     }
     if (diffFile) await reloadDiff(row);
+    // the waiting on git against the drawing and the panel's own calls
+    trace(`${ms(started)} refresh ${basename(r)}: ${Math.round(loaded - started)}ms for status, log and refs, ${ms(loaded).trim()} for the rest`);
   } catch (e) {
     if (r !== repo) return;
     // the folder went away under the tab, like a removed worktree: close it rather than fail on every refresh
