@@ -1,6 +1,6 @@
 <h1 align="center"><img src="src-tauri/icons/128x128@2x.png" alt="" width="72" align="center"> Git Krill</h1>
 
-A lean desktop git client for Linux: a commit graph, diffs you can stage from, a merge tool, and little else. It runs the `git` you already have, so your config, hooks, keys and credentials apply as usual.
+A lean desktop git client for Linux, Windows and macOS: a commit graph, diffs you can stage from, a merge tool, and little else. It runs the `git` you already have, so your config, hooks, keys and credentials apply as usual.
 
 ![The commit graph, with a commit's details](docs/screenshots/graph.png)
 
@@ -21,23 +21,25 @@ A lean desktop git client for Linux: a commit graph, diffs you can stage from, a
 - **Tabs**, one repository each, and a terminal in each tab (Ctrl+`).
 - SSH passphrase and HTTPS password prompts show in the window.
 
-| Staging hunks | Merge tool | File history and blame |
-| --- | --- | --- |
-| ![A diff with Stage hunk buttons](docs/screenshots/diff.png) | ![The three-pane merge tool](docs/screenshots/merge.png) | ![A file's history with blame](docs/screenshots/history.png) |
+![A diff with Stage hunk buttons](docs/screenshots/diff.png)
+
+![The three-pane merge tool](docs/screenshots/merge.png)
+
+![A file's history with blame](docs/screenshots/history.png)
 
 ## Install
 
-Download the `.deb` from the [releases](https://github.com/jean-roland/git-krill/releases), then:
+From the [releases](https://github.com/jean-roland/git-krill/releases):
 
-```sh
-sudo apt install ./git-krill_0.2.0_amd64.deb
-```
+- **Linux** (Debian, Ubuntu): `sudo apt install ./git-krill_0.2.0_amd64.deb`, then run `git-krill`, or `git-krill path/to/repo`.
+- **Windows**: run `git-krill_0.2.0_x64-setup.exe`. It is not signed: SmartScreen asks first, "More info" then "Run anyway". Needs [Git for Windows](https://git-scm.com/download/win).
+- **macOS**: open `git-krill_0.2.0_universal.dmg` and drag Git Krill to Applications. It is not notarized: the first launch is refused, then System Settings > Privacy & Security > "Open Anyway". Needs git: `xcode-select --install`, or Homebrew's.
 
-Run `git-krill`, or `git-krill path/to/repo`. Needs `git` (tested with 2.43; before 2.40 a commit's files lack their LFS chip). "Open in editor" runs the command set in Settings, VS Code's `code` by default.
+Needs `git` (tested with 2.43; before 2.40 a commit's files lack their LFS chip). "Open in editor" runs the command set in Settings, VS Code's `code` by default.
 
 ## Build
 
-Needs Rust 1.85 or newer, Node.js 18 or newer, and Tauri's system libraries:
+Needs Rust 1.88 or newer, Node.js 18 or newer, and Tauri's system libraries (on Windows and macOS, see Tauri's [prerequisites](https://v2.tauri.app/start/prerequisites/)):
 
 ```sh
 sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
@@ -61,6 +63,8 @@ npm test
 | F5 | Refresh |
 | Arrows | Move through commits and files, open and close diffs |
 | Escape | Close the open view or dialog |
+
+On macOS, Cmd in place of Ctrl, but for Ctrl+Tab and Ctrl+`.
 
 ## Big repositories
 
