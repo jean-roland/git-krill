@@ -59,7 +59,7 @@ function fileMenu(f: Change, kind: DiffSource, c?: Commit): MenuItem[] {
       : []),
     ...(kind === "staged" ? ([["Unstage", () => gitOp("unstage", f.path)]] as MenuItem[]) : []),
     null,
-    ...(isSubmodule(f.path) ? ([["Open submodule", () => openSubmodule(f.path)]] as MenuItem[]) : []),
+    ...((f.sub ?? isSubmodule(f.path)) ? ([["Open submodule", () => openSubmodule(f.path)]] as MenuItem[]) : []),
     ["File history", () => openHistory(f.path, c)],
     ["Open in editor", () => openInEditor(f.path, 1).catch(neutral)],
     ["Open in default program", () => run("open_default", { path: f.path, folder: false }).catch(neutral)],

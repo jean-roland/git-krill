@@ -382,15 +382,16 @@ export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistor
   $("diff").hidden = false;
   const range = c ? `  ·  ${c.parents[0] ? short(c.parents[0]) : "root"}..${short(c.hash)}` : "";
   $("diff-path").replaceChildren(...(orig.lfs || mod.lfs ? [lfsChip()] : []), (f.old ? `${f.old} → ${f.path}` : f.path) + range);
-  // set again once the text is in the editor: an image or a binary file has none
-  $("diff-editable").hidden = true;
+  // set again once the text is in the editor: an image, a binary file or a submodule has none
+  $("diff-editable").hidden = $("diff-save").hidden = true;
   paintOpenEditor();
   markOpenFile();
   // Monaco normalizes line endings, so a CRLF<->LF rewrite would not show at all
   const eol = (t: string) => (t.includes("\r\n") ? "CRLF" : t.includes("\n") ? "LF" : "");
   // a work file's CRLFs may be git's own checkout of LF text (autocrlf): not a change then
   if (eol(orig.text) && eol(mod.text) && eol(orig.text) !== eol(mod.text))
-    ((kind === "unstaged" || c?.hash === "WORKTREE") && eol(mod.text) === "CRLF" ? run<boolean>("keeps_crlf", { path: f.path }) : Promise.resolve(true)).then(
+    // not for LFS: its clean filter would store the probe as an object
+    ((kind === "unstaged" || c?.hash === "WORKTREE") && eol(mod.text) === "CRLF" && !f.lfs ? run<boolean>("keeps_crlf", { path: f.path }) : Promise.resolve(true)).then(
       (kept) => kept && say(`${f.path}: line endings changed ${eol(orig.text)} → ${eol(mod.text)}, not shown in the diff`, true),
       () => {},
     );
