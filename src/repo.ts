@@ -111,7 +111,7 @@ export const headHash = () => commits.find(isHead)?.hash ?? "";
 let tracing = false;
 invoke<boolean>("tracing").then((on) => (tracing = on), () => {});
 const ms = (since: number) => `${String(Math.round(performance.now() - since)).padStart(6)}ms`;
-export const trace = (line: string) => void (tracing && invoke("trace_line", { line }).catch(() => {}));
+const trace = (line: string) => void (tracing && invoke("trace_line", { line }).catch(() => {}));
 
 let pending = 0;
 let slow = 0;

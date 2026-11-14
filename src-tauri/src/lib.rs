@@ -225,7 +225,17 @@ fn trace(line: &str) {
     static START: OnceLock<std::time::Instant> = OnceLock::new();
     let at = START.get_or_init(std::time::Instant::now).elapsed().as_millis();
     if let Some(Ok(mut f)) = trace_file().map(|f| f.lock()) {
-        let _ = writeln!(f, "{at:>8} {line}");
+        // one write, one line: a commit message spans several
+        let _ = f.write_all(format!("{at:>8} {}\n", line.replace(['\n', '\r'], " ")).as_bytes());
+    }
+}
+
+/// \brief A git argument as the trace shows it: a URL's user and password left out, the file is meant to be shared.
+fn traced(arg: &str) -> String {
+    let Some((scheme, rest)) = arg.split_once("://") else { return arg.to_string() };
+    match rest[..rest.find('/').unwrap_or(rest.len())].rfind('@') {
+        Some(at) => format!("{scheme}://…{}", &rest[at..]),
+        None => arg.to_string(),
     }
 }
 
@@ -256,7 +266,7 @@ fn git_cmd(repo: &str, args: &[&str], input: Option<&[u8]>, ask: bool) -> Result
     // off the async pool while it waits: a fetch can hang for minutes on a dead network
     let out = tokio::task::block_in_place(|| child.wait_with_output()).map_err(|e| e.to_string());
     if trace_file().is_some() {
-        trace(&format!("{:>6}ms git {}", started.elapsed().as_millis(), args.join(" ").chars().take(160).collect::<String>()));
+        trace(&format!("{:>6}ms git {}", started.elapsed().as_millis(), args.iter().map(|a| traced(a)).collect::<Vec<_>>().join(" ").chars().take(160).collect::<String>()));
     }
     out
 }
