@@ -857,7 +857,7 @@ svg.blame-av { cursor: pointer; }
 .menu small { padding: 2px 4px 4px; color: var(--dim); }
 .menu .ask { width: 260px; font: 12px var(--mono); color: var(--text); background: var(--bg); border: 1px solid var(--accent); border-radius: 4px; padding: 4px 6px; }
 .menu button:hover:not(:disabled) { background: var(--sel); }
-.menu button .ico { display: inline-flex; margin-right: 8px; vertical-align: -2px; color: var(--dim); }
+.menu button .ico { margin-right: 8px; vertical-align: -2px; color: var(--dim); }
 .menu button .ico svg { width: 14px; height: 14px; }
 .menu-title { display: flex; justify-content: center; align-items: center; gap: 7px; max-width: 380px; padding: 5px 14px 8px; margin-bottom: 4px; white-space: nowrap; font-weight: 700; color: var(--text); border-bottom: 1px solid var(--border); }
 .menu-title span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }

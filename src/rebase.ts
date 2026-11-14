@@ -141,6 +141,8 @@ function click(e: MouseEvent, i: number) {
     const [a, b] = [p.at, i].sort((x, y) => x - y);
     p.picked = new Set(p.rows.slice(a, b + 1).map((r) => r.c.hash));
   } else if (mod(e) && !p.picked.delete(hash)) p.picked.add(hash);
+  // never none: the keys would act on nothing
+  if (!p.picked.size) p.picked.add(hash);
   // the run's start stays put
   if (e.shiftKey) return paint();
   pick(i, mod(e));
@@ -222,7 +224,7 @@ function move(i: number, by: number) {
   if (j < 0 || j >= rows.length) return;
   [rows[i], rows[j]] = [rows[j], rows[i]];
   unsquashOrphans();
-  pick(j);
+  pick(j, plan!.picked.has(rows[j].c.hash));
 }
 
 /** Drag row `i` up or down: the rows reorder live under the pointer, like the tabs. */
@@ -248,7 +250,7 @@ function drag(e: PointerEvent, i: number) {
     removeEventListener("pointermove", follow);
     if (!moved || !plan) return;
     unsquashOrphans();
-    pick(at);
+    pick(at, plan.picked.has(plan.rows[at].c.hash));
   };
   addEventListener("pointermove", follow);
   addEventListener("pointerup", up, { once: true });
