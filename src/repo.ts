@@ -673,11 +673,18 @@ export function openSettings() {
 }
 
 /** Open `path` in its existing tab, the current Home tab, or a new tab. */
-export async function openRepo(path: string) {
+export async function openRepo(path: string): Promise<boolean> {
   let root: string;
   try {
     root = await invoke<string>("repo_root", { path });
   } catch (e) {
+    // another user's folder (WSL, a share): git's refusal names it as safe.directory wants it
+    const named = String(e).match(/safe\.directory (.+)/)?.[1].trim();
+    // shell-quoted only when it needs to be
+    const safe = named?.startsWith("'") ? named.slice(1, -1).split("'\\''").join("'") : named;
+    if (safe)
+      return (await ask(`Git refuses ${path}: its folder belongs to another user, as a WSL or network folder does. Trust it from now on?`, "Trust folder")) &&
+        invoke("trust_folder", { dir: safe }).then(() => openRepo(path), (e) => (say(String(e), true), false));
     // a recent repository that moved or was deleted leaves the list
     if (!recentRepos().includes(path)) {
       say(String(e), true);

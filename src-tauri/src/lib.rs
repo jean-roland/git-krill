@@ -1253,6 +1253,13 @@ fn set_global_config(key: String, value: String) -> Result<(), String> {
     if out.status.success() || (value.is_empty() && out.status.code() == Some(5)) { Ok(()) } else { Err(output_text(&out)) }
 }
 
+/// \brief Let git work in `dir` though another user owns it, as git's refusal names it (safe.directory).
+#[tauri::command(async)]
+fn trust_folder(dir: String) -> Result<(), String> {
+    let out = command("git").args(["config", "--global", "--add", "safe.directory", not_option(&dir)?]).stdin(Stdio::null()).output().map_err(|e| e.to_string())?;
+    if out.status.success() { Ok(()) } else { Err(output_text(&out)) }
+}
+
 /// \brief Reword stash `name`: git cannot, so store it again under `message`, then drop the old entry.
 fn stash_message(repo: &str, name: &str, message: &str) -> Result<String, String> {
     let n: u32 = name.strip_prefix("stash@{").and_then(|s| s.strip_suffix('}')).and_then(|s| s.parse().ok()).ok_or_else(|| format!("{name} is not a stash"))?;
@@ -1708,7 +1715,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, gh_verified, remote_tags, submodule_change, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, worktree_main, lfs_patterns, version_ids, keeps_crlf,
-            is_merged, revert_lines, open_default, open_version, file_bytes, tool_status, global_config, set_global_config, delete_file, open_url, remote_urls, edit_remote,
+            is_merged, revert_lines, open_default, open_version, file_bytes, tool_status, global_config, set_global_config, trust_folder, delete_file, open_url, remote_urls, edit_remote,
             pty::pty_spawn, pty::pty_write, pty::pty_resize, pty::pty_kill, askpass::askpass_reply
         ])
         .build(tauri::generate_context!())
