@@ -361,7 +361,7 @@ export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistor
   if (!(await confirmDrop())) return;
   let orig: Blob, mod: Blob, sub: SubmoduleChange | undefined, ids: string | undefined;
   try {
-    if (isSubmodule(f.path)) {
+    if (f.sub ?? isSubmodule(f.path)) {
       sub = await submoduleChange(kind, f, c);
       orig = mod = { text: "", exists: false, binary: false, large: null, lfs: "" };
     } else [[orig, mod], ids] = await Promise.all([fetchSides(kind, f, c), versionIds(kind, f, c)]);
@@ -1107,7 +1107,8 @@ export async function showRev(i: number) {
   $("hist-list").querySelectorAll(".hist-row").forEach((r, k) => r.classList.toggle("on", k === i));
   $("hist-list").children[i].scrollIntoView({ block: "nearest" });
   const [c, f] = m.revs[i];
-  if (store("hist-view") === "diff") {
+  // a submodule has no file to show: its card says what it pointed at
+  if (store("hist-view") === "diff" || (f.sub ?? isSubmodule(f.path))) {
     // openDiff closes a diff opened again
     const opening = diffFile?.c?.hash !== c.hash;
     if (opening) await openDiff("commit", f, c, true);

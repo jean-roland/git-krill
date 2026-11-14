@@ -11,7 +11,8 @@ import { dropTerm, showTerm } from "./terminal";
 import { renderSettings, rerereTip } from "./settings";
 
 // lfs: git-lfs stores it
-export type Change = { path: string; old: string | null; code: string; conflict?: string; lfs?: boolean };
+// sub: in a commit, whether git recorded a submodule there; the work tree asks today's list
+export type Change = { path: string; old: string | null; code: string; conflict?: string; lfs?: boolean; sub?: boolean };
 type OpInfo = { state: string; current: string; incoming: string; currentCommit: string; incomingCommit: string; step: string; message: string };
 export type Commit = { hash: string; parents: string[]; author: string; time: number; refs: string[]; subject: string; body: string };
 export type Status = { branch: string; state: string; ahead: number | null; behind: number | null; staged: Change[]; unstaged: Change[] };

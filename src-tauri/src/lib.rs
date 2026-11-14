@@ -36,6 +36,9 @@ struct Change {
     // git-lfs stores it
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     lfs: bool,
+    // a commit's own say on a submodule, from the modes it recorded; the work tree asks today's list
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sub: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -530,15 +533,15 @@ fn status(repo: String) -> Result<Status, String> {
         let (x, y, path) = (&e[0..1], &e[1..2], e[3..].to_string());
         let old = if x == "R" || x == "C" { entries.next().map(String::from) } else { None };
         if matches!(&e[0..2], "DD" | "AU" | "UD" | "UA" | "DU" | "AA" | "UU") {
-            unstaged.push(Change { path, old: None, code: "U".into(), conflict: Some(e[0..2].to_string()), lfs: false });
+            unstaged.push(Change { path, old: None, code: "U".into(), conflict: Some(e[0..2].to_string()), lfs: false, sub: None });
         } else if x == "?" {
-            unstaged.push(Change { path, old: None, code: "?".into(), conflict: None, lfs: false });
+            unstaged.push(Change { path, old: None, code: "?".into(), conflict: None, lfs: false, sub: None });
         } else {
             if y != " " {
-                unstaged.push(Change { path: path.clone(), old: None, code: y.into(), conflict: None, lfs: false });
+                unstaged.push(Change { path: path.clone(), old: None, code: y.into(), conflict: None, lfs: false, sub: None });
             }
             if x != " " {
-                staged.push(Change { path, old, code: x.into(), conflict: None, lfs: false });
+                staged.push(Change { path, old, code: x.into(), conflict: None, lfs: false, sub: None });
             }
         }
     }
@@ -634,24 +637,31 @@ fn commit_info(repo: String, hash: String, parent: String) -> Result<CommitInfo,
     let [email, sign, message] = f[..] else { return Err(format!("{hash}: no commit")) };
     let out = if parent.is_empty() {
         // one commit: diff-tree prints its id first unless told not to
-        git(&repo, &["diff-tree", "-r", "-M", "-z", "--name-status", "--no-commit-id", "--root", not_option(&hash)?])?
+        git(&repo, &["diff-tree", "-r", "-M", "-z", "--raw", "--no-commit-id", "--root", not_option(&hash)?])?
     } else {
-        git(&repo, &["diff-tree", "-r", "-M", "-z", "--name-status", not_option(&parent)?, not_option(&hash)?])?
+        git(&repo, &["diff-tree", "-r", "-M", "-z", "--raw", not_option(&parent)?, not_option(&hash)?])?
     };
     let mut files = Vec::new();
     let mut f = out.split('\0').filter(|s| !s.is_empty());
-    while let Some(code) = f.next() {
-        let code = &code[0..1];
+    while let Some(raw) = f.next() {
+        let (code, sub) = raw_status(raw);
         let first = f.next().unwrap_or_default().to_string();
         if code == "R" || code == "C" {
             let path = f.next().unwrap_or_default().to_string();
-            files.push(Change { path, old: Some(first), code: code.into(), conflict: None, lfs: false });
+            files.push(Change { path, old: Some(first), code: code.into(), conflict: None, lfs: false, sub });
         } else {
-            files.push(Change { path: first, old: None, code: code.into(), conflict: None, lfs: false });
+            files.push(Change { path: first, old: None, code: code.into(), conflict: None, lfs: false, sub });
         }
     }
     mark_lfs(&repo, Some(&hash), files.iter_mut());
     Ok(CommitInfo { message: message.trim_end().to_string(), email: email.to_string(), sign: sign.to_string(), files })
+}
+
+/// \brief The status letter of a `--raw` line, ":100644 160000 <sha> <sha> M", and whether either side is a submodule; a merge has none.
+fn raw_status(raw: &str) -> (&str, Option<bool>) {
+    let f: Vec<&str> = raw.split_whitespace().collect();
+    let code = f.last().and_then(|c| c.get(0..1)).unwrap_or("M");
+    (code, (!f.is_empty()).then(|| f.iter().take(2).any(|m| m.trim_start_matches(':') == "160000")))
 }
 
 /// \brief Flag the changes git-lfs stores, by their filter attribute at commit `at`, else in the worktree.
@@ -677,7 +687,7 @@ fn mark_lfs<'a>(repo: &str, at: Option<&str>, changes: impl Iterator<Item = &'a 
 /// \brief The commits that touched `path` from `revs`, across renames, each with the file's name there.
 #[tauri::command(async)]
 fn file_log(repo: String, revs: Vec<String>, path: String) -> Result<Vec<(Commit, Change)>, String> {
-    let mut args = vec!["log", "--follow", "-M", "--name-status", "-z", "--format=%x1e%H%x00%P%x00%an%x00%at%x00%s"];
+    let mut args = vec!["log", "--follow", "-M", "--raw", "-z", "--format=%x1e%H%x00%P%x00%an%x00%at%x00%s"];
     for r in &revs {
         args.push(not_option(r)?);
     }
@@ -692,13 +702,13 @@ fn file_log(repo: String, revs: Vec<String>, path: String) -> Result<Vec<(Commit
             if f.len() < 5 {
                 return None;
             }
-            let code = f.get(5).map(|s| s.trim()).unwrap_or_default();
+            let (code, sub) = raw_status(f.get(5).copied().unwrap_or_default());
             let old = if code.starts_with('R') || code.starts_with('C') { f.get(6).map(|s| s.to_string()) } else { None };
             if let Some(p) = f.get(if old.is_some() { 7 } else { 6 }).filter(|p| !p.is_empty()) {
                 name = p.to_string();
             }
             let commit = Commit { subject: f[4].to_string(), ..commit_of(&f) };
-            let change = Change { path: name.clone(), old: old.clone(), code: code.get(0..1).unwrap_or("M").into(), conflict: None, lfs: false };
+            let change = Change { path: name.clone(), old: old.clone(), code: code.into(), conflict: None, lfs: false, sub };
             // the name before a rename holds for the older commits
             if let Some(o) = old {
                 name = o;

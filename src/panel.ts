@@ -141,7 +141,7 @@ function fileList(
         title: f.old ? `${f.old} → ${f.path}` : f.path,
       },
       // a submodule is no file: its own icon, in the colour of its change
-      h("span", { className: `code code-${code}`, innerHTML: code ? svg(isSubmodule(f.path) ? ICONS.submodule : ICONS[code]) : "", title: f.code }),
+      h("span", { className: `code code-${code}`, innerHTML: code ? svg((f.sub ?? isSubmodule(f.path)) ? ICONS.submodule : ICONS[code]) : "", title: f.code }),
       // before the name: at the end the row's buttons cover it
       ...(f.lfs ? [lfsChip()] : []),
       h("span", { className: "path" }, h("span", { className: "dir", textContent: dir }), h("span", { className: "name", textContent: f.path.slice(slash) })),
