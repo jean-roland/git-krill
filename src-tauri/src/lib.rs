@@ -149,7 +149,6 @@ struct Blob {
     lfs: &'static str,
 }
 
-/// \brief A git command in `repo`; with `ask`, ssh and https prompts reach krill's dialog, without they fail at once and say so.
 /// \brief A program krill runs: on Windows without the console window it would flash up.
 fn command(program: impl AsRef<std::ffi::OsStr>) -> Command {
     #[allow(unused_mut)]
@@ -170,6 +169,7 @@ fn home() -> PathBuf {
     std::env::home_dir().unwrap_or_default()
 }
 
+/// \brief A git command in `repo`; with `ask`, ssh and https prompts reach krill's dialog, without they fail at once and say so.
 fn git_command(repo: &str, args: &[&str], ask: bool) -> Command {
     let mut git = command("git");
     git.current_dir(repo);
@@ -1670,7 +1670,6 @@ fn open_url(url: String) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// \brief The login shell's PATH: started from the Finder, an app gets launchd's bare one, without Homebrew's git-lfs and gh.
 #[cfg(target_os = "macos")]
 fn login_path() {
@@ -1693,6 +1692,7 @@ fn mac_menu(h: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>
     Menu::with_items(h, &[&app, &edit])
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     askpass::helper();
     #[cfg(target_os = "macos")]
