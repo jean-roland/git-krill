@@ -238,7 +238,8 @@ body.home header, body.home #sidebar, body.home #details, body.home #graph { dis
 body.home main { grid-template-columns: 1fr; }
 
 /* home */
-#home { position: absolute; inset: 0; overflow: auto; }
+/* the active tab's colour, as the toolbar under a repository's: the tab bar stands apart */
+#home { position: absolute; inset: 0; overflow: auto; background: var(--panel); }
 /* few items on a wide page: a size up from the window's 13px */
 .home-box { max-width: 760px; margin: 8vh auto; padding: 0 20px; font-size: 15px; }
 .home-box h1 { font-weight: 500; color: var(--accent); }
@@ -254,7 +255,7 @@ body.home main { grid-template-columns: 1fr; }
 .home-actions .tinted svg { color: var(--tint); }
 .home-box .head { padding: 18px 0 6px; }
 /* the Settings tab: a label column, then each value with what to do about it */
-#settings { position: absolute; inset: 0; overflow: auto; }
+#settings { position: absolute; inset: 0; overflow: auto; background: var(--panel); }
 /* Home's top, no bottom margin: every setting fits without a scroll */
 #settings-box { margin-bottom: 10px; }
 /* a line above each section but the first */
