@@ -239,9 +239,11 @@ body.home main { grid-template-columns: 1fr; }
 
 /* home */
 #home { position: absolute; inset: 0; overflow: auto; }
-.home-box { max-width: 640px; margin: 8vh auto; padding: 0 20px; }
+/* few items on a wide page: a size up from the window's 13px */
+.home-box { max-width: 760px; margin: 8vh auto; padding: 0 20px; font-size: 15px; }
 .home-box h1 { font-weight: 500; color: var(--accent); }
-.home-actions { display: flex; gap: 8px; margin-bottom: 12px; }
+#home h1 { margin-bottom: 36px; }
+.home-actions { display: flex; gap: 8px; margin-bottom: 40px; }
 .home-actions button { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; }
 .home-actions svg { width: 16px; height: 16px; }
 #open-repo { --tint: #2fbcb3; }
@@ -251,12 +253,10 @@ body.home main { grid-template-columns: 1fr; }
 .home-actions .tinted:hover { background: color-mix(in srgb, var(--tint) 45%, var(--raised)); border-color: var(--tint); }
 .home-actions .tinted svg { color: var(--tint); }
 .home-box .head { padding: 18px 0 6px; }
-#settings-home { display: inline-flex; align-items: center; gap: 7px; }
-#settings-home svg { width: 15px; height: 15px; }
 /* the Settings tab: a label column, then each value with what to do about it */
 #settings { position: absolute; inset: 0; overflow: auto; }
-/* few settings on a wide page: a size up from the window's 13px, no bottom margin so they all fit without a scroll */
-#settings-box { max-width: 760px; font-size: 15px; margin-bottom: 10px; }
+/* Home's top, no bottom margin: every setting fits without a scroll */
+#settings-box { margin-bottom: 10px; }
 /* a line above each section but the first */
 #settings-box .head { font-size: 13px; margin-top: 12px; padding-top: 14px; border-top: 1px solid var(--border); }
 #settings-box h1 + .head { margin-top: 0; padding-top: 6px; border-top: none; }
@@ -780,7 +780,8 @@ svg.blame-av { cursor: pointer; }
 /* the output takes typing too: nothing else says so */
 .m-out-title { display: flex; align-items: center; gap: 10px; }
 .m-editable { display: inline-flex; align-items: center; gap: 4px; opacity: 0.8; }
-.m-editable svg { width: 12px; height: 12px; }
+/* the pen sits low in its box: level with the caps */
+.m-editable svg { width: 12px; height: 12px; position: relative; top: -1px; }
 .m-nav { display: flex; align-items: center; gap: 4px; padding: 1px 4px; border: 1px solid var(--accent); border-radius: 6px; background: var(--sel); color: var(--text); font-weight: 700; }
 .m-nav .icon { border: none; background: none; color: var(--accent); }
 .m-head .icon { padding: 2px 5px; line-height: 0; }
