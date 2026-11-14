@@ -5,7 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { repoName } from "./core.js";
 import { $, COLORS, ICONS, MenuItem, ask, basename, colorIndex, dialog, h, hideBanner, hideDialog, hint, ico, input, pickDir, plural, popup, say, short, showBanner, showDialog, showMenu, store, svg, toast, warnOnce } from "./ui";
 import { closeHistory, closeMerge, closeResolvedMerge, confirmDrop, diffFile, openRow, reloadDiff } from "./diff";
-import { conflictCount, getMsg, renderPanel, setMsg } from "./panel";
+import { conflictCount, getMsg, panelData, renderPanel, setMsg } from "./panel";
 import { stepBack, paintWipRow, renderGraph, renderSide, resetGraph } from "./graph";
 import { dropTerm, showTerm } from "./terminal";
 import { renderSettings, rerereTip } from "./settings";
@@ -321,24 +321,31 @@ async function reload() {
     if (rf.lfs && rf.lfsProblem) warnOnce(`lfs:${r}`, `${basename(r)} uses Git LFS`, LFS_PROBLEMS[rf.lfsProblem], "err");
     opInfo = info;
     const landed = landing;
-    if (landed) land();
+    // the WIP row comes and goes with changes or an operation; its counts alone repaint just that row
+    // the worktrees too: a branch label shows whether one has it checked out
+    const key = JSON.stringify([log.map((c) => [c.hash, c.refs]), !!(s.staged.length || s.unstaged.length || opInfo), rf.stashes.map((x) => x.hash), rf.worktrees.map((w) => [w.branch, w.prunable])]);
+    if (key !== graphKey) {
+      commits = log;
+      selection.hashes = selection.hashes.filter((x) => x === "WIP" || commits.some((c) => c.hash === x));
+      if (!selection.hashes.length && !selection.stash) selection.hashes = ["WIP"];
+      // nothing to commit: open on HEAD, not on an empty WIP panel
+      if (selection.hashes[0] === "WIP" && !s.staged.length && !s.unstaged.length && !opInfo && headHash()) selection.hashes = [(selection.anchor = headHash())];
+    }
+    if (landed) {
+      // the panel's data read first: graph, sidebar and panel then change in one frame
+      await panelData();
+      if (r !== repo) return;
+      land();
+    }
     closeResolvedMerge();
     const step = opInfo ? JSON.stringify([opInfo.state, opInfo.step, opInfo.message]) : "";
     if (step !== opStep) {
       if (opStep || step) setMsg(opInfo?.message ?? "");
       opStep = step;
     }
-    // the WIP row comes and goes with changes or an operation; its counts alone repaint just that row
-    // the worktrees too: a branch label shows whether one has it checked out
-    const key = JSON.stringify([log.map((c) => [c.hash, c.refs]), !!(s.staged.length || s.unstaged.length || opInfo), rf.stashes.map((x) => x.hash), rf.worktrees.map((w) => [w.branch, w.prunable])]);
     if (key === graphKey) paintWipRow();
     else {
       graphKey = key;
-      commits = log;
-      selection.hashes = selection.hashes.filter((x) => x === "WIP" || commits.some((c) => c.hash === x));
-      if (!selection.hashes.length && !selection.stash) selection.hashes = ["WIP"];
-      // nothing to commit: open on HEAD, not on an empty WIP panel
-      if (selection.hashes[0] === "WIP" && !s.staged.length && !s.unstaged.length && !opInfo && headHash()) selection.hashes = [(selection.anchor = headHash())];
       renderGraph(landed?.scroll);
     }
     if (selection.stash && !rf.stashes.some((x) => x.hash === selection.stash!.hash)) selection.stash = null;

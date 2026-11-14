@@ -464,6 +464,14 @@ function editMessage(c: Commit, msg: string) {
 }
 
 /** The right panel: the work in progress, or the picked commit, range or stash. */
+/** What the commit panel reads, read ahead: a tab switch then lands with its panel. */
+export function panelData() {
+  const view = !selection.stash && selection.hashes[0] === "WIP" ? null : panelCommit();
+  if (!view) return Promise.resolve();
+  const all = $("all-files").classList.contains("on") ? [runFixed("tree_files", { at: view.c.hash })] : [];
+  return Promise.all([runFixed("commit_info", { hash: view.c.hash, parent: view.c.parents[0] ?? "" }), ...all]).catch(() => {});
+}
+
 export async function renderPanel() {
   const n = ++panelSeq;
   const wip = !selection.stash && selection.hashes[0] === "WIP";
