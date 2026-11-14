@@ -6,7 +6,7 @@ import { repoName } from "./core.js";
 import { $, COLORS, ICONS, MenuItem, ask, basename, colorIndex, dialog, h, hideBanner, hideDialog, hint, ico, input, noGit, pickDir, plural, popup, say, short, showBanner, showDialog, showMenu, store, svg, toast, warnOnce } from "./ui";
 import { closeHistory, closeMerge, closeResolvedMerge, confirmDrop, diffFile, openRow, reloadDiff } from "./diff";
 import { conflictCount, getMsg, panelData, renderPanel, setMsg } from "./panel";
-import { stepBack, paintWipRow, renderGraph, renderSide, resetGraph } from "./graph";
+import { stepBack, paintSelection, paintWipRow, renderGraph, renderSide, resetGraph, showRow } from "./graph";
 import { dropTerm, showTerm } from "./terminal";
 import { renderSettings, rerereTip } from "./settings";
 
@@ -89,6 +89,16 @@ export let status: Status | null = null;
 export let refs: Refs = { refs: [], stashes: [], remotes: [], worktrees: [], submodules: [], superproject: "", repoTop: "", lfs: false, lfsProblem: "" };
 // the picked graph rows ("WIP" or hashes), where a Shift range starts, whether it is one, or the stash shown instead
 export const selection = { hashes: ["WIP"], anchor: "", isRange: false, stash: null as Stash | null };
+// the next refresh scrolls the pick into view: it moved on its own
+let reveal = false;
+
+/** Pick WIP before an op whose changes land there; its refresh moves on to HEAD if none are left. */
+export function pickWip() {
+  selection.stash = null;
+  selection.hashes = [(selection.anchor = "WIP")];
+  selection.isRange = false;
+  reveal = true;
+}
 // the merge, rebase... in progress, and the step whose message the commit box holds
 export let opInfo: OpInfo | null = null;
 let opStep = "";
@@ -156,10 +166,7 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
     if (conflicts.length) {
       toast(`${what} stopped on conflicts`, [...conflicts, ...reused].join("\n"), "info");
       if (!name.startsWith("stash")) rerereTip();
-      if (tab === tabs[active]) {
-        selection.stash = null;
-        selection.hashes = [(selection.anchor = "WIP")];
-      }
+      if (tab === tabs[active]) pickWip();
     } else if (name === "push" && msg.includes("(non-fast-forward)") && tab === tabs[active]) forcePush(branch, status?.behind ?? 0);
     else toast(`${what} failed${onBranch}`, msg + hint(msg), "err");
     say(`${what} ${conflicts.length ? "stopped on conflicts" : "failed"}`);
@@ -299,11 +306,12 @@ export async function undoRedo(back: boolean): Promise<boolean> {
     const write = ([path, ...text]: [string, string | null, string | null]) => (text[to] === null ? run("delete_file", { path }) : run("write_file", { path, text: text[to] }));
     ok = await Promise.all(step.files.map(write)).then(() => true, (e) => (say(String(e), true), false));
     await refresh();
-  } else
-    ok =
-      step.branch[0] !== step.branch[1]
-        ? await gitOp("checkout", step.branch[to] || step.head[to], false)
-        : await gitOp(KEEP_INDEX.has(step.op) ? "reset-soft" : "reset-keep", step.head[to], false);
+  } else if (step.branch[0] !== step.branch[1]) ok = await gitOp("checkout", step.branch[to] || step.head[to], false);
+  else {
+    // a commit undone: its changes are back in WIP
+    if (KEEP_INDEX.has(step.op)) pickWip();
+    ok = await gitOp(KEEP_INDEX.has(step.op) ? "reset-soft" : "reset-keep", step.head[to], false);
+  }
   (ok === back ? t.redo : t.undo).push(step);
   renderToolbar();
   return ok;
@@ -345,7 +353,16 @@ async function reload() {
     // the worktrees too: a branch label shows whether one has it checked out
     const key = JSON.stringify([log.map((c) => [c.hash, c.refs]), !!(s.staged.length || s.unstaged.length || opInfo), rf.stashes.map((x) => x.hash), rf.worktrees.map((w) => [w.branch, w.prunable])]);
     if (key !== graphKey) {
+      const was = headHash();
       commits = log;
+      const now = headHash();
+      // HEAD moved (pull, checkout, rebase...): on to it, unless on WIP, where an op's changes went
+      if (!landed && was && now && now !== was && selection.hashes[0] !== "WIP") {
+        selection.stash = null;
+        selection.hashes = [(selection.anchor = now)];
+        selection.isRange = false;
+        reveal = true;
+      }
       selection.hashes = selection.hashes.filter((x) => x === "WIP" || commits.some((c) => c.hash === x));
       if (!selection.hashes.length && !selection.stash) selection.hashes = ["WIP"];
       // nothing to commit: open on HEAD, not on an empty WIP panel
@@ -363,10 +380,15 @@ async function reload() {
       if (opStep || step) setMsg(opInfo?.message ?? "");
       opStep = step;
     }
-    if (key === graphKey) paintWipRow();
+    // the graph as it was: a pick moved by an op still repaints
+    if (key === graphKey) (paintWipRow(), paintSelection());
     else {
       graphKey = key;
       renderGraph(landed?.scroll);
+    }
+    if (reveal) {
+      reveal = false;
+      showRow(selection.hashes[0] ?? "", "nearest");
     }
     if (selection.stash && !rf.stashes.some((x) => x.hash === selection.stash!.hash)) selection.stash = null;
     const rk = JSON.stringify([rf, s.branch]);
