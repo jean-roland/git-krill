@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { repoName } from "./core.js";
-import { $, COLORS, ICONS, MenuItem, ask, basename, colorIndex, dialog, h, hideBanner, hideDialog, hint, ico, input, pickDir, plural, popup, say, short, showBanner, showDialog, showMenu, store, svg, toast, warnOnce } from "./ui";
+import { $, COLORS, ICONS, MenuItem, ask, basename, colorIndex, dialog, h, hideBanner, hideDialog, hint, ico, input, noGit, pickDir, plural, popup, say, short, showBanner, showDialog, showMenu, store, svg, toast, warnOnce } from "./ui";
 import { closeHistory, closeMerge, closeResolvedMerge, confirmDrop, diffFile, openRow, reloadDiff } from "./diff";
 import { conflictCount, getMsg, panelData, renderPanel, setMsg } from "./panel";
 import { stepBack, paintWipRow, renderGraph, renderSide, resetGraph } from "./graph";
@@ -377,7 +377,8 @@ async function reload() {
   }
 }
 
-export const isRepo = (path: string) => invoke("repo_root", { path }).then(() => true, () => false);
+// without git it cannot tell: the folder is taken as still there
+export const isRepo = (path: string) => invoke("repo_root", { path }).then(() => true, (e) => noGit(String(e)));
 
 function renderToolbar() {
   if (!status) return;
@@ -691,6 +692,8 @@ export async function openRepo(path: string): Promise<boolean> {
   try {
     root = await invoke<string>("repo_root", { path });
   } catch (e) {
+    // no git at all: the repository stays in the recent list
+    if (noGit(String(e))) return say(String(e), true), false;
     // another user's folder (WSL, a share): git's refusal names it as safe.directory wants it
     const named = String(e).match(/safe\.directory (.+)/)?.[1].trim();
     // shell-quoted only when it needs to be

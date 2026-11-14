@@ -4,9 +4,10 @@ import "@xterm/xterm/css/xterm.css";
 import { Mode, closeDiff, closeHistory, confirmDiscard, closeMerge, diffEditor, diffFile, editor, goConflict, hist, histEd, histView, loadMerge, loadMonaco, merging, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setMode, setSvgView, showRev, warmDiff } from "./diff";
 import { rebaseKey } from "./rebase";
 import { SORTS, amending, commit, conflictCount, emptyStep, fileLists, filterFiles, foldAll, getMsg, openFile, paintFileOpts, pathArg, pickedFiles, renderCommitBtn, renderPanel, setMsg } from "./panel";
-import { $, ask, closeDialog, hideBanner, input, mod, onCtrlEnter, pickDir, popup, say, store } from "./ui";
+import { $, ask, closeDialog, hideBanner, input, mod, onCtrlEnter, pickDir, popup, say, store, warnOnce } from "./ui";
 import { closeFind, drawRows, findStep, findTyped, stepBack, openFind, paintSelection, showRow, shown } from "./graph";
 import { Change, active, addTab, autoFetch, cloneDialog, closeTab, fetchMinutes, gitOp, opInfo, newTabMenu, openInEditor, openPicked, openRepo, openSettings, paintPull, pull, pullMenu, push, refresh, renderTabHits, reopenTab, repo, restoreTabs, run, selection, switchTab, tabs, undoMenu, undoRedo } from "./repo";
+import { checkTools } from "./settings";
 import { terms, toggleTerm } from "./terminal";
 
 /** Up/Down walk the graph, or the files once Right opened one; Left goes back to the graph. */
@@ -258,3 +259,5 @@ addEventListener("keydown", (e) => {
 
 // Monaco and its diff worker warmed up under the splash: a cold first diff took ~0.5 s, and a file opened during the warm-up drew wrong
 restoreTabs(loadMonaco().then(() => (diffEditor ? undefined : warmDiff())).catch(() => {}));
+// once a run, as soon as it starts: git missing is said before any repository fails on it
+checkTools().then((t) => t.git || warnOnce("no-git", "Git is not installed", t.gitHelp, "err"), () => {});

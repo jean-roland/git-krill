@@ -151,7 +151,11 @@ export function showBanner(...nodes: Node[]) {
 }
 export const hideBanner = () => ($("banner").hidden = true);
 
+// git's own launch failing, lib.rs git_spawn_error: every git call says so, once is enough
+export const noGit = (msg: string) => msg.startsWith("Git is not installed");
+
 export function say(msg: string, err = false) {
+  if (err && noGit(msg)) return void warnOnce("no-git", "Git is not installed", msg.slice(msg.indexOf(". ") + 2), "err");
   // errors pop up, the status bar keeps the quiet news
   if (err) return toast("Error", msg + hint(msg), "err");
   const s = $("status");

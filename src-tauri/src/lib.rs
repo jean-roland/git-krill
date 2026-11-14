@@ -199,11 +199,26 @@ fn lfs_installed() -> bool {
     *INSTALLED.get_or_init(|| command("git").args(["lfs", "version"]).stdin(Stdio::null()).output().is_ok_and(|o| o.status.success()))
 }
 
+/// \brief How to get git here, for when it is missing.
+const GIT_HELP: &str = if cfg!(windows) {
+    // no link: a domain can change hands, a name to search for cannot mislead
+    "Install Git for Windows, then restart Git Krill."
+} else if cfg!(target_os = "macos") {
+    "Run `xcode-select --install`, or install it with Homebrew, then restart Git Krill."
+} else {
+    "Install it with your package manager, as `sudo apt install git`, then restart Git Krill."
+};
+
+/// \brief Git that would not start, missing said plainly: the window keys on "Git is not installed".
+fn git_spawn_error(e: std::io::Error) -> String {
+    if e.kind() == std::io::ErrorKind::NotFound { format!("Git is not installed. {GIT_HELP}") } else { e.to_string() }
+}
+
 /// \brief Run git, `input` on its stdin.
 fn git_cmd(repo: &str, args: &[&str], input: Option<&[u8]>, ask: bool) -> Result<Output, String> {
     let mut git = git_command(repo, args, ask);
     git.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = git.spawn().map_err(|e| e.to_string())?;
+    let mut child = git.spawn().map_err(git_spawn_error)?;
     if let Some(data) = input {
         // fed from aside: git answers as it reads, and with its output unread it would stop reading
         let (mut stdin, data) = (child.stdin.take().unwrap(), data.to_vec());
@@ -1192,6 +1207,8 @@ struct Tools {
     lfs_in_use: bool,
     // "host (account)" for each server gh is signed in to
     gh_hosts: Vec<String>,
+    // how to get git here, when it is missing
+    git_help: &'static str,
 }
 
 /// \brief The tools krill leans on, as they stand now.
@@ -1225,6 +1242,7 @@ fn tool_status_now() -> Tools {
         lfs,
         gh: first_line(run("gh", &["--version"])),
         gh_hosts,
+        git_help: GIT_HELP,
     }
 }
 
@@ -1255,7 +1273,7 @@ fn set_global_config(key: String, value: String) -> Result<(), String> {
         return Err(format!("{key} is not a setting krill edits"));
     }
     let args = if value.is_empty() { vec!["config", "--global", "--unset", &key] } else { vec!["config", "--global", &key, not_option(&value)?] };
-    let out = command("git").args(&args).stdin(Stdio::null()).output().map_err(|e| e.to_string())?;
+    let out = command("git").args(&args).stdin(Stdio::null()).output().map_err(git_spawn_error)?;
     // 5: unsetting what was not set, nothing to do
     if out.status.success() || (value.is_empty() && out.status.code() == Some(5)) { Ok(()) } else { Err(output_text(&out)) }
 }
@@ -1263,7 +1281,7 @@ fn set_global_config(key: String, value: String) -> Result<(), String> {
 /// \brief Let git work in `dir` though another user owns it, as git's refusal names it (safe.directory).
 #[tauri::command(async)]
 fn trust_folder(dir: String) -> Result<(), String> {
-    let out = command("git").args(["config", "--global", "--add", "safe.directory", not_option(&dir)?]).stdin(Stdio::null()).output().map_err(|e| e.to_string())?;
+    let out = command("git").args(["config", "--global", "--add", "safe.directory", not_option(&dir)?]).stdin(Stdio::null()).output().map_err(git_spawn_error)?;
     if out.status.success() { Ok(()) } else { Err(output_text(&out)) }
 }
 

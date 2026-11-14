@@ -3,7 +3,7 @@ import { homeDir } from "@tauri-apps/api/path";
 import { DEFAULT_EDITOR, fetchMinutes } from "./repo";
 import { $, ICONS, dateTimeText, h, ico, pickDir, say, showMenu, store, svg, toast } from "./ui";
 
-type Tools = { git: string; lfs: string; gh: string; lfsSetUp: boolean; lfsInUse: boolean; ghHosts: string[] };
+type Tools = { git: string; lfs: string; gh: string; lfsSetUp: boolean; lfsInUse: boolean; ghHosts: string[]; gitHelp: string };
 // the last answer, asked again on the background fetch's rhythm: once a run while it is off
 let checked: { at: number; tools: Tools } | null = null;
 // the order global_config answers in, lib.rs GLOBAL_KEYS: these, then commit.gpgsign, rerere.enabled, rerere.autoUpdate, fetch.writeCommitGraph
@@ -46,8 +46,7 @@ async function paintTools(box: HTMLElement, force = false) {
   if (force || stale) {
     // the old answer goes at once, and a click's "Checking…" stays long enough to be seen: the tools answer in a blink
     box.replaceChildren(...checking());
-    const [tools] = await Promise.all([invoke<Tools>("tool_status"), force && new Promise((done) => setTimeout(done, 300))]);
-    checked = { at: Date.now(), tools };
+    await Promise.all([checkTools(), force && new Promise((done) => setTimeout(done, 300))]);
   }
   const t = checked!.tools;
   const lfs = !t.lfs
@@ -62,7 +61,14 @@ async function paintTools(box: HTMLElement, force = false) {
     : !t.ghHosts.length
       ? [state(false, `${version(t.gh)}, signed in nowhere`), note("Run `gh auth login` for each server you push to")]
       : [state(true, version(t.gh)), note(`signed in to ${t.ghHosts.join(", ")}`)];
-  box.replaceChildren(row("git", t.git ? state(true, version(t.git)) : state(false, "Not found: Git Krill needs it")), row("git-lfs", ...lfs), row("gh", ...gh));
+  box.replaceChildren(row("git", ...(t.git ? [state(true, version(t.git))] : [state(false, "Not found: Git Krill needs it"), note(t.gitHelp)])), row("git-lfs", ...lfs), row("gh", ...gh));
+}
+
+/** Ask the tools, keeping the answer for the Settings page; once at startup too, where a missing git is said at once. */
+export async function checkTools() {
+  const tools = await invoke<Tools>("tool_status");
+  checked = { at: Date.now(), tools };
+  return tools;
 }
 
 function fetchRows() {
