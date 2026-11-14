@@ -1595,6 +1595,8 @@ fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
             _ => vec!["pull", "--no-rebase"],
         },
         "push" => vec!["push"],
+        // the lease: the upstream is where the last fetch saw it; if-includes: and that tip was once in the local branch
+        "push-force" => vec!["push", "--force-with-lease", "--force-if-includes"],
         // git-lfs globs its own pathspecs: under literal ones it fetches nothing, and still succeeds
         "lfs-pull" => vec!["--no-literal-pathspecs", "lfs", "pull"],
         // arg2 "file": the path itself, its glob characters escaped

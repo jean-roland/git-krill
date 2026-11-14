@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { repoName } from "./core.js";
-import { $, COLORS, ICONS, MenuItem, ask, basename, colorIndex, dialog, h, hideBanner, hideDialog, hint, ico, input, pickDir, popup, say, short, showBanner, showDialog, showMenu, store, svg, toast, warnOnce } from "./ui";
+import { $, COLORS, ICONS, MenuItem, ask, basename, colorIndex, dialog, h, hideBanner, hideDialog, hint, ico, input, pickDir, plural, popup, say, short, showBanner, showDialog, showMenu, store, svg, toast, warnOnce } from "./ui";
 import { closeHistory, closeMerge, closeResolvedMerge, confirmDrop, diffFile, openRow, reloadDiff } from "./diff";
 import { conflictCount, getMsg, renderPanel, setMsg } from "./panel";
 import { stepBack, paintWipRow, renderGraph, renderSide, resetGraph } from "./graph";
@@ -43,6 +43,7 @@ const MAKE_COMMIT = new Set(["commit", "amend", "reword", "revert", "cherry-pick
 // ops whose result is on a remote or gone from view: a toast confirms them, from (arg, arg2, branch, its upstream)
 const DONE: Record<string, (arg: string, arg2: string, branch: string, upstream: string) => string> = {
   push: (_a, _b, branch, upstream) => `Pushed ${branch} to ${upstream}`,
+  "push-force": (_a, _b, branch, upstream) => `Force pushed ${branch} to ${upstream}`,
   "push-upstream": (remote, name, branch) => `Pushed ${branch} to ${remote}/${name}`,
   "push-delete": (remote, name) => `Deleted ${name.replace(/^refs\/tags\//, "tag ")} on ${remote}`,
   "tag-push": (remote, name) => `Pushed tag ${name} to ${remote}`,
@@ -76,7 +77,7 @@ export function lfsChip() {
   return h("small", { className: why ? "lfs broken" : "lfs", textContent: "LFS", title: why ?? "Stored with Git LFS" });
 }
 // what may change the remotes' tags, or the list of them
-const NET_OPS = new Set(["fetch", "fetch-remote", "pull", "push", "push-upstream", "tag-push", "push-delete", "tag-rename"]);
+const NET_OPS = new Set(["fetch", "fetch-remote", "pull", "push", "push-force", "push-upstream", "tag-push", "push-delete", "tag-rename"]);
 // how Pull reconciles a diverged branch, by git_op's pull argument
 const PULLS: Record<string, string> = { "": "fast-forward if possible", "ff-only": "fast-forward only", rebase: "rebase" };
 
@@ -134,7 +135,7 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
     else if (remote.length) toast("Message from the remote", remote.join("\n"), "info");
   } catch (e) {
     const msg = String(e);
-    const what = name === "push-upstream" ? "Push" : name === "rebase-interactive" ? "Interactive rebase" : name[0].toUpperCase() + name.slice(1).replace(/-/g, " ");
+    const what = name === "push-upstream" ? "Push" : name === "push-force" ? "Force push" : name === "rebase-interactive" ? "Interactive rebase" : name[0].toUpperCase() + name.slice(1).replace(/-/g, " ");
     const onBranch = /^(push|pull)/.test(name) && branch ? `: ${branch}` : "";
     // stopping on conflicts is no failure: the WIP panel takes over
     const conflicts = msg.split("\n").filter((l) => l.startsWith("CONFLICT"));
@@ -147,7 +148,8 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
         selection.stash = null;
         selection.hashes = [(selection.anchor = "WIP")];
       }
-    } else toast(`${what} failed${onBranch}`, msg + hint(msg), "err");
+    } else if (name === "push" && msg.includes("(non-fast-forward)")) forcePush(branch, status?.behind ?? 0);
+    else toast(`${what} failed${onBranch}`, msg + hint(msg), "err");
     say(`${what} ${conflicts.length ? "stopped on conflicts" : "failed"}`);
     ok = false;
   }
@@ -171,6 +173,17 @@ function toastHooks(out: string) {
   const passed = hooks.filter((m) => m[2] === "Passed").length;
   const lines = hooks.map((m) => `${m[2] === "Passed" ? "✓" : "–"} ${m[1]}${m[2] === "Passed" ? "" : " (skipped)"}`);
   toast(`Hooks passed: ${passed} ran, ${hooks.length - passed} skipped`, lines.join("\n"), "info");
+}
+
+/** The branch and its upstream have diverged: a banner offers to overwrite the upstream, if it holds nothing unseen. */
+function forcePush(branch: string, behind: number) {
+  const upstream = findRef(`refs/heads/${branch}`)?.upstream ?? "its upstream";
+  const lost = behind ? plural(behind, "commit") : "commits";
+  showBanner(
+    h("span", { textContent: `Push rejected: ${upstream} has ${lost} that ${branch} has not, which a force push drops.` }),
+    // --force-if-includes: what a background fetch brought in is never overwritten unseen
+    h("button", { className: "primary", textContent: "Force push", onclick: () => (hideBanner(), gitOp("push-force")) }),
+  );
 }
 
 const stepText = (s: UndoStep) => (s.what ? `${s.op} ${s.what}` : s.op);
