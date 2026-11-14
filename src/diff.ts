@@ -261,7 +261,7 @@ const lineChanges = (): LineChange[] =>
 /** Undo lines `pick` of the shown commit in the working tree, where they show up unstaged for review. */
 async function revertLines(pick: Lines, what: string) {
   if (!diffFile?.c) return;
-  if (!pick.removed.size && !pick.added.size) return say("no changed line under the cursor/selection", true);
+  if (!pick.removed.size && !pick.added.size) return noLines();
   const { f, orig, mod } = diffFile, at = diffFile.c, ch = lineChanges(), all = allLines(ch);
   const text = applyChanges(orig.text, mod.text, ch, minus(all.removed, pick.removed), minus(all.added, pick.added));
   try {
@@ -720,9 +720,12 @@ function selectedLines(): Lines {
 
 const minus = (a: Set<number>, b: Set<number>) => new Set([...a].filter((x) => !b.has(x)));
 
+// a pick of unchanged lines: nothing to do, not a failure
+const noLines = () => toast("No changed line picked", "Put the cursor on a changed line, or select some.", "info");
+
 async function applyLines(pick: Lines, action: "stage" | "unstage" | "discard") {
   if (!diffFile) return;
-  if (!pick.removed.size && !pick.added.size) return say("no changed line under the cursor/selection", true);
+  if (!pick.removed.size && !pick.added.size) return noLines();
   await save();
   const { f, orig, mod } = diffFile;
   const ch = lineChanges(), all = allLines(ch);
