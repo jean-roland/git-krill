@@ -581,9 +581,10 @@ export async function closeTab(i: number) {
   if (i === active && !(await dropEdits())) return;
   dropTerm(tabs[i]);
   if (tabs[i].repo) closedTabs.push(closedRepo(tabs[i]));
+  const back = tabs[i].settings && settingsFrom ? tabs.indexOf(settingsFrom) : -1;
   tabs.splice(i, 1);
   if (!tabs.length) tabs.push(newTab(""));
-  if (i === active) return switchTab(Math.min(i, tabs.length - 1), false);
+  if (i === active) return switchTab(back >= 0 ? back - Number(back > i) : Math.min(i, tabs.length - 1), false);
   if (i < active) active--;
   saveTabs();
   renderTabs();
@@ -672,9 +673,13 @@ export function addTab() {
   switchTab(tabs.length - 1);
 }
 
+// the tab Settings was opened from: closing Settings goes back there
+let settingsFrom: Tab | null = null;
+
 /** The Settings tab, opened once. */
 export function openSettings() {
   const i = tabs.findIndex((t) => t.settings);
+  if (i !== active) settingsFrom = tabs[active];
   if (i >= 0) return switchTab(i);
   tabs.push(settingsTab());
   switchTab(tabs.length - 1);
