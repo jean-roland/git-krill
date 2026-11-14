@@ -1234,11 +1234,18 @@ const GLOBAL_KEYS: [&str; 7] = ["user.name", "user.email", "user.signingkey", "c
 /// \brief The values of GLOBAL_KEYS in ~/.gitconfig, empty when unset.
 #[tauri::command(async)]
 fn global_config() -> Vec<String> {
-    GLOBAL_KEYS
-        .iter()
-        // included files count, and past the identity a yes/on/1 reads as true
-        .map(|k| command("git").args(["config", "--global", "--includes", if k.starts_with("user.") { "--no-type" } else { "--type=bool" }, "--get", k]).stdin(Stdio::null()).output().map_or(String::new(), |o| String::from_utf8_lossy(&o.stdout).trim().to_string()))
-        .collect()
+    // one git run, included files counted: on Windows each run costs tens of milliseconds
+    let out = command("git").args(["config", "--global", "--includes", "--list", "-z"]).stdin(Stdio::null()).output().map(|o| o.stdout).unwrap_or_default();
+    let mut values = vec![String::new(); GLOBAL_KEYS.len()];
+    for entry in String::from_utf8_lossy(&out).split('\0') {
+        // a key with no value at all means true
+        let (key, value) = entry.split_once('\n').unwrap_or((entry, "true"));
+        // the last one wins, as for --get; past the identity a yes/on/1 reads as true
+        if let Some(i) = GLOBAL_KEYS.iter().position(|k| k.eq_ignore_ascii_case(key)) {
+            values[i] = if key.starts_with("user.") { value.to_string() } else { matches!(value.to_ascii_lowercase().as_str(), "true" | "yes" | "on" | "1").to_string() };
+        }
+    }
+    values
 }
 
 /// \brief Set `key`, one of GLOBAL_KEYS, in ~/.gitconfig; an empty `value` unsets it.

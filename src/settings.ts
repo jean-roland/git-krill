@@ -9,6 +9,8 @@ let checked: { at: number; tools: Tools } | null = null;
 // the order global_config answers in, lib.rs GLOBAL_KEYS: these, then commit.gpgsign, rerere.enabled, rerere.autoUpdate, fetch.writeCommitGraph
 const IDENTITY: [string, string][] = [["user.name", "Name"], ["user.email", "Email"], ["user.signingkey", "Signing key"]];
 const RERERE = ["rerere.enabled", "rerere.autoUpdate"];
+// asked at startup: Settings opens filled in, then asks again
+let globals = invoke<string[]>("global_config");
 
 const row = (label: string, ...kids: (Node | string)[]) => h("div", { className: "set-row" }, h("span", { className: "set-label", textContent: label }), h("div", {}, ...kids));
 const hint = (text: string) => h("small", { className: "set-hint", textContent: text });
@@ -103,13 +105,14 @@ function globalRows() {
   // the replayed files come back staged: the stop is only for a look
   const rerere = h("input", { type: "checkbox", onchange: () => RERERE.forEach((k) => set(k, rerere.checked ? "true" : "")) });
   const graph = h("input", { type: "checkbox", onchange: () => set("fetch.writeCommitGraph", graph.checked ? "true" : "") });
-  const load = () =>
-    invoke<string[]>("global_config").then((values) => {
-      fields.forEach((f, i) => (f.value = values[i]));
-      sign.checked = values[3] === "true";
-      rerere.checked = values[4] === "true";
-      graph.checked = values[6] === "true";
-    });
+  const fill = (values: string[]) => {
+    fields.forEach((f, i) => (f.value = values[i]));
+    sign.checked = values[3] === "true";
+    rerere.checked = values[4] === "true";
+    graph.checked = values[6] === "true";
+  };
+  const load = () => (globals = invoke<string[]>("global_config")).then(fill);
+  globals.then(fill);
   // one write at a time: two would fight over the config's lock; a failed one shows what is really saved
   let writing = Promise.resolve();
   const set = (key: string, value: string) =>
