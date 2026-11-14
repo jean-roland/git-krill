@@ -208,8 +208,21 @@ function pickedMenu(list: WipList, files: Change[]): MenuItem[] {
 
 const wipMenu = (list: WipList) => (f: Change) => {
   const files = pickedFiles(list);
-  return files?.some((x) => x.path === f.path) ? pickedMenu(list, files) : fileMenu(f, list);
+  if (files?.some((x) => x.path === f.path)) return pickedMenu(list, files);
+  // a file out of the pick ends it, as in a file manager
+  dropPick();
+  return fileMenu(f, list);
 };
+
+/** End the pick of several files: the open diff, if any, is the one marked. */
+function dropPick() {
+  if (picked.paths.size < 2) return;
+  picked.paths.clear();
+  markOpenFile();
+}
+
+// a click on a list's empty space ends the pick too
+for (const id of ["unstaged", "staged"]) for (const ev of ["click", "contextmenu"]) $(id).addEventListener(ev, (e) => e.target === e.currentTarget && dropPick());
 
 /* file lists */
 
