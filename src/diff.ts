@@ -382,6 +382,8 @@ export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistor
   $("diff").hidden = false;
   const range = c ? `  ·  ${c.parents[0] ? short(c.parents[0]) : "root"}..${short(c.hash)}` : "";
   $("diff-path").replaceChildren(...(orig.lfs || mod.lfs ? [lfsChip()] : []), (f.old ? `${f.old} → ${f.path}` : f.path) + range);
+  // set again once the text is in the editor: an image or a binary file has none
+  $("diff-editable").hidden = true;
   paintOpenEditor();
   markOpenFile();
   // Monaco normalizes line endings, so a CRLF<->LF rewrite would not show at all
@@ -614,11 +616,15 @@ function setModels(keepView: boolean) {
   prev?.dispose();
   prev?.model.original.dispose();
   prev?.model.modified.dispose();
-  setOptions({ readOnly: !(diffFile.kind === "unstaged" && diffFile.mod.exists), glyphMargin: diffFile.kind !== "commit" });
+  const editable = diffFile.kind === "unstaged" && diffFile.mod.exists;
+  // greyed until an edit: always there, the bar does not shift
+  $("diff-editable").hidden = $("diff-save").hidden = !editable;
+  ($("diff-save") as HTMLButtonElement).disabled = !diffFile.dirty;
+  setOptions({ readOnly: !editable, glyphMargin: diffFile.kind !== "commit" });
   modified.onDidChangeContent(() => {
     if (!diffFile) return;
     diffFile.dirty = true;
-    $("diff-save").hidden = false;
+    ($("diff-save") as HTMLButtonElement).disabled = false;
   });
   if (view) ed.restoreViewState(view);
 }
@@ -701,7 +707,7 @@ export async function save() {
   }
   diffFile.mod.text = text;
   diffFile.dirty = false;
-  $("diff-save").hidden = true;
+  ($("diff-save") as HTMLButtonElement).disabled = true;
   say(`saved ${diffFile.f.path}`);
 }
 

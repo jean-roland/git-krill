@@ -82,6 +82,8 @@
           <div id="diff" hidden>
             <div class="bar">
               <span id="diff-path"></span>
+              <span class="edit-tag" id="diff-editable" title="Type in the working tree file to change it, then Save" hidden><svg data-icon="m"></svg>Editable</span>
+              <button id="diff-save" class="primary" title="Write your edits to the working tree file" hidden disabled><svg data-icon="save"></svg>Save</button>
               <button class="icon" id="prev-change" title="Previous change"><svg data-icon="up"></svg></button>
               <button class="icon" id="next-change" title="Next change"><svg data-icon="down"></svg></button>
               <span class="seg" id="svg-view" hidden>
@@ -90,9 +92,8 @@
               <span class="seg">
                 <button data-mode="hunk" title="Changed hunks only"><svg viewBox="0 0 24 24"><path d="M4 5h16M4 9h11M4 15h16M4 19h11"/></svg>Hunk</button><button data-mode="inline" title="Whole file, one column"><svg viewBox="0 0 24 24"><path d="M4 5h16M4 10h16M4 15h16M4 20h16"/></svg>Inline</button><button data-mode="split" title="Whole file, side by side"><svg viewBox="0 0 24 24"><path d="M3 4h18v16H3zM12 4v16"/></svg>Split</button>
               </span>
-              <button id="diff-save" class="primary" hidden><svg data-icon="save"></svg>Save</button>
-              <button id="diff-history" title="The commits that touched this file"><svg viewBox="0 0 24 24"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2"/></svg>File history</button>
-              <button id="open-editor" title="Open the working tree file in the editor set in Settings"><svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>Open in editor</button>
+              <button id="diff-history" title="The commits that touched this file"><svg viewBox="0 0 24 24"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2"/></svg>History</button>
+              <button id="open-editor" title="Open the working tree file in the editor set in Settings"><svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>Open</button>
               <button class="icon" id="diff-close" title="Close (Esc)"><svg data-icon="close"></svg></button>
             </div>
             <div id="diff-editor"></div>
@@ -126,7 +127,7 @@
               <div class="m-side"><label class="m-head"><input type="checkbox" id="m-all-b" /><b class="m-tag b">B</b>incoming <code id="m-b-commit"></code><span id="m-b-on"> on <b id="m-b-name"></b></span></label><div id="m-b" class="m-ed"></div></div>
             </div>
             <div class="m-head m-out-head">
-              <span class="m-out-title">Output<span class="m-editable" title="Type in the output to fix it by hand"><svg data-icon="m"></svg>Editable</span></span>
+              <span class="m-out-title">Output<span class="edit-tag" title="Type in the output to fix it by hand"><svg data-icon="m"></svg>Editable</span></span>
               <span class="m-nav">
                 <button class="icon" id="m-prev" title="Previous conflict"><svg data-icon="up"></svg></button>
                 <span id="m-at"></span>
