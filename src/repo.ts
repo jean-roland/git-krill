@@ -148,7 +148,7 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
         selection.stash = null;
         selection.hashes = [(selection.anchor = "WIP")];
       }
-    } else if (name === "push" && msg.includes("(non-fast-forward)")) forcePush(branch, status?.behind ?? 0);
+    } else if (name === "push" && msg.includes("(non-fast-forward)") && tab === tabs[active]) forcePush(branch, status?.behind ?? 0);
     else toast(`${what} failed${onBranch}`, msg + hint(msg), "err");
     say(`${what} ${conflicts.length ? "stopped on conflicts" : "failed"}`);
     ok = false;
@@ -175,7 +175,7 @@ function toastHooks(out: string) {
   toast(`Hooks passed: ${passed} ran, ${hooks.length - passed} skipped`, lines.join("\n"), "info");
 }
 
-/** The branch and its upstream have diverged: a banner offers to overwrite the upstream, if it holds nothing unseen. */
+/** The branch and its upstream have diverged: a banner offers to overwrite the upstream, if it holds nothing unseen; only in the tab that pushed, its button pushes the active one. */
 function forcePush(branch: string, behind: number) {
   const upstream = findRef(`refs/heads/${branch}`)?.upstream ?? "its upstream";
   const lost = behind ? plural(behind, "commit") : "commits";
