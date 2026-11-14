@@ -1229,7 +1229,7 @@ fn tool_status_now() -> Tools {
 }
 
 // the global git settings the Settings page edits, and nothing else
-const GLOBAL_KEYS: [&str; 6] = ["user.name", "user.email", "user.signingkey", "commit.gpgsign", "rerere.enabled", "rerere.autoUpdate"];
+const GLOBAL_KEYS: [&str; 7] = ["user.name", "user.email", "user.signingkey", "commit.gpgsign", "rerere.enabled", "rerere.autoUpdate", "fetch.writeCommitGraph"];
 
 /// \brief The values of GLOBAL_KEYS in ~/.gitconfig, empty when unset.
 #[tauri::command(async)]

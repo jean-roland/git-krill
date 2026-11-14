@@ -6,7 +6,7 @@ import { $, ICONS, dateTimeText, h, ico, pickDir, say, showMenu, store, svg, toa
 type Tools = { git: string; lfs: string; gh: string; lfsSetUp: boolean; lfsInUse: boolean; ghHosts: string[] };
 // the last answer, asked again on the background fetch's rhythm: once a run while it is off
 let checked: { at: number; tools: Tools } | null = null;
-// the order global_config answers in, lib.rs GLOBAL_KEYS: these, then commit.gpgsign, rerere.enabled, rerere.autoUpdate
+// the order global_config answers in, lib.rs GLOBAL_KEYS: these, then commit.gpgsign, rerere.enabled, rerere.autoUpdate, fetch.writeCommitGraph
 const IDENTITY: [string, string][] = [["user.name", "Name"], ["user.email", "Email"], ["user.signingkey", "Signing key"]];
 const RERERE = ["rerere.enabled", "rerere.autoUpdate"];
 
@@ -30,7 +30,7 @@ export function renderSettings() {
     h("div", { className: "head", textContent: "Editor and folders" }),
     editorRow(),
     openDirRow(),
-    h("div", { className: "head", textContent: "Git, for every repository" }),
+    h("div", { className: "head" }, "Git, for every repository", note("A repository's own settings win over these.")),
     ...global.git,
   );
   paintTools(tools);
@@ -77,7 +77,7 @@ function fetchRows() {
   };
   return [
     row("Fetch", h("label", {}, on, " Fetch the remotes of the open repository in the background")),
-    row("Every", every, hint("Also when the window or a tab comes back, at most once a minute.")),
+    row("Every", every, note("Also when the window or a tab comes back, at most once a minute.")),
   ];
 }
 
@@ -96,17 +96,19 @@ function openDirRow() {
   return row("Start folder", h("div", { className: "dlg-row" }, dir, browse), hint("Where Open repository (Ctrl+O), Init and Clone's Browse start."));
 }
 
-/** ~/.gitconfig's identity and conflict replay, saved field by field. */
+/** ~/.gitconfig's identity, conflict replay and commit-graph, saved field by field. */
 function globalRows() {
   const fields = IDENTITY.map(([key]) => h("input", { spellcheck: false, onchange: (e: Event) => set(key, (e.target as HTMLInputElement).value.trim()) }));
   const sign = h("input", { type: "checkbox", onchange: () => set("commit.gpgsign", sign.checked ? "true" : "") });
   // the replayed files come back staged: the stop is only for a look
   const rerere = h("input", { type: "checkbox", onchange: () => RERERE.forEach((k) => set(k, rerere.checked ? "true" : "")) });
+  const graph = h("input", { type: "checkbox", onchange: () => set("fetch.writeCommitGraph", graph.checked ? "true" : "") });
   const load = () =>
     invoke<string[]>("global_config").then((values) => {
       fields.forEach((f, i) => (f.value = values[i]));
       sign.checked = values[3] === "true";
       rerere.checked = values[4] === "true";
+      graph.checked = values[6] === "true";
     });
   // one write at a time: two would fight over the config's lock; a failed one shows what is really saved
   let writing = Promise.resolve();
@@ -116,12 +118,14 @@ function globalRows() {
   return {
     git: [
       ...IDENTITY.map(([, label], i) => row(label, fields[i])),
-      row("Sign commits", h("label", {}, sign, " Sign every commit with the signing key"), hint("A repository's own settings win over these.")),
+      row("Sign commits", h("label", {}, sign, " Sign every commit with the signing key")),
       row(
         "Reuse fixes",
         h("label", {}, rerere, " Reuse recorded resolutions (git rerere)"),
-        hint("A conflict resolved once is resolved the same way when it comes back, as in a rebase redone or a branch rebased again. The rebase still stops there, the files already staged."),
+        hint("A conflict resolved once is resolved alike next time; the rebase still stops there."),
       ),
+      // git gc writes it too: this keeps it current between two
+      row("Big repositories", h("label", {}, graph, " Write the commit-graph on each fetch: history loads up to 2× faster")),
     ],
   };
 }
