@@ -400,7 +400,8 @@ fn superproject(repo: &str) -> Result<String, String> {
 fn refs(repo: String) -> Result<Refs, String> {
     // all at once: on Windows each git run takes tens of milliseconds just to start
     let repo = repo.as_str();
-    let (remotes, out, stashes, worktrees, superproject, submodules) = std::thread::scope(|s| {
+    // off the async pool while the threads run, as each git run is
+    let (remotes, out, stashes, worktrees, superproject, submodules) = tokio::task::block_in_place(|| std::thread::scope(|s| {
         let run = |args: &'static [&'static str]| s.spawn(move || git(repo, args));
         let [remotes, out, stashes, worktrees] = [
             run(&["remote"]),
@@ -418,7 +419,7 @@ fn refs(repo: String) -> Result<Refs, String> {
             superproject.join().map_err(gone),
             submodules.join().map_err(gone),
         )
-    });
+    }));
     let remotes: Vec<String> = remotes??.lines().map(String::from).collect();
     // refs/remotes/<x>/ of no configured remote: the `repo` tool's m/<branch> pointer
     let stray = |name: &str| name.strip_prefix("refs/remotes/").is_some_and(|r| !remotes.iter().any(|m| r.starts_with(&format!("{m}/"))));
