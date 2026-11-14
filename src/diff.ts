@@ -382,8 +382,12 @@ export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistor
   markOpenFile();
   // Monaco normalizes line endings, so a CRLF<->LF rewrite would not show at all
   const eol = (t: string) => (t.includes("\r\n") ? "CRLF" : t.includes("\n") ? "LF" : "");
+  // a work file's CRLFs may be git's own checkout of LF text (autocrlf): not a change then
   if (eol(orig.text) && eol(mod.text) && eol(orig.text) !== eol(mod.text))
-    say(`${f.path}: line endings changed ${eol(orig.text)} → ${eol(mod.text)}, not shown in the diff`, true);
+    ((kind === "unstaged" || c?.hash === "WORKTREE") && eol(mod.text) === "CRLF" ? run<boolean>("keeps_crlf", { path: f.path }) : Promise.resolve(true)).then(
+      (kept) => kept && say(`${f.path}: line endings changed ${eol(orig.text)} → ${eol(mod.text)}, not shown in the diff`, true),
+      () => {},
+    );
   // a later file keeps the cover up until its own diff is drawn
   paintSides().then(() => requestAnimationFrame(() => gen === opening && (copy?.remove(), $("diff").classList.remove("blank"))));
 }

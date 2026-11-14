@@ -1048,6 +1048,13 @@ fn stage_text(repo: String, path: String, text: String) -> Result<(), String> {
     git(&repo, &["update-index", "--add", "--cacheinfo", &format!("{mode},{sha},{path}")]).map(|_| ())
 }
 
+/// \brief Whether `git add` would keep the CRLFs of `path`, as autocrlf, its attributes and the index decide: a probe line hashed both ways.
+#[tauri::command(async)]
+fn keeps_crlf(repo: String, path: String) -> Result<bool, String> {
+    let hash = |text: &[u8]| git_bytes(&repo, &["hash-object", "--stdin", "--path", &path], Some(text));
+    Ok(hash(b"krill\r\n")? != hash(b"krill\n")?)
+}
+
 /// \brief Every file path in the tree of commit `at`.
 #[tauri::command(async)]
 fn tree_files(repo: String, at: String) -> Result<Vec<String>, String> {
@@ -1704,7 +1711,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, gh_verified, remote_tags, submodule_change, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, worktree_main, lfs_patterns, version_ids,
+            initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, gh_verified, remote_tags, submodule_change, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, worktree_main, lfs_patterns, version_ids, keeps_crlf,
             is_merged, revert_hunk, open_default, open_version, file_bytes, tool_status, global_config, set_global_config, delete_file, open_url, remote_urls, edit_remote,
             pty::pty_spawn, pty::pty_write, pty::pty_resize, pty::pty_kill, askpass::askpass_reply
         ])
