@@ -10,7 +10,7 @@ A lean desktop git client for Linux, Windows and macOS: a commit graph, diffs yo
 - **Staging**: whole files, hunks or single lines; commit, amend, discard with undo.
 - **Diffs**: hunk, inline or side by side, editable in place; images side by side.
 - **Merge tool**: three panes, picks per hunk or per line.
-- **Interactive rebase**: reorder, reword, squash, drop.
+- **Interactive rebase**: reorder, reword, squash, drop, one row or several at once.
 - **File history** with blame.
 - **Sidebar**: branches, remotes, tags, stashes, worktrees and submodules.
 - **Git LFS**: diffs by content, track and untrack from the menus.
@@ -38,7 +38,24 @@ From the [releases](https://github.com/jean-roland/git-krill/releases):
 - **Windows**: run `git-krill_0.2.1_windows.exe`. It is not signed: SmartScreen asks first, "More info" then "Run anyway". Needs [Git for Windows](https://git-scm.com/download/win).
 - **macOS**: open `git-krill_0.2.1_macOS.dmg` and drag Git Krill to Applications. It is not notarized: the first launch is refused, then System Settings > Privacy & Security > "Open Anyway". Needs git: `xcode-select --install`, or Homebrew's.
 
-Needs `git` (tested with 2.43; before 2.40 a commit's files lack their LFS chip). "Open in editor" runs the command set in Settings, VS Code's `code` by default.
+Needs `git` (tested with 2.43; before 2.40 a commit's files lack their LFS chip). A diff's Open button runs the editor command set in Settings, VS Code's `code` by default.
+
+## Slow on your machine?
+
+Start Git Krill with `KRILL_TRACE` set to a file: every git run and window call is timed into it. Attach it to an issue.
+
+```sh
+# Linux
+KRILL_TRACE=~/krill-trace.txt git-krill
+# macOS
+KRILL_TRACE=~/krill-trace.txt "/Applications/Git Krill.app/Contents/MacOS/git-krill"
+```
+
+On Windows, in PowerShell:
+
+```powershell
+$env:KRILL_TRACE = "$HOME\krill-trace.txt"; & "$env:LOCALAPPDATA\Git Krill\git-krill.exe"
+```
 
 ## Build
 
@@ -65,8 +82,8 @@ npm test
 | Ctrl+` | Terminal |
 | F5 | Refresh |
 | Arrows | Move through commits and files, open and close diffs |
-| Escape | Close the open view or dialog |
-| Ctrl+click, Shift+click | Pick several files of a WIP list, to stage, discard, stash or ignore them together |
+| Escape | Close the open view or dialog; on the graph, back from a worktree or a submodule |
+| Ctrl+click, Shift+click | Pick several files of a WIP list, to stage, discard, stash or ignore them together, or several rows of an interactive rebase |
 
 On macOS, Cmd in place of Ctrl, but for Ctrl+Tab and Ctrl+`.
 
