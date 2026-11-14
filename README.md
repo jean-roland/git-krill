@@ -6,20 +6,15 @@ A lean desktop git client for Linux, Windows and macOS: a commit graph, diffs yo
 
 ## Features
 
-- **Graph**: every branch in lanes, with branch and tag labels, generated author avatars, and search (Ctrl+F). Branches, tags, remotes and stashes can be hidden one by one.
-- **Changes**: stage and unstage whole files, hunks or single lines; commit, amend, reword; discard with undo (Ctrl+Z).
-- **Diffs**: hunk, inline or side-by-side views; the working tree file can be edited and saved in place; a commit's hunk can be reverted.
-- **Images**: old and new side by side; an SVG as its text or drawn. Other binary files open in their default program.
-- **Conflicts**: a three-pane merge tool with picks per hunk or per line, then finish or abort the merge or rebase; recorded resolutions can be reused (git rerere).
-- **Interactive rebase**: pick, reword, squash or drop commits, and reorder them by dragging.
-- **File history**: each version of a file, as a diff or in full with blame.
-- **Branches and remotes**: checkout, create, merge, rebase, reset, delete (local and upstream); fetch, pull and push, with a fetch in the background.
-- **Stashes, tags, worktrees and submodules** from the sidebar; a worktree or a submodule opens in the same tab, Esc steps back.
-- **Git LFS**: files diffed by their content, missing versions downloaded on demand; track, untrack and prune from the menus.
-- **Commits** show whether the server verified their signature (with the GitHub CLI).
-- **Settings**: tool status, background fetch, the editor command, and the global git identity.
-- **Tabs**, one repository each, and a terminal in each tab (Ctrl+`).
-- SSH passphrase and HTTPS password prompts show in the window.
+- **Graph**: every branch in lanes, with search; checkout, merge, rebase and reset from the menus.
+- **Staging**: whole files, hunks or single lines; commit, amend, discard with undo.
+- **Diffs**: hunk, inline or side by side, editable in place; images side by side.
+- **Merge tool**: three panes, picks per hunk or per line.
+- **Interactive rebase**: reorder, reword, squash, drop.
+- **File history** with blame.
+- **Sidebar**: branches, remotes, tags, stashes, worktrees and submodules.
+- **Git LFS**: diffs by content, track and untrack from the menus.
+- **Tabs**, one repository each, with a terminal.
 
 ## Screenshots
 
@@ -73,14 +68,6 @@ npm test
 | Escape | Close the open view or dialog |
 
 On macOS, Cmd in place of Ctrl, but for Ctrl+Tab and Ctrl+`.
-
-## Big repositories
-
-The graph loads 3000 commits at a time, with "Load more commits" at its bottom. On tens of thousands of commits, git's commit-graph file halves the time it takes to read the history. `git gc` writes it; to have every fetch keep it current:
-
-```sh
-git config --global fetch.writeCommitGraph true
-```
 
 ## Licence
 
