@@ -731,7 +731,7 @@ async function applyLines(pick: Lines, action: "stage" | "unstage" | "discard") 
   const ch = lineChanges(), all = allLines(ch);
   const whole = pick.removed.size === all.removed.size && pick.added.size === all.added.size;
   const keep = () => applyChanges(orig.text, mod.text, ch, minus(all.removed, pick.removed), minus(all.added, pick.added));
-  if (action === "discard") return discard(f.path, f.code === "?", whole ? undefined : keep());
+  if (action === "discard") return discard([f], whole ? undefined : keep());
   if (whole) {
     await gitOp(action, f.path);
     return;
@@ -746,26 +746,34 @@ async function applyLines(pick: Lines, action: "stage" | "unstage" | "discard") 
   await refresh();
 }
 
-export const confirmDiscard = (f: Change) => ask(`Discard all changes to ${f.path}?`, "Discard").then((ok) => (ok ? discard(f.path, f.code === "?") : undefined));
+export const confirmDiscard = (files: Change[], staged = false) =>
+  ask(`Discard all changes to ${files.length === 1 ? files[0].path : plural(files.length, "file")}?${staged ? " Staged and unstaged, back to HEAD." : ""}`, "Discard").then((ok) =>
+    ok ? discard(files, undefined, staged) : undefined,
+  );
 
-/** Discard `path` back to the index, or to `text` for some of its lines; undone by writing the old text back. */
-export async function discard(path: string, untracked: boolean, text?: string) {
+/** Discard `files` back to the index, `staged` ones back to HEAD, or the one file to `text` for some of its lines; undone by writing the old texts back. */
+export async function discard(files: Change[], text?: string, staged = false) {
   const t = tabs[active], r = repo;
-  const read = async () => {
-    const b = await run<Blob>("blob", { at: "WORKTREE", path });
-    return b.binary || b.large ? undefined : b.exists ? b.text : null;
-  };
-  const before = await read().catch(() => undefined);
+  const read = () =>
+    Promise.all(files.map((f) => run<Blob>("blob", { at: "WORKTREE", path: f.path }).then((b) => (b.binary || b.large ? undefined : b.exists ? b.text : null), () => undefined)));
+  const paths = (untracked: boolean) => files.filter((f) => (f.code === "?") === untracked).map((f) => f.path);
+  const before = await read();
   // the write is for the tab it was asked in
   if (repo !== r) return;
-  if (text === undefined) await gitOp(untracked ? "clean" : "discard", path);
-  else await run("write_file", { path, text }).then(() => say(`discarded lines of ${path}`), (e) => say(String(e), true));
-  const after = await read().catch(() => undefined);
+  if (text !== undefined) await run("write_file", { path: files[0].path, text }).then(() => say(`discarded lines of ${files[0].path}`), (e) => say(String(e), true));
+  // a rename's old name comes back too
+  else if (staged) await gitOp("discard-staged", files.flatMap((f) => (f.old ? [f.path, f.old] : [f.path])).join("\0"));
+  else {
+    if (paths(false).length) await gitOp("discard", paths(false).join("\0"));
+    if (paths(true).length) await gitOp("clean", paths(true).join("\0"));
+  }
+  const after = await read();
   await refresh();
   // a binary file has no text to put back
-  if (before === undefined || after === undefined || before === after || repo !== r) return;
+  const undo = files.flatMap((f, i): [string, string | null, string | null][] => (before[i] === undefined || after[i] === undefined || before[i] === after[i] ? [] : [[f.path, before[i]!, after[i]!]]));
+  if (!undo.length || repo !== r) return;
   const head = headHash(), branch = status?.branch ?? "";
-  recordUndo(t, { op: "discard", what: basename(path), branch: [branch, branch], head: [head, head], file: [path, before, after] });
+  recordUndo(t, { op: "discard", what: undo.length === 1 ? basename(undo[0][0]) : plural(undo.length, "file"), branch: [branch, branch], head: [head, head], files: undo });
 }
 
 /* merge tool */

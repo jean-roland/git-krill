@@ -486,6 +486,7 @@ body.home main { grid-template-columns: 1fr; }
 #wip-title { flex: 1; text-align: center; }
 #discard-all { padding: 3px 5px; line-height: 0; color: var(--del); background: color-mix(in srgb, var(--del) 12%, transparent); border-color: color-mix(in srgb, var(--del) 60%, transparent); }
 #discard-all svg { width: 14px; height: 14px; }
+#discard-n:not(:empty) { margin-left: 4px; font-size: 12px; line-height: 14px; vertical-align: top; }
 .files { flex: 1 1 0; overflow: auto; min-height: 60px; }
 .file {
   display: flex;

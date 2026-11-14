@@ -1,7 +1,7 @@
 // The right panel: work in progress or a commit's details, the file lists, the commit box.
-import { Change, Commit, commits, fakeCommit, gitOp, headHash, isHead, lfsChip, opInfo, openInEditor, refresh, refs, repo, run, runFixed, selection, status } from "./repo";
-import { $, ICONS, MenuItem, ask, avatar, basename, copy, dateTimeText, h, ico, input, onCtrlEnter, label, plural, popup, say, shaLink, short, store, svg, warnOnce } from "./ui";
-import { DiffSource, confirmDiscard, diffFile, merging, openDiff, openHistory } from "./diff";
+import { Blob, Change, Commit, commits, fakeCommit, gitOp, headHash, isHead, lfsChip, opInfo, openInEditor, refresh, refs, repo, run, runFixed, selection, status } from "./repo";
+import { $, ICONS, MenuItem, ask, avatar, basename, copy, dateTimeText, h, ico, input, mod, onCtrlEnter, label, plural, popup, say, shaLink, short, store, svg, warnOnce } from "./ui";
+import { DiffSource, closeDiff, confirmDiscard, diffFile, merging, openDiff, openHistory } from "./diff";
 import { discardSubmodule, jumpTo, linkRemote, openSubmodule, webUrl } from "./graph";
 import { planOpen } from "./rebase";
 
@@ -15,6 +15,9 @@ let foldersOpen = false;
 const foldersFlipped = new Set<string>();
 // each file list's files in display order, folded ones included, and how to unfold one
 export const fileLists = new Map<HTMLElement, { order: Change[]; reveal: (path: string) => void }>();
+type WipList = "unstaged" | "staged";
+// files picked with Ctrl or Shift in one WIP list; anchor: where a Shift+click run starts
+let picked = { repo: "", list: "unstaged" as WipList, paths: new Set<string>(), anchor: "" };
 
 export const joinMsg = (summary: string, desc: string) => (desc.trim() ? `${summary.trim()}\n\n${desc.trim()}` : summary.trim());
 
@@ -51,7 +54,7 @@ function fileMenu(f: Change, kind: DiffSource, c?: Commit): MenuItem[] {
       : kind === "unstaged"
       ? ([
           ["Stage", () => gitOp("stage", f.path)],
-          ["Discard changes", () => (isSubmodule(f.path) ? discardSubmodule(f.path) : confirmDiscard(f))],
+          ["Discard changes", () => (isSubmodule(f.path) ? discardSubmodule(f.path) : confirmDiscard([f]))],
         ] as MenuItem[])
       : []),
     ...(kind === "staged" ? ([["Unstage", () => gitOp("unstage", f.path)]] as MenuItem[]) : []),
@@ -63,6 +66,7 @@ function fileMenu(f: Change, kind: DiffSource, c?: Commit): MenuItem[] {
     ["Show in folder", () => run("open_default", { path: f.path, folder: true }).catch(neutral)],
     null,
     ...(kind === "commit" ? [] : lfsItems(f)),
+    ...(kind === "commit" ? [] : ignoreItems(f)),
     null,
     ...(c
       ? ([
@@ -87,13 +91,13 @@ function fileMenu(f: Change, kind: DiffSource, c?: Commit): MenuItem[] {
 function lfsItems(f: Change): MenuItem[] {
   if (refs.lfsProblem === "missing" || f.code === "D" || isConflict(f) || f.path === ".gitattributes" || isSubmodule(f.path)) return [];
   if (f.lfs) return [["Untrack from LFS", () => untrackLfs(f.path)]];
-  const name = basename(f.path), ext = name.slice(name.lastIndexOf(".") + 1 || name.length), dir = f.path.slice(0, -name.length - 1);
+  const { ext, dir } = extDir(f.path);
   return [
     [
       "Track with LFS",
       [
         ["This file", () => gitOp("lfs-track", [f.path, "file"])],
-        ...(ext && ext !== name.slice(1) ? [[`All .${ext} files`, () => gitOp("lfs-track", `*.${ext}`)] as MenuItem] : []),
+        ...(ext ? [[`All .${ext} files`, () => gitOp("lfs-track", `*.${ext}`)] as MenuItem] : []),
         ...(dir ? [[`All files in ${dir}`, () => gitOp("lfs-track", `${dir}/**`)] as MenuItem] : []),
       ],
     ],
@@ -110,6 +114,99 @@ async function untrackLfs(path: string) {
   if (await ask(`Stop tracking ${list} with LFS? Its files then show as changed, to commit as plain git files.`, "Untrack")) gitOp("lfs-untrack", patterns.join("\n"));
 }
 
+/** A path's extension (none for a dotfile) and folder, for the menus acting on all files alike. */
+function extDir(path: string) {
+  const name = basename(path), ext = name.slice(name.lastIndexOf(".") + 1 || name.length);
+  return { ext: ext === name.slice(1) ? "" : ext, dir: path.slice(0, -name.length - 1) };
+}
+
+// a .gitignore pattern for `path` alone, from the top folder
+const anchored = (path: string) => `/${path.replace(/[*?[\\]/g, "\\$&")}`;
+
+/** Ignore a work file: itself, its extension or its folder. */
+function ignoreItems(f: Change): MenuItem[] {
+  if (isConflict(f) || isSubmodule(f.path)) return [];
+  const { ext, dir } = extDir(f.path);
+  return [
+    [
+      "Ignore",
+      [
+        ["This file", () => ignore([anchored(f.path)], [f])],
+        ...(ext ? [[`All .${ext} files`, () => ignore([`*.${ext}`], [f])] as MenuItem] : []),
+        dir ? [`All files in ${dir}`, () => ignore([`${anchored(dir)}/`], [f])] : ["All files in its folder", null, "Cannot ignore the root folder"],
+      ],
+    ],
+  ];
+}
+
+/** Add `patterns` to the top .gitignore, in its line endings; the tracked `files` leave the index, kept on disk. */
+async function ignore(patterns: string[], files: Change[]) {
+  try {
+    const b = await run<Blob>("blob", { at: "WORKTREE", path: ".gitignore" });
+    // its first part only: written back, the rest would be lost
+    if (b.large || b.binary) throw ".gitignore is too big to edit here";
+    const text = b.exists ? b.text : "", eol = text.includes("\r\n") ? "\r\n" : "\n";
+    await run("write_file", { path: ".gitignore", text: text + (text && !text.endsWith("\n") ? eol : "") + patterns.map((p) => p + eol).join("") });
+    say(`ignored ${patterns.join(", ")}`);
+    // a pattern does not untrack: their removal is staged
+    const tracked = files.filter((f) => f.code !== "?");
+    if (tracked.length) return void (await gitOp("untrack", pathArg(tracked)));
+  } catch (e) {
+    say(String(e), true);
+  }
+  refresh();
+}
+
+// the file ops' paths, NUL separated
+export const pathArg = (files: Change[]) => files.map((f) => f.path).join("\0");
+
+/** The files picked in `list`, when two or more. */
+export const pickedFiles = (list: WipList) => (picked.repo === repo && picked.list === list && picked.paths.size > 1 ? status?.[list].filter((f) => picked.paths.has(f.path)) : undefined);
+
+/** Click opens a file's diff; Ctrl+click picks files of one list, Shift+click a run of them: two or more close the diff. */
+function clickFile(list: WipList, f: Change, e: MouseEvent) {
+  const mine = picked.repo === repo && picked.list === list;
+  if (!mod(e) && !e.shiftKey) {
+    picked = { repo, list, paths: new Set([f.path]), anchor: f.path };
+    return openDiff(list, f);
+  }
+  const paths = new Set(mine ? picked.paths : []), anchor = mine ? picked.anchor : f.path;
+  if (e.shiftKey) {
+    const order = fileLists.get($(list))!.order.map((x) => x.path);
+    const [a, b] = [order.indexOf(anchor), order.indexOf(f.path)].sort((x, y) => x - y);
+    paths.clear();
+    order.slice(Math.max(a, 0), b + 1).forEach((p) => paths.add(p));
+  } else if (!paths.delete(f.path)) paths.add(f.path);
+  picked = { repo, list, paths, anchor: e.shiftKey ? anchor : f.path };
+  const [one] = paths;
+  if (paths.size === 1) return openDiff(list, status![list].find((x) => x.path === one)!);
+  closeDiff().then(markOpenFile);
+}
+
+/** What two or more picked files can do together. */
+function pickedMenu(list: WipList, files: Change[]): MenuItem[] {
+  const n = plural(files.length, "file"), paths = pathArg(files);
+  return [
+    { title: n, icon: ICONS.file },
+    ...((list === "unstaged"
+      ? [
+          [`Stage ${n}`, () => gitOp("stage", paths)],
+          [`Discard ${n}`, () => confirmDiscard(files)],
+        ]
+      : [
+          [`Unstage ${n}`, () => gitOp("unstage", paths)],
+          [`Discard ${n}`, () => confirmDiscard(files, true)],
+        ]) as MenuItem[]),
+    [`Stash ${n}`, () => gitOp("stash-files", paths)],
+    [`Ignore ${n}`, () => ignore(files.map((f) => anchored(f.path)), files)],
+  ];
+}
+
+const wipMenu = (list: WipList) => (f: Change) => {
+  const files = pickedFiles(list);
+  return files?.some((x) => x.path === f.path) ? pickedMenu(list, files) : fileMenu(f, list);
+};
+
 /* file lists */
 
 export const isSubmodule = (path: string) => refs.submodules.some((s) => s.path === path);
@@ -120,7 +217,7 @@ const STATUS_ORDER = "U?AMTRCD";
 function fileList(
   el: HTMLElement,
   files: Change[],
-  open: (f: Change) => void,
+  open: (f: Change, e: MouseEvent) => void,
   actions: [string, (f: Change) => void, ((f: Change) => boolean)?][],
   menu: (f: Change) => MenuItem[],
 ) {
@@ -136,7 +233,7 @@ function fileList(
       "div",
       {
         className: `file${f.code ? "" : " same"}`,
-        onclick: () => open(f),
+        onclick: (e: MouseEvent) => open(f, e),
         oncontextmenu: (e: MouseEvent) => popup(e, menu(f)),
         title: f.old ? `${f.old} → ${f.path}` : f.path,
       },
@@ -369,6 +466,7 @@ export async function renderPanel() {
   $("wip").hidden = !wip;
   $("commit").hidden = wip;
   if (wip) return renderWip();
+  picked.paths.clear();
   return renderCommitDetails(n);
 }
 
@@ -379,16 +477,17 @@ function renderWip() {
   $("wip-title").replaceChildren(...(opInfo ? opTitle() : [`${plural(n, "file change")} on `, h("b", { textContent: status.branch || "detached HEAD" })]));
   $("unstaged-label").textContent = conflicts.length ? "Conflicted Files" : "Unstaged Files";
   $("staged-label").textContent = opInfo ? "Resolved Files" : "Staged Files";
-  $("stage-all").textContent = conflicts.length ? "Mark all resolved" : "Stage all changes";
   $("unstaged-n").textContent = `(${status.unstaged.length})`;
   $("staged-n").textContent = `(${status.staged.length})`;
   renderCommitBtn();
-  fileList($("unstaged"), [...conflicts, ...status.unstaged.filter(clean)], (f) => openDiff("unstaged", f), [
+  // a pick's files that left its list
+  picked.paths = new Set([...picked.paths].filter((p) => status![picked.list].some((f) => f.path === p)));
+  fileList($("unstaged"), [...conflicts, ...status.unstaged.filter(clean)], (f, e) => clickFile("unstaged", f, e), [
     ["Mark resolved", (f) => gitOp("stage", f.path), isConflict],
     // no Discard here: a slip next to Stage would cost work; it stays in the menu
     ["Stage", (f) => gitOp("stage", f.path), clean],
-  ], (f) => fileMenu(f, "unstaged"));
-  fileList($("staged"), status.staged, (f) => openDiff("staged", f), [["Unstage", (f) => gitOp("unstage", f.path)]], (f) => fileMenu(f, "staged"));
+  ], wipMenu("unstaged"));
+  fileList($("staged"), status.staged, (f, e) => clickFile("staged", f, e), [["Unstage", (f) => gitOp("unstage", f.path)]], wipMenu("staged"));
   markOpenFile();
 }
 
@@ -434,9 +533,17 @@ export const openFile = () => diffFile ?? (merging ? { kind: "unstaged" as DiffS
 export function markOpenFile() {
   document.querySelectorAll(".file.sel").forEach((r) => r.classList.remove("sel"));
   const open = openFile();
-  if (!open) return;
-  const list = open.kind === "commit" ? "commit-files" : open.kind;
-  $(list).querySelector(`.file[data-path="${CSS.escape(open.f.path)}"]`)?.classList.add("sel");
+  // a diff opened in a list, by click or arrow key, ends its pick
+  if (open && open.kind === picked.list) picked.paths = new Set([open.f.path]);
+  // the head's buttons act on the pick
+  const unstaged = pickedFiles("unstaged"), staged = pickedFiles("staged"), n = (unstaged ?? staged)?.length ?? 0;
+  $("discard-all").title = n ? `Discard ${plural(n, "file")}` : "Discard all changes";
+  $("discard-n").textContent = n ? String(n) : "";
+  $("stage-all").textContent = unstaged ? `Stage ${plural(unstaged.length, "file")}` : conflictCount() ? "Mark all resolved" : "Stage all changes";
+  $("unstage-all").textContent = staged ? `Unstage ${plural(staged.length, "file")}` : "Unstage all changes";
+  const mark = (list: string, path: string) => $(list).querySelector(`.file[data-path="${CSS.escape(path)}"]`)?.classList.add("sel");
+  for (const list of ["unstaged", "staged"] as const) pickedFiles(list)?.forEach((f) => mark(list, f.path));
+  if (open) mark(open.kind === "commit" ? "commit-files" : open.kind, open.f.path);
 }
 
 export const isConflict = (f: Change) => f.code === "U";

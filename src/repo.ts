@@ -25,8 +25,8 @@ type Refs = { refs: Ref[]; stashes: Stash[]; remotes: string[]; worktrees: Workt
 // large: too big to load unasked, its size in bytes
 // lfs: a git-lfs pointer in git, "here" when its object was read instead, "missing" when it is not downloaded
 export type Blob = { text: string; exists: boolean; binary: boolean; large: number | null; lfs: "" | "here" | "missing" };
-// what: the menu's name for it, the commit made or where HEAD went; file: a discard, the work tree text before and after (null: no file)
-type UndoStep = { op: string; what: string; branch: [string, string]; head: [string, string]; file?: [string, string | null, string | null] };
+// what: the menu's name for it, the commit made or where HEAD went; files: a discard's, each path with its work tree text before and after (null: no file)
+type UndoStep = { op: string; what: string; branch: [string, string]; head: [string, string]; files?: [string, string | null, string | null][] };
 // limit: how many commits the graph loads, raised by "Load more"
 // parent: what this tab steps back to, the main checkout of a worktree or the repository a submodule was opened from in it; one level only
 // settings: the Settings tab, which has no repository either; back: the tab as it was before stepping into a worktree or submodule
@@ -272,17 +272,18 @@ export async function undoRedo(back: boolean): Promise<boolean> {
     return void say(`HEAD moved outside krill, nothing to ${back ? "undo" : "redo"}`, true), false;
   }
   let ok;
-  if (step.file) {
-    const [path, ...text] = step.file, r = repo;
-    const now = await run<Blob>("blob", { at: "WORKTREE", path });
+  if (step.files) {
+    const r = repo;
+    const now = await Promise.all(step.files.map(([path]) => run<Blob>("blob", { at: "WORKTREE", path })));
     // left for another tab meanwhile: the step waits for its own
     if (repo !== r) return (back ? t.undo : t.redo).push(step), false;
-    if ((now.exists ? now.text : null) !== text[from]) {
+    const moved = step.files.find(([, ...text], i) => (now[i].exists ? now[i].text : null) !== text[from]);
+    if (moved) {
       renderToolbar();
-      return void say(`${path} changed since, nothing to ${back ? "undo" : "redo"}`, true), false;
+      return void say(`${moved[0]} changed since, nothing to ${back ? "undo" : "redo"}`, true), false;
     }
-    const write = text[to] === null ? run("delete_file", { path }) : run("write_file", { path, text: text[to] });
-    ok = await write.then(() => true, (e) => (say(String(e), true), false));
+    const write = ([path, ...text]: [string, string | null, string | null]) => (text[to] === null ? run("delete_file", { path }) : run("write_file", { path, text: text[to] }));
+    ok = await Promise.all(step.files.map(write)).then(() => true, (e) => (say(String(e), true), false));
     await refresh();
   } else
     ok =

@@ -1543,6 +1543,8 @@ fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
     let arg2 = arg2.unwrap_or_default();
     let upstream = format!("HEAD:refs/heads/{arg2}");
     let tag = format!("refs/tags/{arg2}");
+    // the file ops' paths, NUL separated: no path holds one
+    let paths = |cmd: &[&'static str]| -> Vec<&str> { cmd.iter().copied().chain(arg.split('\0')).collect() };
     match op.as_str() {
         "stash-message" => return stash_message(&repo, &arg, &arg2),
         "take-base" => return take_side(&repo, "1", &arg),
@@ -1606,10 +1608,15 @@ fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         "lfs-prune" => vec!["lfs", "prune"],
         // its own `git clean -- :/` of the untracked files it saved: under literal pathspecs it removes none
         "stash-push" => vec!["--no-literal-pathspecs", "stash", "push", "-u"],
-        "stage" => vec!["add", "-A", "--", &arg],
-        "unstage" => vec!["reset", "-q", "--", &arg],
-        "discard" => vec!["checkout", "--", &arg],
-        "clean" => vec!["clean", "-f", "--", &arg],
+        "stash-files" => paths(&["stash", "push", "-u", "--"]),
+        "stage" => paths(&["add", "-A", "--"]),
+        "unstage" => paths(&["reset", "-q", "--"]),
+        "discard" => paths(&["checkout", "--"]),
+        "clean" => paths(&["clean", "-f", "--"]),
+        // back to HEAD in the index and the work tree: a file HEAD lacks leaves both
+        "discard-staged" => paths(&["restore", "--source=HEAD", "--staged", "--worktree", "--"]),
+        // ignored from now on: kept on disk, its removal staged
+        "untrack" => paths(&["rm", "-q", "--cached", "--"]),
         "stage-all" => vec!["add", "-A"],
         "unstage-all" => vec!["reset", "-q"],
         "commit" => vec!["commit", "-m", &arg],

@@ -1,9 +1,9 @@
 // Entry: wires the buttons and keys to the features, then reopens the tabs.
 import { invoke } from "@tauri-apps/api/core";
 import "@xterm/xterm/css/xterm.css";
-import { Mode, closeDiff, closeHistory, closeMerge, diffEditor, diffFile, editor, goConflict, hist, histEd, histView, loadMerge, loadMonaco, merging, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setMode, setSvgView, showRev, warmDiff } from "./diff";
+import { Mode, closeDiff, closeHistory, confirmDiscard, closeMerge, diffEditor, diffFile, editor, goConflict, hist, histEd, histView, loadMerge, loadMonaco, merging, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setMode, setSvgView, showRev, warmDiff } from "./diff";
 import { rebaseKey } from "./rebase";
-import { SORTS, amending, commit, conflictCount, emptyStep, fileLists, filterFiles, foldAll, getMsg, openFile, paintFileOpts, renderCommitBtn, renderPanel, setMsg } from "./panel";
+import { SORTS, amending, commit, conflictCount, emptyStep, fileLists, filterFiles, foldAll, getMsg, openFile, paintFileOpts, pathArg, pickedFiles, renderCommitBtn, renderPanel, setMsg } from "./panel";
 import { $, ask, closeDialog, hideBanner, input, mod, onCtrlEnter, pickDir, popup, say, store } from "./ui";
 import { closeFind, drawRows, findStep, findTyped, stepBack, openFind, paintSelection, showRow, shown } from "./graph";
 import { Change, active, addTab, autoFetch, cloneDialog, closeTab, fetchMinutes, gitOp, opInfo, newTabMenu, openInEditor, openPicked, openRepo, openSettings, paintPull, pull, pullMenu, push, refresh, renderTabHits, reopenTab, repo, restoreTabs, run, selection, switchTab, tabs, undoMenu, undoRedo } from "./repo";
@@ -97,7 +97,10 @@ $("find-next").onclick = () => findStep(1);
 $("find-close").onclick = closeFind;
 $("find-open").onclick = openFind;
 document.querySelectorAll<HTMLInputElement>(".file-filter").forEach((f) => (f.oninput = () => filterFiles(f.value)));
-$("stage-all").onclick = () => gitOp(conflictCount() ? "resolve-all" : "stage-all");
+$("stage-all").onclick = () => {
+  const files = pickedFiles("unstaged");
+  gitOp(files ? "stage" : conflictCount() ? "resolve-all" : "stage-all", files ? pathArg(files) : "");
+};
 $("op-continue").onclick = () => {
   // git refuses to continue an empty step and says to skip it
   if (emptyStep()) return gitOp("skip");
@@ -121,9 +124,15 @@ $("m-prev").onclick = () => merging && goConflict(merging.at - 1);
 $("m-next").onclick = () => merging && goConflict(merging.at + 1);
 input("m-all-a").onchange = () => pickAll("a");
 input("m-all-b").onchange = () => pickAll("b");
-$("discard-all").onclick = () =>
+$("discard-all").onclick = () => {
+  const files = pickedFiles("unstaged"), staged = pickedFiles("staged");
+  if (files || staged) return confirmDiscard((files ?? staged)!, !!staged);
   ask("Discard ALL changes: staged, unstaged and untracked files? This cannot be undone.", "Discard all").then((ok) => ok && gitOp("discard-all"));
-$("unstage-all").onclick = () => gitOp("unstage-all");
+};
+$("unstage-all").onclick = () => {
+  const files = pickedFiles("staged");
+  gitOp(files ? "unstage" : "unstage-all", files ? pathArg(files) : "");
+};
 $("commit-btn").onclick = commit;
 onCtrlEnter([$("summary"), $("desc")], commit);
 $("summary").oninput = renderCommitBtn;
