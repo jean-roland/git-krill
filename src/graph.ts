@@ -244,7 +244,8 @@ async function openWorktree(path: string, parent = "") {
   // the shell ran in the old folder
   dropTerm(tabs[active]);
   // the tab as it was comes back on the way out: its draft, undo steps, selection
-  tabs[active] = { ...newTab(path, parent), back: keepTab() };
+  // newTab's own object: its worktree check fills it in later
+  tabs[active] = Object.assign(newTab(path, parent), { back: keepTab() });
   await switchTab(active, false);
 }
 
