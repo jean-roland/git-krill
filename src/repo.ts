@@ -35,7 +35,7 @@ export const LOG_LIMIT = 3000;
 // ops that move HEAD, walked back with a reset or a checkout
 const UNDOABLE = new Set([
   "commit", "amend", "reword", "checkout", "merge", "rebase", "rebase-interactive", "cherry-pick", "pull",
-  "branch-create", "reset-soft", "reset-mixed", "reset-hard", "revert",
+  "branch-create", "checkout-reset", "reset-soft", "reset-mixed", "reset-hard", "revert",
 ]);
 const KEEP_INDEX = new Set(["commit", "amend", "reword", "reset-soft", "reset-mixed"]);
 // ops named in the Undo menu by the commit they made
