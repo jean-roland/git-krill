@@ -172,7 +172,8 @@ function clickFile(list: WipList, f: Change, e: MouseEvent) {
   }
   const paths = new Set(mine ? picked.paths : []), anchor = mine ? picked.anchor : f.path;
   if (e.shiftKey) {
-    const order = fileLists.get($(list))!.order.map((x) => x.path);
+    // the rows shown: a folded folder's files stay out
+    const order = [...$(list).querySelectorAll<HTMLElement>(".file")].map((r) => r.dataset.path!);
     const [a, b] = [order.indexOf(anchor), order.indexOf(f.path)].sort((x, y) => x - y);
     paths.clear();
     order.slice(Math.max(a, 0), b + 1).forEach((p) => paths.add(p));
@@ -184,18 +185,21 @@ function clickFile(list: WipList, f: Change, e: MouseEvent) {
 }
 
 /** What two or more picked files can do together. */
+// git refuses a whole checkout over one conflict; a submodule has a discard of its own
+export const cannotDiscard = (files: Change[]) => (files.some((f) => isConflict(f) || isSubmodule(f.path)) ? "Conflicted files and submodules are discarded one at a time" : "");
+
 function pickedMenu(list: WipList, files: Change[]): MenuItem[] {
-  const n = plural(files.length, "file"), paths = pathArg(files);
+  const n = plural(files.length, "file"), paths = pathArg(files), why = cannotDiscard(files);
   return [
     { title: n, icon: ICONS.file },
     ...((list === "unstaged"
       ? [
           [`Stage ${n}`, () => gitOp("stage", paths)],
-          [`Discard ${n}`, () => confirmDiscard(files)],
+          [`Discard ${n}`, why ? null : () => confirmDiscard(files), why],
         ]
       : [
           [`Unstage ${n}`, () => gitOp("unstage", paths)],
-          [`Discard ${n}`, () => confirmDiscard(files, true)],
+          [`Discard ${n}`, why ? null : () => confirmDiscard(files, true), why],
         ]) as MenuItem[]),
     [`Stash ${n}`, () => gitOp("stash-files", paths)],
     [`Ignore ${n}`, () => ignore(files.map((f) => anchored(f.path)), files)],
@@ -536,8 +540,9 @@ export function markOpenFile() {
   // a diff opened in a list, by click or arrow key, ends its pick
   if (open && open.kind === picked.list) picked.paths = new Set([open.f.path]);
   // the head's buttons act on the pick
-  const unstaged = pickedFiles("unstaged"), staged = pickedFiles("staged"), n = (unstaged ?? staged)?.length ?? 0;
-  $("discard-all").title = n ? `Discard ${plural(n, "file")}` : "Discard all changes";
+  const unstaged = pickedFiles("unstaged"), staged = pickedFiles("staged"), n = (unstaged ?? staged)?.length ?? 0, why = cannotDiscard(unstaged ?? staged ?? []);
+  ($("discard-all") as HTMLButtonElement).disabled = !!why;
+  $("discard-all").title = why || (n ? `Discard ${plural(n, "file")}` : "Discard all changes");
   $("discard-n").textContent = n ? String(n) : "";
   $("stage-all").textContent = unstaged ? `Stage ${plural(unstaged.length, "file")}` : conflictCount() ? "Mark all resolved" : "Stage all changes";
   $("unstage-all").textContent = staged ? `Unstage ${plural(staged.length, "file")}` : "Unstage all changes";

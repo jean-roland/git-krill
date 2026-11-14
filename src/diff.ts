@@ -753,7 +753,10 @@ async function applyLines(pick: Lines, action: "stage" | "unstage" | "discard") 
 }
 
 export const confirmDiscard = (files: Change[], staged = false) =>
-  ask(`Discard all changes to ${files.length === 1 ? files[0].path : plural(files.length, "file")}?${staged ? " Staged and unstaged, back to HEAD." : ""}`, "Discard").then((ok) =>
+  ask(
+    `Discard all changes to ${files.length === 1 ? files[0].path : plural(files.length, "file")}?${staged ? " Staged and unstaged, back to HEAD." : ""}${staged && files.some((f) => ["A", "R", "C"].includes(f.code)) ? " Files HEAD lacks are deleted." : ""}`,
+    "Discard",
+  ).then((ok) =>
     ok ? discard(files, undefined, staged) : undefined,
   );
 
