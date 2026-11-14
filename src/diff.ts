@@ -180,6 +180,7 @@ function lineActions(ed: Monaco.editor.ICodeEditor, orig: boolean) {
         ? ([["Discard selected lines", lines("discard")], ["Stage selected lines", lines("stage")]] as MenuItem[])
         : []),
       ...(diffFile?.kind === "staged" ? ([["Unstage selected lines", lines("unstage")]] as MenuItem[]) : []),
+      ...(diffFile?.kind === "commit" && diffFile.c?.hash !== "WORKTREE" ? ([["Revert selected lines", () => revertLines(selectedLines(), "lines")]] as MenuItem[]) : []),
       null,
       ["Copy", () => copy(text)],
     ]);
@@ -257,13 +258,16 @@ const lineChanges = (): LineChange[] =>
     me: c.modifiedEndLineNumber,
   }));
 
-/** Undo hunk `c` of the shown commit in the working tree, where it shows up unstaged for review. */
-async function revertHunk(c: LineChange) {
+/** Undo lines `pick` of the shown commit in the working tree, where they show up unstaged for review. */
+async function revertLines(pick: Lines, what: string) {
   if (!diffFile?.c) return;
-  const { f } = diffFile, at = diffFile.c;
+  if (!pick.removed.size && !pick.added.size) return say("no changed line under the cursor/selection", true);
+  const { f, orig, mod } = diffFile, at = diffFile.c, ch = lineChanges(), all = allLines(ch);
+  const text = applyChanges(orig.text, mod.text, ch, minus(all.removed, pick.removed), minus(all.added, pick.added));
   try {
-    await run("revert_hunk", { commit: at.hash, parent: at.parents[0] ?? "", path: f.path, line: c.ms });
-    toast(`Reverted a hunk of ${basename(f.path)}`, `From ${short(at.hash)}: the change is in the working tree, unstaged.`, "info");
+    // a file the commit added goes once all of it is taken back
+    await run("revert_lines", { commit: at.hash, path: f.path, text: text || orig.exists ? text : null });
+    toast(`Reverted ${what} of ${basename(f.path)}`, `From ${short(at.hash)}: the change is in the working tree, unstaged.`, "info");
   } catch (e) {
     say(String(e), true);
   }
@@ -295,7 +299,7 @@ function updateHunkBars() {
     const el = h("div", { className: "hunk-bar" }, h("span", { textContent: `@@ -${c.os},${count(c.os, c.oe)} +${c.ms},${count(c.ms, c.me)} @@` }));
     if (buttons)
       for (const [act, label] of acts) {
-        el.append(h("button", { className: `hunk-${act}`, textContent: label, onclick: () => (act === "revert" ? revertHunk(c) : applyLines(allLines([c]), act as "stage" | "unstage" | "discard")) }));
+        el.append(h("button", { className: `hunk-${act}`, textContent: label, onclick: () => (act === "revert" ? revertLines(allLines([c]), "a hunk") : applyLines(allLines([c]), act as "stage" | "unstage" | "discard")) }));
       }
     // Monaco sets display on the zone node itself: the flex bar goes inside it
     return h("div", {}, el);
@@ -714,6 +718,8 @@ function selectedLines(): Lines {
   return pickLines(lineChanges(), sel, fromOrig);
 }
 
+const minus = (a: Set<number>, b: Set<number>) => new Set([...a].filter((x) => !b.has(x)));
+
 async function applyLines(pick: Lines, action: "stage" | "unstage" | "discard") {
   if (!diffFile) return;
   if (!pick.removed.size && !pick.added.size) return say("no changed line under the cursor/selection", true);
@@ -721,7 +727,6 @@ async function applyLines(pick: Lines, action: "stage" | "unstage" | "discard") 
   const { f, orig, mod } = diffFile;
   const ch = lineChanges(), all = allLines(ch);
   const whole = pick.removed.size === all.removed.size && pick.added.size === all.added.size;
-  const minus = (a: Set<number>, b: Set<number>) => new Set([...a].filter((x) => !b.has(x)));
   const keep = () => applyChanges(orig.text, mod.text, ch, minus(all.removed, pick.removed), minus(all.added, pick.added));
   if (action === "discard") return discard(f.path, f.code === "?", whole ? undefined : keep());
   if (whole) {

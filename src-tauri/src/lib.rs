@@ -1132,26 +1132,20 @@ fn on_disk(repo: String, path: String) -> Result<bool, String> {
     Ok(work_path(&repo, &path)?.exists())
 }
 
-/// \brief Undo the hunk of `commit`'s change to `path` whose new side starts at `line`, in the working tree.
+/// \brief Undo part of `commit`'s change to `path` in the working tree: `text` is the commit's version without it, none for no file.
 #[tauri::command(async)]
-fn revert_hunk(repo: String, commit: String, parent: String, path: String, line: u32) -> Result<(), String> {
-    // a root commit is a change from the empty tree
-    let parent = if parent.is_empty() { "4b825dc642cb6eb9a060e54bf8d69288fbee4904".to_string() } else { parent };
-    // no context: the hunks match the diff view's, and apply still finds them if later commits moved them
-    let diff = git(&repo, &["diff", "-U0", "--no-color", "--no-ext-diff", not_option(&parent)?, not_option(&commit)?, "--", &path])?;
-    let at = diff.find("\n@@").ok_or("nothing to revert")? + 1;
-    let (head, body) = diff.split_at(at);
-    let mut hunks: Vec<String> = Vec::new();
-    for l in body.split_inclusive('\n') {
-        if l.starts_with("@@") {
-            hunks.push(String::new());
-        }
-        hunks.last_mut().ok_or("bad diff")?.push_str(l);
-    }
-    // "@@ -a,b +c,d @@": c is where the new side starts, or the line before a pure deletion
-    let start = |h: &str| h.split(" +").nth(1).and_then(|s| s.split([',', ' ']).next()).and_then(|n| n.parse::<u32>().ok());
-    let hunk = hunks.iter().find(|h| start(h) == Some(line)).ok_or_else(|| format!("no hunk at line {line} of {path}"))?;
-    git_bytes(&repo, &["apply", "-R", "--unidiff-zero", "-"], Some(format!("{head}{hunk}").as_bytes()))?;
+fn revert_lines(repo: String, commit: String, path: String, text: Option<String>) -> Result<(), String> {
+    let id = |bytes: &[u8]| git_bytes(&repo, &["hash-object", "-w", "--stdin"], Some(bytes)).map(|o| String::from_utf8_lossy(&o).trim().to_string());
+    let at = git(&repo, &["rev-parse", "--verify", "-q", &format!("{}:{path}", not_option(&commit)?)]).ok().map(|s| s.trim().to_string());
+    let from = match &at { Some(a) => a.clone(), None => id(b"")? };
+    let diff = git_bytes(&repo, &["diff", "-U0", "--no-color", "--no-ext-diff", &from, &id(text.as_deref().unwrap_or_default().as_bytes())?], None)?;
+    let hunks = diff.windows(3).position(|w| w == b"\n@@").ok_or("nothing to revert")? + 1;
+    // git names the sides by their blob ids: the work tree file instead, /dev/null to create or delete it
+    let name = |side: &str, file: bool| if file { format!("{side}/{path}") } else { "/dev/null".into() };
+    let mut patch = format!("--- {}\n+++ {}\n", name("a", at.is_some()), name("b", text.is_some())).into_bytes();
+    patch.extend(&diff[hunks..]);
+    // no context: apply still finds the lines if later commits moved them
+    git_bytes(&repo, &["apply", "--unidiff-zero", "-"], Some(&patch))?;
     Ok(())
 }
 
@@ -1714,7 +1708,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, gh_verified, remote_tags, submodule_change, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, worktree_main, lfs_patterns, version_ids, keeps_crlf,
-            is_merged, revert_hunk, open_default, open_version, file_bytes, tool_status, global_config, set_global_config, delete_file, open_url, remote_urls, edit_remote,
+            is_merged, revert_lines, open_default, open_version, file_bytes, tool_status, global_config, set_global_config, delete_file, open_url, remote_urls, edit_remote,
             pty::pty_spawn, pty::pty_write, pty::pty_resize, pty::pty_kill, askpass::askpass_reply
         ])
         .build(tauri::generate_context!())
