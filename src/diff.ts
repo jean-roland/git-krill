@@ -694,6 +694,8 @@ export async function closeDiff(force = false) {
   if (!force && diffFile?.dirty && !(await ask(`Drop unsaved edits to ${diffFile.f.path}?`, "Drop edits"))) return;
   diffFile = null;
   $("diff").hidden = true;
+  // the history's file view keeps this bar: its versions are not editable
+  $("diff-editable").hidden = $("diff-save").hidden = true;
   dropModels();
   markOpenFile();
 }
