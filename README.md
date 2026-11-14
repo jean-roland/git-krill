@@ -21,9 +21,17 @@ A lean desktop git client for Linux, Windows and macOS: a commit graph, diffs yo
 - **Tabs**, one repository each, and a terminal in each tab (Ctrl+`).
 - SSH passphrase and HTTPS password prompts show in the window.
 
+## Screenshots
+
+### Diff and staging
+
 ![A diff with Stage hunk buttons](docs/screenshots/diff.png)
 
+### Merge tool
+
 ![The three-pane merge tool](docs/screenshots/merge.png)
+
+### File history and blame
 
 ![A file's history with blame](docs/screenshots/history.png)
 
