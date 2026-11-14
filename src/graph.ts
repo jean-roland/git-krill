@@ -617,7 +617,7 @@ export function paintSelection() {
 /** The ref a label stands for: its local branch, else its first remote's. */
 const labelRef = (l: Label) => (l.local ? l.name : `${l.remotes[0]}/${l.name}`);
 
-/** Check out `name`; a remote branch whose local one is elsewhere asks first: reset the local one to it, or take it as it is. */
+/** Check out `name`; a remote branch whose local one is elsewhere catches it up when only behind, else asks: reset the local one to it, or take it as it is. */
 function checkoutBranch(name: string, remote: boolean) {
   const local = remote ? name.slice(name.indexOf("/") + 1) : name;
   // git refuses a branch another worktree has: open that worktree instead
@@ -725,7 +725,8 @@ function branchMenu(name: string, remote: boolean): MenuItem[] {
     newTag,
     null,
     ...(remote ? [] : ([["Rename", () => askName("New branch name", name, (n) => gitOp("branch-rename", [name, n]))]] as MenuItem[])),
-    ...(remote || current ? [] : ([["Delete", () => deleteBranch(name, onRemote)]] as MenuItem[])),
+    // is_merged tests against the upstream, wherever it is
+    ...(remote || current ? [] : ([["Delete", () => deleteBranch(name, findRef(`refs/remotes/${up}`) ? up : "")]] as MenuItem[])),
     // a local branch's upstream too: one menu for both; none of it on the checked out branch
     ...(onRemote && !current
       ? ([[remote ? `Delete on ${rem}` : `Delete ${remBranch} on ${rem}`, () => ask(`Delete branch ${remBranch} on ${rem}? This pushes the deletion.`, "Delete").then((ok) => ok && gitOp("push-delete", [rem, remBranch]))]] as MenuItem[])
