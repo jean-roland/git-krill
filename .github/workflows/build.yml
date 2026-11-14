@@ -40,13 +40,13 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npx tauri build ${{ matrix.args }}
-      # "Git Krill_<version>_..." as the package name has it: git-krill_<version>_...
+      # "Git Krill_<version>_amd64.deb" and the like: git-krill_<version>_linux.deb, _windows.exe, _macOS.dmg, as the releases name them
       - name: Collect the installer
         shell: bash
         run: |
           mkdir out
           for f in src-tauri/target/release/bundle/deb/*.deb src-tauri/target/release/bundle/nsis/*.exe src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg; do
-            [ -e "$f" ] && cp "$f" "out/$(basename "$f" | sed 's/^Git Krill_/git-krill_/')"
+            [ -e "$f" ] && cp "$f" "out/$(basename "$f" | sed 's/^Git Krill_/git-krill_/; s/_amd64\.deb$/_linux.deb/; s/_x64-setup\.exe$/_windows.exe/; s/_universal\.dmg$/_macOS.dmg/')"
           done
           ls out
       - uses: actions/upload-artifact@v4
