@@ -246,7 +246,8 @@ fn git_cmd(repo: &str, args: &[&str], input: Option<&[u8]>, ask: bool) -> Result
     let started = std::time::Instant::now();
     let mut git = git_command(repo, args, ask);
     git.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = git.spawn().map_err(git_spawn_error)?;
+    // a folder gone fails to start git the same way as git gone
+    let mut child = git.spawn().map_err(|e| if Path::new(repo).is_dir() { git_spawn_error(e) } else { format!("{repo} no longer exists") })?;
     if let Some(data) = input {
         // fed from aside: git answers as it reads, and with its output unread it would stop reading
         let (mut stdin, data) = (child.stdin.take().unwrap(), data.to_vec());
