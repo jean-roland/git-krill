@@ -283,6 +283,11 @@ fn not_option(arg: &str) -> Result<&str, String> {
 
 /// \brief The repository's git folder: a linked worktree's, or the repo tool's, is elsewhere.
 fn git_dir(repo: &str) -> Result<PathBuf, String> {
+    // a plain .git folder, read off the disk: a git run less on each refresh; a .git file (worktree, submodule) asks git
+    let dot = Path::new(repo).join(".git");
+    if dot.is_dir() {
+        return Ok(dot);
+    }
     Ok(PathBuf::from(git(repo, &["rev-parse", "--absolute-git-dir"])?.trim()))
 }
 
@@ -346,14 +351,45 @@ fn clone(parent: String, url: String, name: String) -> Result<String, String> {
     Ok(Path::new(&parent).join(&name).to_string_lossy().into_owned())
 }
 
+/// \brief The superproject's folder when `repo` is a submodule, else empty; asked once a run for each folder.
+fn superproject(repo: &str) -> Result<String, String> {
+    static KNOWN: OnceLock<std::sync::Mutex<std::collections::HashMap<String, String>>> = OnceLock::new();
+    let known = KNOWN.get_or_init(Default::default);
+    if let Some(s) = known.lock().map_err(|e| e.to_string())?.get(repo) {
+        return Ok(s.clone());
+    }
+    let s = git(repo, &["rev-parse", "--show-superproject-working-tree"])?.trim().to_string();
+    known.lock().map_err(|e| e.to_string())?.insert(repo.to_string(), s.clone());
+    Ok(s)
+}
+
 #[tauri::command(async)]
 fn refs(repo: String) -> Result<Refs, String> {
-    let remotes: Vec<String> = git(&repo, &["remote"])?.lines().map(String::from).collect();
+    // all at once: on Windows each git run takes tens of milliseconds just to start
+    let repo = repo.as_str();
+    let (remotes, out, stashes, worktrees, superproject, submodules) = std::thread::scope(|s| {
+        let run = |args: &'static [&'static str]| s.spawn(move || git(repo, args));
+        let [remotes, out, stashes, worktrees] = [
+            run(&["remote"]),
+            run(&["for-each-ref", "--format=%(refname)%00%(objectname)%00%(*objectname)%00%(upstream:short)%00%(upstream:track)", "refs/heads", "refs/remotes", "refs/tags"]),
+            run(&["stash", "list", "--format=%gd%x00%H%x00%P%x00%gs"]),
+            run(&["worktree", "list", "--porcelain"]),
+        ];
+        let (superproject, submodules) = (s.spawn(|| superproject(repo)), s.spawn(|| submodules(repo)));
+        let gone = |_| "a git run crashed".to_string();
+        (
+            remotes.join().map_err(gone),
+            out.join().map_err(gone),
+            stashes.join().map_err(gone),
+            worktrees.join().map_err(gone),
+            superproject.join().map_err(gone),
+            submodules.join().map_err(gone),
+        )
+    });
+    let remotes: Vec<String> = remotes??.lines().map(String::from).collect();
     // refs/remotes/<x>/ of no configured remote: the `repo` tool's m/<branch> pointer
     let stray = |name: &str| name.strip_prefix("refs/remotes/").is_some_and(|r| !remotes.iter().any(|m| r.starts_with(&format!("{m}/"))));
-    let out = git(&repo, &["for-each-ref", "--format=%(refname)%00%(objectname)%00%(*objectname)%00%(upstream:short)%00%(upstream:track)",
-                           "refs/heads", "refs/remotes", "refs/tags"])?;
-    let refs = out
+    let refs = out??
         .lines()
         .filter_map(|l| {
             let f: Vec<&str> = l.split('\0').collect();
@@ -366,8 +402,7 @@ fn refs(repo: String) -> Result<Refs, String> {
             })
         })
         .collect();
-    let out = git(&repo, &["stash", "list", "--format=%gd%x00%H%x00%P%x00%gs"])?;
-    let stashes = out
+    let stashes = stashes??
         .lines()
         .filter_map(|l| {
             let f: Vec<&str> = l.split('\0').collect();
@@ -380,7 +415,7 @@ fn refs(repo: String) -> Result<Refs, String> {
             })
         })
         .collect();
-    let mut worktrees: Vec<Worktree> = git(&repo, &["worktree", "list", "--porcelain"])?
+    let mut worktrees: Vec<Worktree> = worktrees??
         .split("\n\n")
         .filter_map(|block| {
             let mut w = Worktree { path: String::new(), head: String::new(), branch: String::new(), locked: false, prunable: false };
@@ -402,11 +437,10 @@ fn refs(repo: String) -> Result<Refs, String> {
     if let Some(main) = worktrees.first_mut() {
         (main.path, repo_top) = main_folder(&main.path);
     }
-    let superproject = git(&repo, &["rev-parse", "--show-superproject-working-tree"])?.trim().to_string();
     // a clone made without git-lfs has no lfs folder yet, only the attributes
-    let lfs = lfs_dir(&repo).is_ok_and(|d| d.is_dir()) || std::fs::read_to_string(Path::new(&repo).join(".gitattributes")).is_ok_and(|a| a.contains("filter=lfs"));
-    let lfs_problem = if lfs || !lfs_installed() { lfs_problem(&repo) } else { "" };
-    Ok(Refs { refs, stashes, remotes, worktrees, submodules: submodules(&repo)?, superproject, repo_top, lfs, lfs_problem })
+    let lfs = lfs_dir(repo).is_ok_and(|d| d.is_dir()) || std::fs::read_to_string(Path::new(repo).join(".gitattributes")).is_ok_and(|a| a.contains("filter=lfs"));
+    let lfs_problem = if lfs || !lfs_installed() { lfs_problem(repo) } else { "" };
+    Ok(Refs { refs, stashes, remotes, worktrees, submodules: submodules??, superproject: superproject??, repo_top, lfs, lfs_problem })
 }
 
 /// \brief Why git-lfs cannot serve `repo`: "missing", "unset" or "" when it can.
@@ -541,16 +575,38 @@ fn log(repo: String, limit: u32, hide: Vec<String>, show: Vec<String>) -> Result
 
 #[tauri::command(async)]
 fn status(repo: String) -> Result<Status, String> {
-    let out = git(&repo, &["status", "--porcelain=v1", "-z", "--untracked-files=all"])?;
+    // v2 with --branch: the branch and how far it is from its upstream come in the same git run
+    let out = git(&repo, &["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"])?;
     let (mut staged, mut unstaged) = (Vec::new(), Vec::new());
+    let (mut branch, mut ahead, mut behind) = (String::new(), None, None);
     let mut entries = out.split('\0').filter(|e| !e.is_empty());
     while let Some(e) = entries.next() {
-        let (x, y, path) = (&e[0..1], &e[1..2], e[3..].to_string());
-        let old = if x == "R" || x == "C" { entries.next().map(String::from) } else { None };
-        if matches!(&e[0..2], "DD" | "AU" | "UD" | "UA" | "DU" | "AA" | "UU") {
-            unstaged.push(Change { path, old: None, code: "U".into(), conflict: Some(e[0..2].to_string()), lfs: false, sub: None });
-        } else if x == "?" {
-            unstaged.push(Change { path, old: None, code: "?".into(), conflict: None, lfs: false, sub: None });
+        // "# branch.head main" or "(detached)"; "# branch.ab +1 -2" when it has an upstream
+        if let Some(head) = e.strip_prefix("# branch.head ") {
+            branch = if head == "(detached)" { String::new() } else { head.to_string() };
+        } else if let Some(ab) = e.strip_prefix("# branch.ab ") {
+            let mut n = ab.split(' ').map(|c| c.get(1..).and_then(|c| c.parse().ok()));
+            (ahead, behind) = (n.next().flatten(), n.next().flatten());
+        }
+        if let Some(path) = e.strip_prefix("? ") {
+            unstaged.push(Change { path: path.into(), old: None, code: "?".into(), conflict: None, lfs: false, sub: None });
+            continue;
+        }
+        // "1 XY <6 fields> path", "2 XY <7 fields> path" then its old path, "u XY <8 fields> path"
+        let fields = match e.as_bytes().first() {
+            Some(b'1') => 9,
+            Some(b'2') => 10,
+            Some(b'u') => 11,
+            _ => continue,
+        };
+        let f: Vec<&str> = e.splitn(fields, ' ').collect();
+        let (Some(xy), Some(path)) = (f.get(1), f.get(fields - 1)) else { continue };
+        // v1's space for "unchanged" is v2's dot
+        let xy = xy.replace('.', " ");
+        let (x, y, path) = (&xy[0..1], &xy[1..2], path.to_string());
+        let old = if fields == 10 { entries.next().map(String::from) } else { None };
+        if fields == 11 {
+            unstaged.push(Change { path, old: None, code: "U".into(), conflict: Some(xy.clone()), lfs: false, sub: None });
         } else {
             if y != " " {
                 unstaged.push(Change { path: path.clone(), old: None, code: y.into(), conflict: None, lfs: false, sub: None });
@@ -561,16 +617,7 @@ fn status(repo: String) -> Result<Status, String> {
         }
     }
     mark_lfs(&repo, None, staged.iter_mut().chain(unstaged.iter_mut()));
-    let counts = git(&repo, &["rev-list", "--left-right", "--count", "@{u}...HEAD"]).ok();
-    let mut counts = counts.iter().flat_map(|c| c.split_whitespace()).filter_map(|n| n.parse().ok());
-    Ok(Status {
-        branch: current_branch(&repo)?,
-        state: op_state(&repo)?,
-        behind: counts.next(),
-        ahead: counts.next(),
-        staged,
-        unstaged,
-    })
+    Ok(Status { branch, state: op_state(&repo)?, behind, ahead, staged, unstaged })
 }
 
 /// \brief Who meets whom in the operation in progress, and the message Continue commits.
@@ -880,6 +927,11 @@ fn lfs_object(repo: &str, bytes: &[u8]) -> Option<(PathBuf, u64)> {
 
 /// \brief git-lfs's folder, which every worktree of the repository shares.
 fn lfs_dir(repo: &str) -> Result<PathBuf, String> {
+    // a plain .git folder is its own common one
+    let dot = Path::new(repo).join(".git");
+    if dot.is_dir() {
+        return Ok(dot.join("lfs"));
+    }
     Ok(PathBuf::from(git(repo, &["rev-parse", "--path-format=absolute", "--git-common-dir"])?.trim()).join("lfs"))
 }
 
