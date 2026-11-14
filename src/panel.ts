@@ -1,8 +1,8 @@
 // The right panel: work in progress or a commit's details, the file lists, the commit box.
-import { Blob, Change, Commit, commits, fakeCommit, gitOp, headHash, isHead, lfsChip, opInfo, openInEditor, refresh, refs, repo, run, runFixed, selection, status } from "./repo";
+import { Blob, Change, Commit, commits, fakeCommit, gitOp, isHead, lfsChip, opInfo, openInEditor, refresh, refs, repo, run, runFixed, selection, status } from "./repo";
 import { $, ICONS, MenuItem, ask, avatar, basename, copy, dateTimeText, h, ico, input, mod, onCtrlEnter, label, plural, popup, say, shaLink, short, store, svg, warnOnce } from "./ui";
 import { DiffSource, closeDiff, confirmDiscard, diffFile, merging, openDiff, openHistory } from "./diff";
-import { discardSubmodule, jumpTo, linkRemote, openSubmodule, webUrl } from "./graph";
+import { discardSubmodule, linkRemote, openSubmodule, webUrl } from "./graph";
 import { planOpen } from "./rebase";
 
 type Dir = { dirs: Map<string, Dir>; files: Change[] };
@@ -462,7 +462,7 @@ function editMessage(c: Commit, msg: string) {
   const update = async () => {
     const m = joinMsg(summary.value, desc.value);
     if (!m) return say("empty commit message", true);
-    if (await gitOp("reword", m)) jumpTo(headHash());
+    await gitOp("reword", m);
   };
   summary.oninput = () => countLeft(summary, left);
   countLeft(summary, left);

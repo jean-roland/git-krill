@@ -91,9 +91,11 @@ export let refs: Refs = { refs: [], stashes: [], remotes: [], worktrees: [], sub
 export const selection = { hashes: ["WIP"], anchor: "", isRange: false, stash: null as Stash | null };
 // the next refresh scrolls the pick into view: it moved on its own
 let reveal = false;
+// ops whose changes land in WIP: it is picked before they run
+const TO_WIP = new Set(["reset-soft", "reset-mixed", "stash-apply", "stash-pop"]);
 
 /** Pick WIP before an op whose changes land there; its refresh moves on to HEAD if none are left. */
-export function pickWip() {
+function pickWip() {
   selection.stash = null;
   selection.hashes = [(selection.anchor = "WIP")];
   selection.isRange = false;
@@ -147,6 +149,8 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
   const tab = tabs[active], branch = status?.branch ?? "", head = headHash(), started = performance.now();
   say(`${name}…`);
   document.body.classList.add("busy");
+  // picked before the op: its refresh lands there in one go
+  if (TO_WIP.has(name)) pickWip();
   let ok = true;
   try {
     const out = await run<string>("git_op", { op: name, arg: arg1, arg2 });
@@ -312,11 +316,7 @@ export async function undoRedo(back: boolean): Promise<boolean> {
     ok = await Promise.all(step.files.map(write)).then(() => true, (e) => (say(String(e), true), false));
     await refresh();
   } else if (step.branch[0] !== step.branch[1]) ok = await gitOp("checkout", step.branch[to] || step.head[to], false);
-  else {
-    // a commit undone: its changes are back in WIP
-    if (KEEP_INDEX.has(step.op)) pickWip();
-    ok = await gitOp(KEEP_INDEX.has(step.op) ? "reset-soft" : "reset-keep", step.head[to], false);
-  }
+  else ok = await gitOp(KEEP_INDEX.has(step.op) ? "reset-soft" : "reset-keep", step.head[to], false);
   (ok === back ? t.redo : t.undo).push(step);
   renderToolbar();
   return ok;
@@ -344,6 +344,9 @@ export function redraw() {
 async function reload() {
   const r = repo, started = performance.now();
   if (!r) return;
+  // taken now: a reload that stops early must not hand it to a later one
+  let show = reveal;
+  reveal = false;
   try {
     const [s, log, rf] = await Promise.all([run<Status>("status"), run<Commit[]>("log", { limit: tabs[active].limit, ...graphFilter() }), run<Refs>("refs")]);
     const info = s.state ? await run<OpInfo>("op_info").catch(() => null) : null;
@@ -361,18 +364,18 @@ async function reload() {
       const was = headHash();
       commits = log;
       const now = headHash();
-      // HEAD moved (pull, checkout, rebase...): on to it, unless on WIP, where an op's changes went
-      if (!landed && was && now && now !== was && selection.hashes[0] !== "WIP") {
+      // HEAD moved (pull, checkout, rebase...): on to it, unless on WIP, where an op's changes went, or under a commit's open diff
+      if (!landed && was && now && now !== was && selection.hashes[0] !== "WIP" && diffFile?.kind !== "commit") {
         selection.stash = null;
         selection.hashes = [(selection.anchor = now)];
         selection.isRange = false;
-        reveal = true;
+        show = true;
       }
       selection.hashes = selection.hashes.filter((x) => x === "WIP" || commits.some((c) => c.hash === x));
       if (!selection.hashes.length && !selection.stash) selection.hashes = ["WIP"];
-      // nothing to commit: open on HEAD, not on an empty WIP panel
-      if (selection.hashes[0] === "WIP" && !s.staged.length && !s.unstaged.length && !opInfo && headHash()) selection.hashes = [(selection.anchor = headHash())];
     }
+    // nothing to commit: open on HEAD, not on an empty WIP panel; also after an op that changed nothing
+    if (selection.hashes[0] === "WIP" && !s.staged.length && !s.unstaged.length && !opInfo && headHash()) selection.hashes = [(selection.anchor = headHash())];
     if (landed) {
       // the panel's data read first: graph, sidebar and panel then change in one frame
       await panelData();
@@ -391,10 +394,7 @@ async function reload() {
       graphKey = key;
       renderGraph(landed?.scroll);
     }
-    if (reveal) {
-      reveal = false;
-      showRow(selection.hashes[0] ?? "", "nearest");
-    }
+    if (show) showRow(selection.hashes[0] ?? "", "nearest");
     if (selection.stash && !rf.stashes.some((x) => x.hash === selection.stash!.hash)) selection.stash = null;
     const rk = JSON.stringify([rf, s.branch]);
     if (rk !== sideKey) {
@@ -584,6 +584,8 @@ export const keepTab = () => Object.assign(tabs[active], { selected: selection.h
 export async function switchTab(i: number, save = true) {
   if (save && !(await dropEdits())) return;
   if (save) keepTab();
+  // the op that asked for it ran in the tab left
+  reveal = false;
   closeHistory();
   // its Push is for the tab it was asked in
   hideBanner();

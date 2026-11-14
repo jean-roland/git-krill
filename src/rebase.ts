@@ -1,5 +1,5 @@
 import { Commit, commits, gitOp, headHash, isHead, opInfo, repo, selection } from "./repo";
-import { jumpTo, paintSelection } from "./graph";
+import { paintSelection } from "./graph";
 import { $, ICONS, MenuItem, avatar, h, ico, mod, popup, say, short, showDialog, showMenu, hideDialog, onCtrlEnter, svg } from "./ui";
 import { countLeft, joinMsg, renderPanel, splitMsg } from "./panel";
 
@@ -280,7 +280,7 @@ async function start() {
   const onBase = rows[rows.length - 1].c.parents[0] === p.base;
   closeRebase();
   if (inPlace && onBase && rows.every((r) => r.action === "pick")) return;
-  if (await gitOp("rebase-interactive", [p.base, JSON.stringify(steps)])) jumpTo(headHash());
+  await gitOp("rebase-interactive", [p.base, JSON.stringify(steps)]);
 }
 
 $("rebase-cancel").onclick = $("rebase-close").onclick = closeRebase;
