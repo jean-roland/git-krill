@@ -34,9 +34,9 @@ A lean desktop git client for Linux, Windows and macOS: a commit graph, diffs yo
 
 From the [releases](https://github.com/jean-roland/git-krill/releases):
 
-- **Linux** (Debian, Ubuntu): `sudo apt install ./git-krill_0.2.1_amd64.deb`, then run `git-krill`, or `git-krill path/to/repo`.
-- **Windows**: run `git-krill_0.2.1_x64-setup.exe`. It is not signed: SmartScreen asks first, "More info" then "Run anyway". Needs [Git for Windows](https://git-scm.com/download/win).
-- **macOS**: open `git-krill_0.2.1_universal.dmg` and drag Git Krill to Applications. It is not notarized: the first launch is refused, then System Settings > Privacy & Security > "Open Anyway". Needs git: `xcode-select --install`, or Homebrew's.
+- **Linux** (Debian, Ubuntu): `sudo apt install ./git-krill_0.2.1_linux.deb`, then run `git-krill`, or `git-krill path/to/repo`.
+- **Windows**: run `git-krill_0.2.1_windows.exe`. It is not signed: SmartScreen asks first, "More info" then "Run anyway". Needs [Git for Windows](https://git-scm.com/download/win).
+- **macOS**: open `git-krill_0.2.1_macOS.dmg` and drag Git Krill to Applications. It is not notarized: the first launch is refused, then System Settings > Privacy & Security > "Open Anyway". Needs git: `xcode-select --install`, or Homebrew's.
 
 Needs `git` (tested with 2.43; before 2.40 a commit's files lack their LFS chip). "Open in editor" runs the command set in Settings, VS Code's `code` by default.
 
