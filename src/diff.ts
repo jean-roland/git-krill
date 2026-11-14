@@ -757,7 +757,7 @@ export async function discard(path: string, untracked: boolean, text?: string) {
   // a binary file has no text to put back
   if (before === undefined || after === undefined || before === after || repo !== r) return;
   const head = headHash(), branch = status?.branch ?? "";
-  recordUndo(t, { op: "discard", branch: [branch, branch], head: [head, head], file: [path, before, after] });
+  recordUndo(t, { op: "discard", what: basename(path), branch: [branch, branch], head: [head, head], file: [path, before, after] });
 }
 
 /* merge tool */

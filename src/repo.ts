@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { repoName } from "./core.js";
-import { $, COLORS, ICONS, MenuItem, ask, basename, colorIndex, dialog, h, hideBanner, hideDialog, hint, ico, input, pickDir, popup, say, showBanner, showDialog, showMenu, store, svg, toast, warnOnce } from "./ui";
+import { $, COLORS, ICONS, MenuItem, ask, basename, colorIndex, dialog, h, hideBanner, hideDialog, hint, ico, input, pickDir, popup, say, short, showBanner, showDialog, showMenu, store, svg, toast, warnOnce } from "./ui";
 import { closeHistory, closeMerge, closeResolvedMerge, confirmDrop, diffFile, openRow, reloadDiff } from "./diff";
 import { conflictCount, getMsg, renderPanel, setMsg } from "./panel";
 import { stepBack, paintWipRow, renderGraph, renderSide, resetGraph } from "./graph";
@@ -25,8 +25,8 @@ type Refs = { refs: Ref[]; stashes: Stash[]; remotes: string[]; worktrees: Workt
 // large: too big to load unasked, its size in bytes
 // lfs: a git-lfs pointer in git, "here" when its object was read instead, "missing" when it is not downloaded
 export type Blob = { text: string; exists: boolean; binary: boolean; large: number | null; lfs: "" | "here" | "missing" };
-// file: a discard, the work tree text before and after (null: no file)
-type UndoStep = { op: string; branch: [string, string]; head: [string, string]; file?: [string, string | null, string | null] };
+// what: the menu's name for it, the commit made or where HEAD went; file: a discard, the work tree text before and after (null: no file)
+type UndoStep = { op: string; what: string; branch: [string, string]; head: [string, string]; file?: [string, string | null, string | null] };
 // limit: how many commits the graph loads, raised by "Load more"
 // parent: what this tab steps back to, the main checkout of a worktree or the repository a submodule was opened from in it; one level only
 // settings: the Settings tab, which has no repository either; back: the tab as it was before stepping into a worktree or submodule
@@ -38,6 +38,8 @@ const UNDOABLE = new Set([
   "branch-create", "reset-soft", "reset-mixed", "reset-hard", "revert",
 ]);
 const KEEP_INDEX = new Set(["commit", "amend", "reword", "reset-soft", "reset-mixed"]);
+// ops named in the Undo menu by the commit they made
+const MAKE_COMMIT = new Set(["commit", "amend", "reword", "revert", "cherry-pick"]);
 // ops whose result is on a remote or gone from view: a toast confirms them, from (arg, arg2, branch, its upstream)
 const DONE: Record<string, (arg: string, arg2: string, branch: string, upstream: string) => string> = {
   push: (_a, _b, branch, upstream) => `Pushed ${branch} to ${upstream}`,
@@ -153,7 +155,8 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
   await refresh();
   if (ok && NET_OPS.has(name)) loadRemoteTags();
   if (ok && record && UNDOABLE.has(name) && tab === tabs[active]) {
-    const step: UndoStep = { op: name, branch: [branch, status?.branch ?? ""], head: [head, headHash()] };
+    const what = MAKE_COMMIT.has(name) ? `"${commits.find(isHead)?.subject ?? ""}"` : name === "pull" ? "" : short(arg1);
+    const step: UndoStep = { op: name, what, branch: [branch, status?.branch ?? ""], head: [head, headHash()] };
     if (step.head.every(Boolean) && (step.head[0] !== step.head[1] || step.branch[0] !== step.branch[1])) recordUndo(tab, step);
   }
   return ok;
@@ -168,6 +171,21 @@ function toastHooks(out: string) {
   const passed = hooks.filter((m) => m[2] === "Passed").length;
   const lines = hooks.map((m) => `${m[2] === "Passed" ? "✓" : "–"} ${m[1]}${m[2] === "Passed" ? "" : " (skipped)"}`);
   toast(`Hooks passed: ${passed} ran, ${hooks.length - passed} skipped`, lines.join("\n"), "info");
+}
+
+const stepText = (s: UndoStep) => (s.what ? `${s.op} ${s.what}` : s.op);
+
+/** Undo's (or Redo's) steps, newest first: picking one walks back through it. */
+export function undoMenu(e: MouseEvent, back: boolean) {
+  const t = tabs[active];
+  // ponytail: the 20 newest of the 50 kept, a longer menu runs off the window
+  const steps = (back ? t.undo : t.redo).slice(-20).reverse();
+  popup(
+    e,
+    steps.map((s, i): MenuItem => [`${back ? "Undo" : "Redo"} ${stepText(s)}`, async () => {
+      for (let k = 0; k <= i && tabs[active] === t && (await undoRedo(back)); k++);
+    }]),
+  );
 }
 
 /** A step for Undo; the oldest go past 50, a discard's holding its file twice. */
@@ -227,28 +245,28 @@ export function push() {
 }
 
 /** Undo (or redo) the last HEAD move krill made, if nothing moved HEAD since. */
-export async function undoRedo(back: boolean) {
+export async function undoRedo(back: boolean): Promise<boolean> {
   const t = tabs[active];
   // a tab still loading has no HEAD to compare yet: its steps would look stale
-  if (!status) return;
+  if (!status) return false;
   const step = (back ? t.undo : t.redo).pop();
-  if (!step) return;
+  if (!step) return false;
   const [from, to] = back ? [1, 0] : [0, 1];
   if (headHash() !== step.head[from] || (status?.branch ?? "") !== step.branch[from]) {
     t.undo = [];
     t.redo = [];
     renderToolbar();
-    return say(`HEAD moved outside krill, nothing to ${back ? "undo" : "redo"}`, true);
+    return void say(`HEAD moved outside krill, nothing to ${back ? "undo" : "redo"}`, true), false;
   }
   let ok;
   if (step.file) {
     const [path, ...text] = step.file, r = repo;
     const now = await run<Blob>("blob", { at: "WORKTREE", path });
     // left for another tab meanwhile: the step waits for its own
-    if (repo !== r) return void (back ? t.undo : t.redo).push(step);
+    if (repo !== r) return (back ? t.undo : t.redo).push(step), false;
     if ((now.exists ? now.text : null) !== text[from]) {
       renderToolbar();
-      return say(`${path} changed since, nothing to ${back ? "undo" : "redo"}`, true);
+      return void say(`${path} changed since, nothing to ${back ? "undo" : "redo"}`, true), false;
     }
     const write = text[to] === null ? run("delete_file", { path }) : run("write_file", { path, text: text[to] });
     ok = await write.then(() => true, (e) => (say(String(e), true), false));
@@ -260,6 +278,7 @@ export async function undoRedo(back: boolean) {
         : await gitOp(KEEP_INDEX.has(step.op) ? "reset-soft" : "reset-keep", step.head[to], false);
   (ok === back ? t.redo : t.undo).push(step);
   renderToolbar();
+  return ok;
 }
 
 let refreshing: Promise<void> | null = null;
@@ -354,8 +373,8 @@ function renderToolbar() {
   const u = $("undo") as HTMLButtonElement, r = $("redo") as HTMLButtonElement;
   u.disabled = !undo.length;
   r.disabled = !redo.length;
-  u.title = undo.length ? `Undo ${undo[undo.length - 1].op} (Ctrl+Z)` : "Nothing to undo";
-  r.title = redo.length ? `Redo ${redo[redo.length - 1].op} (Ctrl+Shift+Z)` : "Nothing to redo";
+  u.title = undo.length ? `Undo ${stepText(undo[undo.length - 1])} (Ctrl+Z)` : "Nothing to undo";
+  r.title = redo.length ? `Redo ${stepText(redo[redo.length - 1])} (Ctrl+Shift+Z)` : "Nothing to redo";
 }
 
 /* tabs and home */

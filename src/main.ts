@@ -6,7 +6,7 @@ import { rebaseKey } from "./rebase";
 import { SORTS, amending, commit, conflictCount, emptyStep, fileLists, filterFiles, foldAll, getMsg, openFile, paintFileOpts, renderCommitBtn, renderPanel, setMsg } from "./panel";
 import { $, ask, closeDialog, hideBanner, input, mod, onCtrlEnter, pickDir, popup, say, store } from "./ui";
 import { closeFind, drawRows, findStep, findTyped, stepBack, openFind, paintSelection, showRow, shown } from "./graph";
-import { Change, active, addTab, autoFetch, cloneDialog, closeTab, fetchMinutes, gitOp, opInfo, newTabMenu, openInEditor, openPicked, openRepo, openSettings, paintPull, pull, pullMenu, push, refresh, renderTabHits, reopenTab, repo, restoreTabs, run, selection, switchTab, tabs, undoRedo } from "./repo";
+import { Change, active, addTab, autoFetch, cloneDialog, closeTab, fetchMinutes, gitOp, opInfo, newTabMenu, openInEditor, openPicked, openRepo, openSettings, paintPull, pull, pullMenu, push, refresh, renderTabHits, reopenTab, repo, restoreTabs, run, selection, switchTab, tabs, undoMenu, undoRedo } from "./repo";
 import { terms, toggleTerm } from "./terminal";
 
 /** Up/Down walk the graph, or the files once Right opened one; Left goes back to the graph. */
@@ -138,6 +138,8 @@ $("term-btn").onclick = () => toggleTerm();
 $("term-close").onclick = () => toggleTerm(false);
 $("undo").onclick = () => undoRedo(true);
 $("redo").onclick = () => undoRedo(false);
+$("undo").oncontextmenu = (e) => undoMenu(e, true);
+$("redo").oncontextmenu = (e) => undoMenu(e, false);
 $("all-files").onclick = () => ($("all-files").classList.toggle("on"), renderPanel());
 document.querySelectorAll<HTMLElement>("[data-files]").forEach(
   (b) =>
