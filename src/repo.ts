@@ -111,10 +111,17 @@ invoke<boolean>("tracing").then((on) => (tracing = on), () => {});
 const ms = (since: number) => `${String(Math.round(performance.now() - since)).padStart(6)}ms`;
 export const trace = (line: string) => void (tracing && invoke("trace_line", { line }).catch(() => {}));
 
+let pending = 0;
+let slow = 0;
 export function run<T>(cmd: string, args: Record<string, unknown> = {}) {
-  if (!tracing) return invoke<T>(cmd, { repo, ...args });
   const started = performance.now();
-  return invoke<T>(cmd, { repo, ...args }).finally(() => trace(`${ms(started)} call ${cmd}`));
+  // the spinning pointer while calls are out past 300 ms: a quick stage does not flicker it
+  if (!pending++) slow = setTimeout(() => document.body.classList.add("slow"), 300);
+  return invoke<T>(cmd, { repo, ...args }).finally(() => {
+    if (tracing) trace(`${ms(started)} call ${cmd}`);
+    // a task later: the refresh an op chains on is out by then, no gap between them
+    setTimeout(() => --pending || (clearTimeout(slow), document.body.classList.remove("slow")));
+  });
 }
 export const DEFAULT_EDITOR = "code -g {file}:{line}";
 /** Open the working tree's `path` at `line` with the Settings tab's editor command. */
@@ -139,8 +146,6 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
   const tab = tabs[active], branch = status?.branch ?? "", head = headHash(), started = performance.now();
   say(`${name}…`);
   document.body.classList.add("busy");
-  // the spinning pointer past 300 ms, as the toolbar dims: a quick stage does not flicker it
-  const slow = setTimeout(() => document.body.classList.add("slow"), 300);
   let ok = true;
   try {
     const out = await run<string>("git_op", { op: name, arg: arg1, arg2 });
@@ -172,8 +177,7 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
     say(`${what} ${conflicts.length ? "stopped on conflicts" : "failed"}`);
     ok = false;
   }
-  clearTimeout(slow);
-  document.body.classList.remove("busy", "slow");
+  document.body.classList.remove("busy");
   await refresh();
   trace(`${ms(started)} op ${name}, its refresh included`);
   if (ok && NET_OPS.has(name)) loadRemoteTags();
