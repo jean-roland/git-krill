@@ -15,11 +15,14 @@ jobs:
         include:
           # the oldest supported Ubuntu: its glibc keeps the .deb installable on newer ones
           - os: ubuntu-22.04
+            label: linux
             args: --bundles deb
           - os: windows-latest
+            label: windows
             args: --bundles nsis
           # one .dmg for Apple silicon and Intel Macs
           - os: macos-latest
+            label: macOS
             args: --target universal-apple-darwin --bundles dmg
     runs-on: ${{ matrix.os }}
     steps:
@@ -51,6 +54,6 @@ jobs:
           ls out
       - uses: actions/upload-artifact@v4
         with:
-          name: git-krill-${{ matrix.os }}
+          name: git-krill-${{ matrix.label }}
           path: out/*
           if-no-files-found: error
