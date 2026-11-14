@@ -75,7 +75,7 @@
             <div class="bar"><b>Interactive rebase</b><span id="rebase-what"></span><button class="icon" id="rebase-close" title="Close (Esc)"><svg data-icon="close"></svg></button></div>
             <div id="rebase-rows"></div>
             <div class="foot">
-              <small><b>P</b> pick · <b>R</b> reword · <b>S</b> squash · <b>D</b> drop · <b>Ctrl+↑ ↓</b> move</small>
+              <small><b>P</b> pick · <b>R</b> reword · <b>S</b> squash · <b>D</b> drop · <b>Drag</b> or <b>Ctrl+↑ ↓</b> move · <b>Ctrl/Shift+click</b> multi-select</small>
               <button id="rebase-reset" title="Pick every commit back in its place"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8M3 3v5h5"/></svg>Reset</button><button id="rebase-cancel" class="bad"><svg data-icon="close"></svg>Cancel</button><button id="rebase-start" class="primary"><svg data-icon="check"></svg>Start rebase</button>
             </div>
           </div>
@@ -149,7 +149,7 @@
       <aside id="details">
         <div id="wip">
           <div class="panel-title wip-head">
-            <button id="discard-all" title="Discard all changes"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 13h12l1-13M9 7V4h6v3"/></svg><span id="discard-n"></span></button>
+            <button id="discard-all" title="Discard all changes"><svg data-icon="trash"></svg><span id="discard-n"></span></button>
             <span id="wip-title"></span>
           </div>
           <div class="files-opts"><span class="files-opts-left"><button class="sort" title="Sort the files"></button><button class="tree-all" data-open="1" title="Expand all folders"><svg viewBox="0 0 24 24"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></svg></button><button class="tree-all" data-open="" title="Collapse all folders"><svg viewBox="0 0 24 24"><path d="m7 20 5-5 5 5M7 4l5 5 5-5"/></svg></button></span><span class="seg"><button data-files="path" title="One row per file, folders in front"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>Path</button><button data-files="tree" title="Files under their folders"><svg viewBox="0 0 24 24"><path d="M4 5h8M7 5v13a1 1 0 0 0 1 1h9M7 12h10"/></svg>Tree</button></span><span></span><input class="file-filter" placeholder="Filter files" spellcheck="false" /></div>

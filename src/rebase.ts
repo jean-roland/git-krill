@@ -1,15 +1,21 @@
 import { Commit, commits, gitOp, headHash, isHead, opInfo, repo, selection } from "./repo";
 import { jumpTo, paintSelection } from "./graph";
-import { $, ICONS, avatar, h, ico, mod, say, short, showDialog, showMenu, hideDialog, onCtrlEnter, svg } from "./ui";
+import { $, ICONS, MenuItem, avatar, h, ico, mod, popup, say, short, showDialog, showMenu, hideDialog, onCtrlEnter, svg } from "./ui";
 import { countLeft, joinMsg, renderPanel, splitMsg } from "./panel";
 
 type Action = "pick" | "reword" | "squash" | "drop";
 // one commit of the plan; message is the reworded one, empty while unchanged
 type Row = { c: Commit; action: Action; message: string };
 
-const ACTIONS: [Action, string][] = [["pick", "Pick"], ["reword", "Reword"], ["squash", "Squash"], ["drop", "Drop"]];
+const ACTIONS: [Action, string, string][] = [
+  ["pick", "Pick", ICONS.check],
+  ["reword", "Reword", ICONS.m],
+  ["squash", "Squash", ICONS.squash],
+  ["drop", "Drop", ICONS.trash],
+];
 // the plan on screen: the commits replayed onto `base`, newest first, the picked row `at`, made in `repo` with HEAD at `head`
-let plan: { base: string; rows: Row[]; at: number; repo: string; head: string } | null = null;
+// picked: the rows an action goes to, by hash: a Ctrl or Shift click picks several, a drag keeps them
+let plan: { base: string; rows: Row[]; at: number; repo: string; head: string; picked: Set<string> } | null = null;
 
 const message = (c: Commit) => joinMsg(c.subject, c.body);
 
@@ -51,7 +57,7 @@ export function openRebase(base: string, range: Commit[] | null | undefined) {
   if (range === undefined) return say("Interactive rebase: the commits to replay go past the loaded ones, load more commits first", true);
   if (!range) return say("Interactive rebase: the commits to replay include a merge", true);
   if (!range.length) return say("Interactive rebase: nothing to replay, the branch has no commit this one lacks", true);
-  plan = { base, rows: range.map((c) => ({ c, action: "pick", message: "" })), at: 0, repo, head: headHash() };
+  plan = { base, rows: range.map((c) => ({ c, action: "pick", message: "" })), at: 0, repo, head: headHash(), picked: new Set() };
   $("rebase").hidden = false;
   pick(0);
 }
@@ -91,7 +97,7 @@ function paint() {
   $("rebase-what").replaceChildren(`Rebasing ${p.rows.length} commits onto `, h("code", { textContent: short(p.base) }));
   $("rebase-rows").replaceChildren(
     ...p.rows.map((r, i) => {
-      const into = r.action === "squash" ? target(i) : -1;
+      const into = r.action === "squash" ? target(i) : -1, [, label, icon] = ACTIONS.find(([a]) => a === r.action)!;
       // krill's own menu, not the system's list: it matches the rest
       const act = h(
         "button",
@@ -100,17 +106,24 @@ function paint() {
           onclick: (e: MouseEvent) => {
             e.stopPropagation();
             const at = act.getBoundingClientRect();
-            // the oldest commit has nothing older to fold into
-            showMenu(ACTIONS.filter(([a]) => a !== "squash" || target(i) >= 0).map(([a, label]) => [label, () => setAction(i, a)]), at.left, at.bottom + 2);
+            showMenu(actionMenu(i), at.left, at.bottom + 2);
           },
         },
-        h("span", { textContent: ACTIONS.find(([a]) => a === r.action)![1] }),
+        ico(icon),
+        h("span", { textContent: label }),
         ico(ICONS.caret),
       );
       const subject = r.action === "pick" || r.action === "reword" ? splitMsg(finalMessage(i))[0] : r.c.subject;
       return h(
         "div",
-        { className: `rb-row ${r.action}${i === p.at ? " sel" : ""}`, onclick: () => pick(i), ondblclick: () => setAction(i, "reword"), onpointerdown: (e: PointerEvent) => drag(e, i) },
+        {
+          className: `rb-row ${r.action}${p.picked.has(r.c.hash) ? " sel" : ""}`,
+          onclick: (e: MouseEvent) => click(e, i),
+          ondblclick: () => setAction(i, "reword"),
+          onpointerdown: (e: PointerEvent) => drag(e, i),
+          // a row out of the pick becomes the pick, as in a file manager
+          oncontextmenu: (e: MouseEvent) => (p.picked.has(r.c.hash) || pick(i), popup(e, actionMenu(i))),
+        },
         act,
         ...(r.action === "squash" ? [h("span", { className: "rb-into", innerHTML: svg(ICONS.into) })] : []),
         avatar(r.c.author),
@@ -121,14 +134,48 @@ function paint() {
   );
 }
 
-/** Show row `i`'s commit in the right panel. */
-function pick(i: number) {
+/** Ctrl+click adds a row to the picked ones, Shift+click picks a run from the last one; a click picks one. */
+function click(e: MouseEvent, i: number) {
+  const p = plan!, hash = p.rows[i].c.hash;
+  if (e.shiftKey) {
+    const [a, b] = [p.at, i].sort((x, y) => x - y);
+    p.picked = new Set(p.rows.slice(a, b + 1).map((r) => r.c.hash));
+  } else if (mod(e) && !p.picked.delete(hash)) p.picked.add(hash);
+  // the run's start stays put
+  if (e.shiftKey) return paint();
+  pick(i, mod(e));
+}
+
+/** The actions for row `i`, or for every picked row when it is one of them. */
+function actionMenu(i: number): MenuItem[] {
+  const many = plan!.picked.has(plan!.rows[i].c.hash) ? pickedRows() : [i];
+  const n = many.length > 1 ? ` ${many.length} commits` : "";
+  // the oldest commit has nothing older to fold into; a new message is one commit's
+  const offered = ACTIONS.filter(([a]) => (a !== "squash" || n || target(i) >= 0) && (a !== "reword" || !n));
+  return offered.map(([a, label, icon]) => [label + n, () => setActions(many, a), "", icon]);
+}
+
+/** The picked rows' indexes, newest first. */
+const pickedRows = () => plan!.rows.flatMap((r, i) => (plan!.picked.has(r.c.hash) ? [i] : []));
+
+/** Show row `i`'s commit in the right panel; it becomes the one picked row, unless `keep`. */
+function pick(i: number, keep = false) {
   plan!.at = Math.max(0, Math.min(i, plan!.rows.length - 1));
+  if (!keep) plan!.picked = new Set([plan!.rows[plan!.at].c.hash]);
   selection.stash = null;
   selection.hashes = [plan!.rows[plan!.at].c.hash];
   renderPanel();
   paint();
   $("rebase-rows").children[plan!.at]?.scrollIntoView({ block: "nearest" });
+}
+
+/** Set `action` on rows `idx` at once; one row goes through setAction, for its checks and reword's message. */
+function setActions(idx: number[], action: Action) {
+  if (idx.length === 1) return setAction(idx[0], action);
+  for (const i of idx) Object.assign(plan!.rows[i], { action, message: "" });
+  // the oldest of several squashes, with nothing older, is picked: the others fold into it
+  unsquashOrphans();
+  paint();
 }
 
 function setAction(i: number, action: Action) {
@@ -237,6 +284,8 @@ async function start() {
 }
 
 $("rebase-cancel").onclick = $("rebase-close").onclick = closeRebase;
+// a click past the rows ends a pick of several: the row shown stays picked
+$("rebase-rows").onclick = $("rebase-rows").oncontextmenu = (e) => void (e.target === e.currentTarget && plan && pick(plan.at));
 $("rebase-reset").onclick = () => {
   if (!plan) return;
   const at = new Map(commits.map((c, k) => [c.hash, k]));
@@ -253,7 +302,8 @@ export function rebaseKey(e: KeyboardEvent) {
   if (e.key === "Escape") closeRebase();
   else if (mod(e) && (e.key === "ArrowUp" || e.key === "ArrowDown")) move(i, e.key === "ArrowUp" ? -1 : 1);
   else if (e.key === "ArrowUp" || e.key === "ArrowDown") pick(i + (e.key === "ArrowUp" ? -1 : 1));
-  else if (!mod(e) && !e.altKey && "prsd".includes(key) && key) setAction(i, ACTIONS.find(([a]) => a[0] === key)![0]);
+  // reword is one commit's: the row shown
+  else if (!mod(e) && !e.altKey && "prsd".includes(key) && key) setActions(key === "r" ? [i] : pickedRows(), ACTIONS.find(([a]) => a[0] === key)![0]);
   else return false;
   return true;
 }

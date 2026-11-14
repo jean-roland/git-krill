@@ -601,8 +601,14 @@ textarea.msg-in { height: 104px; resize: vertical; }
 .rb-row.drag { cursor: grabbing; outline: 1px dashed var(--accent); }
 .rb-row:hover { background: var(--hover); }
 .rb-row.sel { background: var(--sel); }
-.rb-act { width: 96px; display: flex; align-items: center; justify-content: space-between; padding: 2px 6px 2px 10px; font-size: 13px; }
+.rb-act { width: 112px; display: flex; align-items: center; gap: 6px; padding: 2px 6px 2px 8px; font-size: 13px; }
 .rb-act svg { width: 14px; height: 14px; }
+/* the caret at the far end, the action's icon in its colour */
+.rb-act .ico:last-child { margin-left: auto; }
+.rb-row.pick .rb-act .ico:first-child { color: var(--add); }
+.rb-row.reword .rb-act .ico:first-child { color: var(--mod); }
+.rb-row.squash .rb-act .ico:first-child { color: #b18cff; }
+.rb-row.drop .rb-act .ico:first-child { color: var(--del); }
 .rb-row.pick .rb-act { border-color: var(--add); }
 .rb-row.reword .rb-act { border-color: var(--mod); }
 /* violet: the selected row is already teal */
@@ -844,6 +850,8 @@ svg.blame-av { cursor: pointer; }
 .menu small { padding: 2px 4px 4px; color: var(--dim); }
 .menu .ask { width: 260px; font: 12px var(--mono); color: var(--text); background: var(--bg); border: 1px solid var(--accent); border-radius: 4px; padding: 4px 6px; }
 .menu button:hover:not(:disabled) { background: var(--sel); }
+.menu button .ico { display: inline-flex; margin-right: 8px; vertical-align: -2px; color: var(--dim); }
+.menu button .ico svg { width: 14px; height: 14px; }
 .menu-title { display: flex; justify-content: center; align-items: center; gap: 7px; max-width: 380px; padding: 5px 14px 8px; margin-bottom: 4px; white-space: nowrap; font-weight: 700; color: var(--text); border-bottom: 1px solid var(--border); }
 .menu-title span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .menu-title .ico { color: var(--dim); }
