@@ -631,6 +631,8 @@ function checkoutBranch(name: string, remote: boolean) {
     );
   const mine = findRef(`refs/heads/${local}`), theirs = findRef(`refs/remotes/${name}`);
   if (!remote || !mine || !theirs || mine.hash === theirs.hash) return gitOp("checkout", local);
+  // only behind its upstream: catching up drops nothing, no question
+  if (mine.upstream === name && mine.track.startsWith("[behind")) return gitOp("checkout-reset", [local, name]);
   // "[ahead 1, behind 2]" against its upstream
   const track = mine.upstream === name && mine.track ? ` (${mine.track.slice(1, -1)})` : "";
   const drops = /ahead/.test(track) ? `, its commits that are not on ${name} leave the branch` : "";
