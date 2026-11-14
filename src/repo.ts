@@ -119,6 +119,8 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
   const tab = tabs[active], branch = status?.branch ?? "", head = headHash();
   say(`${name}…`);
   document.body.classList.add("busy");
+  // the spinning pointer past 300 ms, as the toolbar dims: a quick stage does not flicker it
+  const slow = setTimeout(() => document.body.classList.add("slow"), 300);
   let ok = true;
   try {
     const out = await run<string>("git_op", { op: name, arg: arg1, arg2 });
@@ -153,7 +155,8 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
     say(`${what} ${conflicts.length ? "stopped on conflicts" : "failed"}`);
     ok = false;
   }
-  document.body.classList.remove("busy");
+  clearTimeout(slow);
+  document.body.classList.remove("busy", "slow");
   await refresh();
   if (ok && NET_OPS.has(name)) loadRemoteTags();
   if (ok && record && UNDOABLE.has(name) && tab === tabs[active]) {
@@ -299,7 +302,12 @@ let refreshing: Promise<void> | null = null;
 let refreshAgain: Promise<void> | null = null;
 /** Reload and repaint the tab; one run at a time so an older snapshot never lands last, callers meanwhile share the next run. */
 export function refresh(): Promise<void> {
-  if (!refreshing) return (refreshing = reload().catch((e) => say(String(e), true)).finally(() => (refreshing = null)));
+  if (!refreshing) {
+    document.body.classList.add("loading");
+    return (refreshing = reload()
+      .catch((e) => say(String(e), true))
+      .finally(() => ((refreshing = null), document.body.classList.remove("loading"))));
+  }
   return (refreshAgain ??= refreshing.then(() => ((refreshAgain = null), refresh())));
 }
 

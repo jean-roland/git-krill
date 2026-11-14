@@ -64,6 +64,12 @@ button.good { color: var(--add); }
 button.bad { color: var(--del); }
 /* dimmed only past 300 ms: a quick stage does not blink the toolbar */
 .busy header [data-op], .busy #undo, .busy #redo { pointer-events: none; opacity: 0.5; transition: opacity 0s 0.3s; }
+/* a git operation or a slow reload: a sweep along the header's lower edge, past the same 300 ms */
+header::after { content: ""; position: absolute; left: 0; bottom: -1px; width: 25%; height: 2px; background: var(--accent); opacity: 0; pointer-events: none; }
+.busy header::after, .loading header::after { animation: sweep 1.1s ease-in-out 0.3s infinite; }
+@keyframes sweep { from { transform: translateX(-100%); opacity: 1; } to { transform: translateX(400%); opacity: 1; } }
+/* over every element's own pointer, the hand of buttons and rows too */
+.slow, .slow * { cursor: progress !important; }
 /* on/off buttons: Amend, View all files, Blame, Sync scrolling */
 .toggle.on { background: var(--sel); border-color: var(--accent); }
 /* line icons, stroked; no weight, so the rules below can set their stroke */
@@ -73,6 +79,7 @@ button.bad { color: var(--del); }
 
 /* header: repository, branch, toolbar */
 header {
+  position: relative;
   display: grid;
   /* the sides may shrink: a long branch name ends in an ellipsis before the toolbar */
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
