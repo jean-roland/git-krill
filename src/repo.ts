@@ -788,9 +788,9 @@ listen<string>("askpass", ({ payload: prompt }) => {
 export const hiddenRemotes = (): string[] => JSON.parse(store(`hidden-remotes:${repo}`) ?? "[]");
 // refs and stash hashes flipped one by one: hidden, or for a hidden remote's branch, shown again
 const flippedRefs = (): string[] => JSON.parse(store(`hidden-refs:${repo}`) ?? "[]");
-// one per repository: its worktrees share the main checkout's, a submodule opened in its tab the parent's
-export const foldsKey = () => `sidebar-folds:${tabs[active]?.parent || refs.worktrees[0]?.path || repo}`;
-export const sideFolds = (): Record<string, boolean> => JSON.parse(store(foldsKey()) ?? "{}");
+// the same for every repository: a tab switch never refolds the sidebar
+export const FOLDS_KEY = "sidebar-folds";
+export const sideFolds = (): Record<string, boolean> => JSON.parse(store(FOLDS_KEY) ?? "{}");
 const remoteOf = (ref: string) => (ref.startsWith("refs/remotes/") ? ref.slice("refs/remotes/".length).split("/")[0] : "");
 
 // what the graph leaves out, as of its last paint: refs, stash hashes and hidden remotes' names
