@@ -1395,10 +1395,15 @@ fn take_side(repo: &str, stage: &str, path: &str) -> Result<String, String> {
 
 /// \brief Apply or pop stash `name` (the latest when empty), its staged changes staged again when they still fit the index.
 fn stash_restore(repo: &str, verb: &str, name: &str) -> Result<String, String> {
-    let mut args = vec!["stash", verb, "--index"];
-    if !name.is_empty() {
-        args.push(not_option(name)?);
+    let stash = if name.is_empty() { "stash@{0}" } else { not_option(name)? };
+    // the index still on the stash's base takes the stash's index as is: --index would build a binary patch, minutes over big images
+    if git(repo, &["diff-index", "--cached", "--quiet", &format!("{stash}^1"), "--"]).is_ok() {
+        let index = git(repo, &["rev-parse", &format!("{stash}^2")])?;
+        let out = git_with_stderr(repo, &["stash", verb, stash])?;
+        git(repo, &["reset", "-q", index.trim(), "--", "."])?;
+        return Ok(out);
     }
+    let mut args = vec!["stash", verb, "--index", stash];
     match git_with_stderr(repo, &args) {
         // git refuses before touching anything: everything comes back unstaged instead
         Err(e) if e.contains("without --index") => {
