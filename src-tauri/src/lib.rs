@@ -683,7 +683,7 @@ fn op_info(repo: String) -> Result<OpInfo, String> {
                 name(&read(&format!("{d}/onto"))),
                 read(&format!("{d}/head-name")).trim_start_matches("refs/heads/").to_string(),
                 format!("{}/{}", read(&format!("{d}/{n}")), read(&format!("{d}/{end}"))),
-                git(&repo, &["show", "-s", "--format=%B", "REBASE_HEAD"]).unwrap_or_default().trim().to_string(),
+                git(&repo, &["log", "-1", "--format=%B", "REBASE_HEAD"]).unwrap_or_default().trim().to_string(),
             )
         }
         "merge" => (branch, name("MERGE_HEAD"), String::new(), merge_msg()),
@@ -726,7 +726,8 @@ fn conflict_text(repo: String, path: String) -> Result<Blob, String> {
 
 #[tauri::command(async)]
 fn commit_info(repo: String, hash: String, parent: String) -> Result<CommitInfo, String> {
-    let shown = git(&repo, &["show", "-s", "--format=%ae%x00%G?%x00%B", not_option(&hash)?])?;
+    // not show -s: it still diffs the commit, renames and all, to print nothing
+    let shown = git(&repo, &["log", "-1", "--format=%ae%x00%G?%x00%B", not_option(&hash)?])?;
     let f: Vec<&str> = shown.splitn(3, '\0').collect();
     let [email, sign, message] = f[..] else { return Err(format!("{hash}: no commit")) };
     let out = if parent.is_empty() {
