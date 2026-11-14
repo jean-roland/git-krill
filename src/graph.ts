@@ -707,9 +707,9 @@ function inHistory(hash: string, from: string) {
 function branchMenu(name: string, remote: boolean): MenuItem[] {
   const ref = findRef(remote ? `refs/remotes/${name}` : `refs/heads/${name}`);
   const sha = ref?.hash ?? "", current = !remote && name === status?.branch;
-  // where the branch lives on a remote: itself, or the local branch's upstream while that still exists
+  // where the branch lives on a remote: itself, or its upstream of the same name on the same commit, as their shared label shows
   const up = ref?.upstream ?? "";
-  const onRemote = remote ? name : refs.refs.some((r) => r.name === `refs/remotes/${up}`) ? up : "";
+  const onRemote = remote ? name : up.slice(up.indexOf("/") + 1) === name && findRef(`refs/remotes/${up}`)?.hash === sha ? up : "";
   const slash = onRemote.indexOf("/"), rem = onRemote.slice(0, slash), remBranch = onRemote.slice(slash + 1);
   // a remote branch checks out as the local one of the same name
   const local = remote ? remBranch : name, [newBranch, newTag] = createItems(sha);
