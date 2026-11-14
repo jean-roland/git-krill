@@ -1400,11 +1400,19 @@ fn stash_restore(repo: &str, verb: &str, name: &str) -> Result<String, String> {
     // the index still on the stash's base takes the stash's index as is: --index would build a binary patch, minutes over big images
     if git(repo, &["diff-index", "--cached", "--quiet", &format!("{stash}^1"), "--"]).is_ok() {
         let index = git(repo, &["rev-parse", &format!("{stash}^2")])?;
-        let out = git_with_stderr(repo, &["stash", verb, stash])?;
+        let mut out = git_with_stderr(repo, &["stash", "apply", stash])?;
         git(repo, &["reset", "-q", index.trim(), "--", "."])?;
+        // dropped last: a reset that failed keeps the stash, staged half and all
+        if verb == "pop" {
+            out = format!("{out}\n{}", git_with_stderr(repo, &["stash", "drop", stash])?);
+        }
         return Ok(out);
     }
-    let mut args = vec!["stash", verb, "--index", stash];
+    let mut args = vec!["stash", verb, "--index"];
+    // no name: git's own "No stash entries found." when there is none
+    if !name.is_empty() {
+        args.push(stash);
+    }
     match git_with_stderr(repo, &args) {
         // git refuses before touching anything: everything comes back unstaged instead
         Err(e) if e.contains("without --index") => {
