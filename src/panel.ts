@@ -413,7 +413,7 @@ function verdict(hash: string) {
       (async () => {
         const remote = linkRemote(), m = remote ? (await webUrl(remote).catch(() => "")).match(/^https:\/\/([^/]+)\/(.+)$/) : null;
         if (!m) return "";
-        return run<string>("gh_verified", { host: m[1], slug: m[2], hash }).then(
+        return run<string>("gh_verified", { host: m[1], slug: m[2], hash }, true).then(
           (v) => `${m[1]} ${v}`,
           (e) => (GH_HELP[String(e)] ? (warnOnce(String(e), "Signatures not checked", GH_HELP[String(e)], "info"), String(e)) : ""),
         );

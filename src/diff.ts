@@ -337,7 +337,8 @@ const versionIds = (kind: DiffSource, f: Change, c?: Commit) => run<string[]>("v
 
 async function fetchSides(kind: DiffSource, f: Change, c?: Commit, full = false): Promise<[Blob, Blob]> {
   const none: Blob = { text: "", exists: false, binary: false, large: null, lfs: "" };
-  const [o, m] = sideSources(kind, f, c).map(([at, path]) => (at ? run<Blob>("blob", { at, path, full }) : Promise.resolve(none)));
+  // a full load has its own spinner, and may never answer: kept off the busy pointer
+  const [o, m] = sideSources(kind, f, c).map(([at, path]) => (at ? run<Blob>("blob", { at, path, full }, full) : Promise.resolve(none)));
   return Promise.all([o, m]);
 }
 

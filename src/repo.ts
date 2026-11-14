@@ -113,14 +113,15 @@ export const trace = (line: string) => void (tracing && invoke("trace_line", { l
 
 let pending = 0;
 let slow = 0;
-export function run<T>(cmd: string, args: Record<string, unknown> = {}) {
+/** Invoke `cmd` on the tab's repo; `quiet` for calls the user did not start or that show their own spinner. */
+export function run<T>(cmd: string, args: Record<string, unknown> = {}, quiet = false) {
   const started = performance.now();
   // the spinning pointer while calls are out past 300 ms: a quick stage does not flicker it
-  if (!pending++) slow = setTimeout(() => document.body.classList.add("slow"), 300);
+  if (!quiet && !pending++) slow = setTimeout(() => document.body.classList.add("slow"), 300);
   return invoke<T>(cmd, { repo, ...args }).finally(() => {
     if (tracing) trace(`${ms(started)} call ${cmd}`);
     // a task later: the refresh an op chains on is out by then, no gap between them
-    setTimeout(() => --pending || (clearTimeout(slow), document.body.classList.remove("slow")));
+    if (!quiet) setTimeout(() => --pending || (clearTimeout(slow), document.body.classList.remove("slow")));
   });
 }
 export const DEFAULT_EDITOR = "code -g {file}:{line}";
@@ -911,7 +912,7 @@ export const remoteTags = new Map<string, Record<string, string[]>>();
 /** Ask the remotes which tags they have; the labels repaint when that changed. */
 function loadRemoteTags() {
   const r = repo;
-  run<Record<string, string[]>>("remote_tags").then(
+  run<Record<string, string[]>>("remote_tags", {}, true).then(
     (t) => {
       const was = JSON.stringify(remoteTags.get(r));
       remoteTags.set(r, t);
@@ -934,7 +935,7 @@ export function autoFetch(gap = 60_000) {
   const started = Date.now();
   // never twice at once: on a dead network one can hang for minutes
   fetchedAt.set(r, Infinity);
-  run<string>("git_op", { op: "auto-fetch", arg: "" }).then(
+  run<string>("git_op", { op: "auto-fetch", arg: "" }, true).then(
     (out) => {
       fetchedAt.set(r, started);
       if (r === repo) loadRemoteTags();
