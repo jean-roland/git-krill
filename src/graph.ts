@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { layoutGraph } from "./core.js";
 import { closeRebase, ontoRange, openRebase, rebaseRange } from "./rebase";
 import { Commit, LOG_LIMIT, Stash, Status, Submodule, Worktree, active, closeTab, commits, dropEdits, fakeCommit, findRef, FOLDS_KEY, gitOp, headHash, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, keepTab, newTab, opInfo, openRepo, paintRepoName, pull, push, redraw, refs, remoteTags, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
-import { $, COLORS, ICONS, MenuItem, ask, askName, basename, copy, dateTimeText, dialog, h, ico, input, mod, popup, say, short, spriteId, store, svg } from "./ui";
+import { $, COLORS, ICONS, MenuItem, ask, askName, basename, copy, dateTimeText, dialog, h, ico, input, mod, popup, say, short, spriteId, store, svg, toast } from "./ui";
 import { dropTerm } from "./terminal";
 import { conflictCount, conflictLine, fileCounts, opLine, renderPanel, wipFiles } from "./panel";
 
@@ -178,7 +178,10 @@ function submoduleState(s: Submodule): [string, string, string] {
 }
 
 // in this tab, one level deep: a submodule's own submodules open in a tab of their own
-export const openSubmodule = (path: string) => (tabs[active].parent ? openRepo(`${repo}/${path}`) : openWorktree(`${repo}/${path}`, repo));
+export const openSubmodule = (path: string) =>
+  tabs[active].parent
+    ? (toast(`Opened ${basename(path)} in a new tab`, "A tab steps into one submodule level only.", "info"), openRepo(`${repo}/${path}`))
+    : openWorktree(`${repo}/${path}`, repo);
 
 /** Back on the recorded commit, its changed and untracked files dropped, after asking. */
 export const discardSubmodule = (path: string) =>
