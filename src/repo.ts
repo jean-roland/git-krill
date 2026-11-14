@@ -683,9 +683,12 @@ export async function openRepo(path: string): Promise<boolean> {
     const named = String(e).match(/safe\.directory (.+)/)?.[1].trim();
     // shell-quoted only when it needs to be
     const safe = named?.startsWith("'") ? named.slice(1, -1).split("'\\''").join("'") : named;
-    if (safe)
+    if (safe) {
+      // a start on that folder: the splash would cover the question
+      $("splash").hidden = true;
       return (await ask(`Git refuses ${path}: its folder belongs to another user, as a WSL or network folder does. Trust it from now on?`, "Trust folder")) &&
         invoke("trust_folder", { dir: safe }).then(() => openRepo(path), (e) => (say(String(e), true), false));
+    }
     // a recent repository that moved or was deleted leaves the list
     if (!recentRepos().includes(path)) {
       say(String(e), true);
