@@ -255,11 +255,13 @@ body.home main { grid-template-columns: 1fr; }
 #settings-home svg { width: 15px; height: 15px; }
 /* the Settings tab: a label column, then each value with what to do about it */
 #settings { position: absolute; inset: 0; overflow: auto; }
-/* few settings on a wide page: everything a size up from the window's 13px */
-#settings-box { max-width: 760px; font-size: 15px; }
+/* few settings on a wide page: a size up from the window's 13px, no bottom margin so they all fit without a scroll */
+#settings-box { max-width: 760px; font-size: 15px; margin-bottom: 10px; }
 /* a line above each section but the first */
-#settings-box .head { font-size: 13px; margin-top: 14px; padding-top: 16px; border-top: 1px solid var(--border); }
+#settings-box .head { font-size: 13px; margin-top: 12px; padding-top: 14px; border-top: 1px solid var(--border); }
 #settings-box h1 + .head { margin-top: 0; padding-top: 6px; border-top: none; }
+#settings-box h1 { display: flex; align-items: baseline; gap: 14px; }
+.set-build { margin-left: auto; font-size: 13px; font-weight: 400; color: var(--dim); }
 #settings-box input[type="checkbox"] { width: 15px; height: 15px; vertical-align: -2px; }
 #settings-box input { font-size: inherit; padding: 4px 8px; }
 .set-pick { display: inline-flex; align-items: center; gap: 10px; padding: 4px 6px 4px 10px; }

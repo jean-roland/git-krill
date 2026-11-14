@@ -198,7 +198,8 @@ function linkify(text: string) {
 }
 
 export async function pickDir(title: string) {
-  const p = await openDialog({ directory: true, title });
+  // the Settings tab's start folder: else the desktop's pick, Recent on some
+  const p = await openDialog({ directory: true, title, defaultPath: store("open-dir") || undefined });
   return typeof p === "string" ? p : null;
 }
 

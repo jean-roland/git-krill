@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
+import { homeDir } from "@tauri-apps/api/path";
 import { DEFAULT_EDITOR, fetchMinutes } from "./repo";
-import { $, ICONS, h, ico, say, showMenu, store, svg, toast } from "./ui";
+import { $, ICONS, dateTimeText, h, ico, pickDir, say, showMenu, store, svg, toast } from "./ui";
 
 type Tools = { git: string; lfs: string; gh: string; lfsSetUp: boolean; lfsInUse: boolean; ghHosts: string[] };
 // the last answer, asked again on the background fetch's rhythm: once a run while it is off
@@ -17,21 +18,20 @@ const note = (text: string) => h("small", { className: "set-note", textContent: 
 const version = (line: string) => line.match(/\d+(\.\d+)+/)?.[0] ?? line;
 const state = (ok: boolean, text: string) => h("span", { className: ok ? "set-ok" : "set-bad", textContent: `${ok ? "✓" : "✗"} ${text}` });
 
-/** The Settings tab: the tools krill leans on, background fetch, the editor, the global git identity and conflict replay. */
+/** The Settings tab: the tools krill leans on, background fetch, the editor, the folder pickers' start, the global git identity, conflict replay and this build. */
 export function renderSettings() {
   const tools = h("div", {}, ...checking()), global = globalRows();
   $("settings-box").replaceChildren(
-    h("h1", { textContent: "Settings" }),
-    h("div", { className: "head" }, "Tools ", h("button", { className: "set-again", innerHTML: `${svg(ICONS.sync)}Refresh`, title: "Check the tools again", onclick: () => paintTools(tools, true) })),
+    h("h1", {}, "Settings", h("small", { className: "set-build", textContent: `Build: ${__BUILD__.id}, ${dateTimeText(__BUILD__.time)}`, title: "This build: git describe, then when it was built" })),
+    h("div", { className: "head" }, "Tool status ", h("button", { className: "set-again", innerHTML: `${svg(ICONS.sync)}Refresh`, title: "Check the tools again", onclick: () => paintTools(tools, true) })),
     tools,
     h("div", { className: "head", textContent: "Background fetch" }),
     ...fetchRows(),
-    h("div", { className: "head", textContent: "Editor" }),
+    h("div", { className: "head", textContent: "Editor and folders" }),
     editorRow(),
-    h("div", { className: "head", textContent: "Git identity, for every repository" }),
-    ...global.identity,
-    h("div", { className: "head", textContent: "Conflicts, for every repository" }),
-    ...global.conflicts,
+    openDirRow(),
+    h("div", { className: "head", textContent: "Git, for every repository" }),
+    ...global.git,
   );
   paintTools(tools);
 }
@@ -84,7 +84,16 @@ function fetchRows() {
 function editorRow() {
   const cmd = h("input", { value: store("editor") ?? DEFAULT_EDITOR, spellcheck: false });
   cmd.onchange = () => (store("editor", cmd.value.trim()), say("Editor command saved"));
-  return row("Open in editor", cmd, hint(`{file} and {line} are filled in; the default is ${DEFAULT_EDITOR}. Left empty, the desktop's default app opens the file.`));
+  return row("Open in editor", cmd, hint("{file} and {line} are filled in. Left empty, the desktop's default app opens the file."));
+}
+
+function openDirRow() {
+  const dir = h("input", { value: store("open-dir") ?? "", placeholder: "The desktop's choice", spellcheck: false });
+  // the picker wants it absolute
+  const save = async (p: string) => (store("open-dir", (dir.value = p.trim().replace(/^~(?=\/|$)/, await homeDir()))), say("Start folder saved"));
+  dir.onchange = () => save(dir.value);
+  const browse = h("button", { textContent: "Browse…", onclick: () => pickDir("Start folder").then((p) => void (p && save(p))) });
+  return row("Start folder", h("div", { className: "dlg-row" }, dir, browse), hint("Where Open repository (Ctrl+O), Init and Clone's Browse start."));
 }
 
 /** ~/.gitconfig's identity and conflict replay, saved field by field. */
@@ -105,11 +114,9 @@ function globalRows() {
     (writing = writing.then(() => invoke("set_global_config", { key, value }).then(() => say(`Saved ${key}`), (e) => (say(String(e), true), load()))));
   load();
   return {
-    identity: [
+    git: [
       ...IDENTITY.map(([, label], i) => row(label, fields[i])),
       row("Sign commits", h("label", {}, sign, " Sign every commit with the signing key"), hint("A repository's own settings win over these.")),
-    ],
-    conflicts: [
       row(
         "Reuse fixes",
         h("label", {}, rerere, " Reuse recorded resolutions (git rerere)"),
