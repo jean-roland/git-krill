@@ -1679,6 +1679,9 @@ fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
     let arg2 = arg2.unwrap_or_default();
     let upstream = format!("HEAD:refs/heads/{arg2}");
     let tag = format!("refs/tags/{arg2}");
+    // git titles a merge with the name it is given: the short one when it reaches the same branch
+    let short = arg.strip_prefix("refs/heads/").or_else(|| arg.strip_prefix("refs/remotes/")).unwrap_or(&arg);
+    let merged = if op == "merge" && git(&repo, &["rev-parse", "--symbolic-full-name", short]).is_ok_and(|r| r.trim() == arg) { short } else { &arg };
     // the file ops' paths, NUL separated: no path holds one
     let paths = |cmd: &[&'static str]| -> Vec<&str> { cmd.iter().copied().chain(arg.split('\0')).collect() };
     match op.as_str() {
@@ -1774,7 +1777,7 @@ fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         "tag-delete" => vec!["tag", "-d", not_option(&arg)?],
         // arg is the remote, arg2 the tag
         "tag-push" => vec!["push", not_option(&arg)?, not_option(&arg2).map(|_| tag.as_str())?],
-        // arg is the remote, arg2 the branch (or refs/tags/<tag>) on it
+        // arg is the remote, arg2 the full ref on it
         "push-delete" => vec!["push", not_option(&arg)?, "--delete", not_option(&arg2)?],
         "fetch-remote" => vec!["fetch", "--prune", not_option(&arg)?],
         // first push of a branch: arg is the remote, arg2 the branch name there
@@ -1782,7 +1785,7 @@ fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         // worktree only: the restored file shows up unstaged, for review
         "restore-file" => vec!["restore", "--source", not_option(&arg)?, "--", &arg2],
         "checkout" => vec!["checkout", not_option(&arg)?],
-        "merge" => vec!["merge", not_option(&arg)?],
+        "merge" => vec!["merge", not_option(merged)?],
         "rebase" => vec!["rebase", not_option(&arg)?],
         "cherry-pick" => vec!["cherry-pick", not_option(&arg)?],
         "branch-delete" => vec!["branch", "-d", not_option(&arg)?],

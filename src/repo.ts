@@ -188,7 +188,7 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
   trace(`${ms(started)} op ${name}, its refresh included`);
   if (ok && NET_OPS.has(name)) loadRemoteTags();
   if (ok && record && UNDOABLE.has(name) && tab === tabs[active]) {
-    const what = MAKE_COMMIT.has(name) ? `"${commits.find(isHead)?.subject ?? ""}"` : name === "pull" ? "" : short(arg1);
+    const what = MAKE_COMMIT.has(name) ? `"${commits.find(isHead)?.subject ?? ""}"` : name === "pull" ? "" : short(arg1).replace(/^refs\/(heads|remotes|tags)\//, "");
     const step: UndoStep = { op: name, what, branch: [branch, status?.branch ?? ""], head: [head, headHash()] };
     if (step.head.every(Boolean) && (step.head[0] !== step.head[1] || step.branch[0] !== step.branch[1])) recordUndo(tab, step);
   }

@@ -632,7 +632,7 @@ function checkoutBranch(name: string, remote: boolean) {
   const mine = findRef(`refs/heads/${local}`), theirs = findRef(`refs/remotes/${name}`);
   if (!remote || !mine || !theirs || mine.hash === theirs.hash) return gitOp("checkout", local);
   // only behind its upstream: catching up drops nothing, no question
-  if (mine.upstream === name && mine.track.startsWith("[behind")) return gitOp("checkout-reset", [local, name]);
+  if (mine.upstream === name && mine.track.startsWith("[behind")) return gitOp("checkout-reset", [local, `refs/remotes/${name}`]);
   // "[ahead 1, behind 2]" against its upstream
   const track = mine.upstream === name && mine.track ? ` (${mine.track.slice(1, -1)})` : "";
   const drops = /ahead/.test(track) ? `, its commits that are not on ${name} leave the branch` : "";
@@ -640,19 +640,20 @@ function checkoutBranch(name: string, remote: boolean) {
     `Local ${local} is not at ${name}${track}. Reset it to ${name}${drops}?`,
     [],
     `Reset ${local} to ${name}`,
-    () => gitOp("checkout-reset", [local, name]),
+    () => gitOp("checkout-reset", [local, `refs/remotes/${name}`]),
     [[`Checkout ${local}`, () => gitOp("checkout", local)]],
   );
 }
 
 /** Checkout, merge and rebase for branch `name` (a remote one as "remote/branch"); none for the checked out one. */
 function refMenu(name: string, remote: boolean): MenuItem[] {
-  const branch = status?.branch || "HEAD", sha = findRef(remote ? `refs/remotes/${name}` : `refs/heads/${name}`)?.hash ?? "";
+  // the full name: a bare one may resolve to a tag or the stash list of the same name
+  const branch = status?.branch || "HEAD", ref = remote ? `refs/remotes/${name}` : `refs/heads/${name}`, sha = findRef(ref)?.hash ?? "";
   if (!remote && name === status?.branch) return [];
   return [
     ["Checkout", () => checkoutBranch(name, remote)],
-    [`Merge into ${branch}`, () => gitOp("merge", name)],
-    [`Rebase ${branch} onto this branch`, () => gitOp("rebase", name)],
+    [`Merge into ${branch}`, () => gitOp("merge", ref)],
+    [`Rebase ${branch} onto this branch`, () => gitOp("rebase", ref)],
     [`Interactive rebase ${branch} onto this branch`, () => openRebase(sha, ontoRange(sha))],
   ];
 }
@@ -729,7 +730,7 @@ function branchMenu(name: string, remote: boolean): MenuItem[] {
     ...(remote || current ? [] : ([["Delete", () => deleteBranch(name, findRef(`refs/remotes/${up}`) ? up : "")]] as MenuItem[])),
     // a local branch's upstream too: one menu for both; none of it on the checked out branch
     ...(onRemote && !current
-      ? ([[remote ? `Delete on ${rem}` : `Delete ${remBranch} on ${rem}`, () => ask(`Delete branch ${remBranch} on ${rem}? This pushes the deletion.`, "Delete").then((ok) => ok && gitOp("push-delete", [rem, remBranch]))]] as MenuItem[])
+      ? ([[remote ? `Delete on ${rem}` : `Delete ${remBranch} on ${rem}`, () => ask(`Delete branch ${remBranch} on ${rem}? This pushes the deletion.`, "Delete").then((ok) => ok && gitOp("push-delete", [rem, `refs/heads/${remBranch}`]))]] as MenuItem[])
       : []),
     ...(current || !ref ? [] : [hideItem(ref.name)]),
     null,
@@ -753,7 +754,7 @@ function tagMenu(name: string): MenuItem[] {
   const on = refs.remotes.filter((r) => known[r]?.includes(name)), link = [linkRemote(), ...on].find((r) => on.includes(r));
   return [
     { title: name, icon: ICONS.tag },
-    ["Checkout (detached)", () => gitOp("checkout", name)],
+    ["Checkout (detached)", () => gitOp("checkout", `refs/tags/${name}`)],
     null,
     ...refs.remotes.filter(lacks).map((r): MenuItem => [`Push to ${r}`, () => gitOp("tag-push", [r, name])]),
     ["Rename", () => askName(on.length ? `New tag name, on ${on.join(", ")} too` : "New tag name", name, (n) => n !== name && gitOp("tag-rename", [name, JSON.stringify([n, ...on])]))],
