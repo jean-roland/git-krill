@@ -641,7 +641,8 @@ textarea.msg-in { height: 104px; resize: vertical; }
 /* the actions under the rebase plan and the merge view */
 .foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--border); font-size: 14px; }
 .foot small { margin-right: auto; color: var(--dim); font-size: inherit; }
-.foot button { padding: 6px 18px; }
+/* the hint wraps first: a button on two lines reads as two */
+.foot button { flex: none; padding: 6px 18px; white-space: nowrap; }
 .bar .icon { padding: 2px 5px; line-height: 0; }
 .bar .icon svg { width: 15px; height: 15px; }
 #diff-close, #rebase-close { border: none; background: none; }
