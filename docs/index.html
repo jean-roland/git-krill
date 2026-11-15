@@ -48,6 +48,9 @@ main { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
 /* the visitor's own system first, in the accent */
 .dl a.mine { order: -1; border-color: var(--accent); background: var(--accent); }
 .dl a.mine small { color: #ffffffcc; }
+/* its border is the accent already: a lighter fill shows the hover */
+.dl a.mine:hover { background: color-mix(in srgb, var(--accent) 80%, #fff); }
+.dl a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .meta { font-size: 14px; color: var(--dim); }
 .shot { display: block; width: 100%; height: auto; border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 20px 60px #0008; }
 h2 { margin: 72px 0 20px; font-size: 28px; text-align: center; }
@@ -83,7 +86,7 @@ footer { margin-top: 80px; padding: 28px 16px 40px; border-top: 1px solid var(--
     <p class="meta">Version 0.2.2 · <a href="https://github.com/jean-roland/git-krill/releases">All releases</a> · <a href="https://github.com/jean-roland/git-krill">Source on GitHub</a> · MIT licence</p>
   </header>
 
-  <img class="shot" src="screenshots/graph.png" alt="Git Krill's commit graph, with a commit's details" width="1600" height="1000">
+  <video class="shot" src="screenshots/demo.mp4" poster="screenshots/demo.jpg" width="1600" height="1000" autoplay muted loop playsinline aria-label="Staging a hunk, committing, then undoing the commit"></video>
 
   <h2>What it does</h2>
   <ul class="features">
@@ -99,6 +102,7 @@ footer { margin-top: 80px; padding: 28px 16px 40px; border-top: 1px solid var(--
   </ul>
 
   <h2>A closer look</h2>
+  <figure><img class="shot" src="screenshots/graph.png" alt="The commit graph, with a commit's details" width="1600" height="1000" loading="lazy"><figcaption>Commit graph</figcaption></figure>
   <figure><img class="shot" src="screenshots/diff.png" alt="A diff with Stage hunk buttons" width="1600" height="1000" loading="lazy"><figcaption>Diff and staging</figcaption></figure>
   <figure><img class="shot" src="screenshots/merge.png" alt="The three-pane merge tool" width="1600" height="1000" loading="lazy"><figcaption>Merge tool</figcaption></figure>
   <figure><img class="shot" src="screenshots/history.png" alt="A file's history with blame" width="1600" height="1000" loading="lazy"><figcaption>File history and blame</figcaption></figure>
@@ -115,6 +119,8 @@ footer { margin-top: 80px; padding: 28px 16px 40px; border-top: 1px solid var(--
   // the visitor's system first
   const ua = navigator.userAgent, os = /Windows/.test(ua) ? "windows" : /Mac/.test(ua) ? "mac" : /Linux|X11/.test(ua) ? "linux" : "";
   document.querySelector(`.dl a[data-os="${os}"]`)?.classList.add("mine");
+  // no motion asked: the demo waits for a click on its controls
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) { const v = document.querySelector("video"); v.pause(); v.controls = true; }
 </script>
 </body>
 </html>

@@ -2,7 +2,7 @@
 
 A lean desktop git client for Linux, Windows and macOS: a commit graph, diffs you can stage from, a merge tool, and little else. It runs the `git` you already have, so your config, hooks, keys and credentials apply as usual.
 
-![The commit graph, with a commit's details](docs/screenshots/graph.png)
+![Staging a hunk, committing, then undoing the commit](docs/screenshots/demo.gif)
 
 ## Features
 
@@ -17,6 +17,10 @@ A lean desktop git client for Linux, Windows and macOS: a commit graph, diffs yo
 - **Tabs**, one repository each, with a terminal.
 
 ## Screenshots
+
+### Commit graph
+
+![The commit graph, with a commit's details](docs/screenshots/graph.png)
 
 ### Diff and staging
 
