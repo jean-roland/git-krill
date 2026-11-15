@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { splitLines, applyChanges, allLines, pickLines, layoutGraph, parseConflicts, mergeSides, parseBlame, sprite, pickedLines, toggleSide, toggleLine, hasSide, repoName } from "../src/core.js";
+import { splitLines, applyChanges, allLines, pickLines, layoutGraph, parseConflicts, mergeSides, parseBlame, sprite, pickedLines, toggleSide, toggleLine, hasSide, repoName, unwrapHints } from "../src/core.js";
 
 test("splitLines keeps terminators", () => {
   assert.deepEqual(splitLines("a\r\nb\nc"), ["a\r\n", "b\n", "c"]);
@@ -105,4 +105,10 @@ test("repoName: the clone folder from ssh, https and path urls", () => {
   assert.equal(repoName("https://host/a/b/"), "b");
   assert.equal(repoName("/srv/git/x.y.git"), "x.y");
   assert.equal(repoName(""), "");
+});
+
+test("unwrapHints joins git's wrapped hints", () => {
+  const msg = "error: failed to push some refs\nhint: Updates were rejected because the tip\nhint: has moved.\nhint:\nhint: See git push --help.";
+  assert.equal(unwrapHints(msg), "error: failed to push some refs\n\nUpdates were rejected because the tip has moved.\n\nSee git push --help.");
+  assert.equal(unwrapHints("no hints here"), "no hints here");
 });

@@ -113,6 +113,15 @@ export function mergeSides(chunks, picks) {
 }
 
 /** The folder `git clone` would make for `url`: its last path segment, minus `.git`. */
+/** git's `hint:` lines, wrapped at 80 columns, as one paragraph each without the prefix. */
+export const unwrapHints = (text) =>
+  text
+    .replace(/(?:^hint:.*(?:\n|$))+/gm, (block) => {
+      const paras = block.trimEnd().split("\n").map((l) => l.replace(/^hint: ?/, "")).join("\n").split(/\n\s*\n/);
+      return "\n" + paras.map((p) => p.trim().replace(/\s*\n\s*/g, " ")).join("\n\n") + "\n";
+    })
+    .trim();
+
 export const repoName = (url) => url.trim().replace(/\/+$/, "").split(/[/:]/).pop().replace(/\.git$/, "");
 
 /** `git blame --porcelain` to each line's commit, in file order: {hash, author, time, summary}. */

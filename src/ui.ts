@@ -1,7 +1,7 @@
 // DOM and store helpers, icons, avatars, menus, dialogs, toasts: no app state.
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { sprite } from "./core.js";
+import { sprite, unwrapHints } from "./core.js";
 
 // null draws a separator
 // an entry with items opens them beside it on hover
@@ -190,7 +190,7 @@ export function toast(title: string, body: string, kind: "err" | "info" | "egg")
     "div",
     { className: `toast ${kind}` },
     h("div", { className: "band", innerHTML: svg(ICONS[kind === "err" ? "error" : kind]) }),
-    h("div", { className: "t-body" }, h("b", { textContent: title }), h("pre", {}, ...linkify(body))),
+    h("div", { className: "t-body" }, h("b", { textContent: title }), h("pre", {}, ...linkify(unwrapHints(body)))),
     h("button", { className: "x", textContent: "×", title: "Dismiss", onclick: dismiss }),
   );
   $("toasts").append(el);
