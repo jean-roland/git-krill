@@ -3,6 +3,8 @@ import { defineConfig } from "vite";
 import process from "node:process";
 // @ts-expect-error type error without @types/node package
 import { execSync } from "node:child_process";
+// @ts-expect-error type error without @types/node package
+import { readFileSync } from "node:fs";
 const host = process.env.TAURI_DEV_HOST;
 // which build this is, shown in Settings: a source tarball has no git to ask
 const describe = () => {
@@ -15,7 +17,8 @@ const describe = () => {
 
 // https://vite.dev/config/
 export default defineConfig(() => ({
-  define: { __BUILD__: JSON.stringify({ id: describe(), time: Math.floor(Date.now() / 1000) }) },
+  // the version too: CI clones without tags, its describe is a bare hash
+  define: { __BUILD__: JSON.stringify({ version: JSON.parse(readFileSync("package.json", "utf8")).version, id: describe(), time: Math.floor(Date.now() / 1000) }) },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

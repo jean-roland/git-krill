@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
-// vite.config.ts: git describe and the build time
-declare const __BUILD__: { id: string; time: number };
+// vite.config.ts: package version, git describe and the build time
+declare const __BUILD__: { version: string; id: string; time: number };
 
 // Monaco without its language services: editor core + syntax highlighting only
 declare module "monaco-editor/esm/vs/editor/edcore.main" {
