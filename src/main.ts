@@ -12,22 +12,42 @@ import { terms, toggleTerm } from "./terminal";
 
 /** Up/Down walk the graph, or the files once Right opened one; Left goes back to the graph. */
 function arrow(key: string) {
-  if (hist) return key === "ArrowUp" || key === "ArrowDown" ? showRev(hist.at + (key === "ArrowDown" ? 1 : -1)) : undefined;
+  if (hist) return moveHistory(key);
   if (key === "ArrowLeft") return closeDiff();
-  const down = key === "ArrowDown";
   const inFiles = !!openFile();
-  // every file of the visible lists, folded folders included: moving onto one unfolds it
-  const files = ["unstaged", "staged", "commit-files"]
+  if (key === "ArrowRight") return inFiles || openFirstFile();
+  if (inFiles) return moveFile(key);
+  moveCommit(key);
+}
+
+function moveHistory(key: string) {
+  if (key === "ArrowUp" || key === "ArrowDown") showRev(hist!.at + (key === "ArrowDown" ? 1 : -1));
+}
+
+function visibleFiles() {
+  // Include folded folders in display order; moving onto a file unfolds its path.
+  return ["unstaged", "staged", "commit-files"]
     .filter((id) => $(id).offsetParent)
     .flatMap((id) => (fileLists.get($(id))?.order ?? []).map((f) => ({ id, f })));
-  if (key === "ArrowRight") return inFiles || (files[0] && openListed(files[0].id, files[0].f));
-  if (inFiles) {
-    const open = openFile()!, id = open.kind === "commit" ? "commit-files" : open.kind;
-    const next = files[files.findIndex((x) => x.id === id && x.f.path === open.f.path) + (down ? 1 : -1)];
-    return next && openListed(next.id, next.f);
-  }
-  const i = shown.findIndex((c) => c.hash === selection.anchor);
-  const next = shown[i < 0 ? 0 : i + (down ? 1 : -1)];
+}
+
+function openFirstFile() {
+  const first = visibleFiles()[0];
+  if (first) openListed(first.id, first.f);
+}
+
+function moveFile(key: string) {
+  const open = openFile()!;
+  const files = visibleFiles();
+  const id = open.kind === "commit" ? "commit-files" : open.kind;
+  const index = files.findIndex((item) => item.id === id && item.f.path === open.f.path);
+  const next = files[index + (key === "ArrowDown" ? 1 : -1)];
+  if (next) openListed(next.id, next.f);
+}
+
+function moveCommit(key: string) {
+  const index = shown.findIndex((commit) => commit.hash === selection.anchor);
+  const next = shown[index < 0 ? 0 : index + (key === "ArrowDown" ? 1 : -1)];
   if (!next) return;
   showRow(next.hash, "nearest");
   document.querySelector<HTMLElement>(`.row[data-hash="${next.hash}"]`)?.click();
