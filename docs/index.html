@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Git Krill – a free, open-source Git GUI for Linux, Windows and macOS</title>
-<meta name="description" content="Git Krill is a lean desktop git client: a commit graph, diffs you can stage from, a three-pane merge tool and interactive rebase. Free and open source (MIT), for Linux, Windows and macOS.">
+<meta name="description" content="Git Krill: a lean, free and open-source Git GUI for Linux, Windows and macOS. Commit graph, line-by-line staging, a merge tool and interactive rebase.">
 <link rel="canonical" href="https://jean-roland.github.io/git-krill/">
 <link rel="icon" type="image/png" href="logo.png">
 <meta property="og:type" content="website">
@@ -57,6 +57,8 @@ h2 { margin: 72px 0 20px; font-size: 28px; text-align: center; }
 .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin: 0; padding: 0; list-style: none; }
 .features li { padding: 16px 18px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); font-size: 15px; color: var(--dim); }
 .features b { display: block; margin-bottom: 2px; font-size: 17px; color: var(--text); }
+/* the app's own icons, in its accent */
+.features svg { display: block; width: 26px; height: 26px; margin-bottom: 10px; fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 figure { margin: 0 0 40px; }
 figcaption { margin-top: 10px; text-align: center; color: var(--dim); font-size: 15px; }
 .install { max-width: 760px; margin: 0 auto; padding: 0; list-style: none; }
@@ -75,7 +77,7 @@ footer { margin-top: 80px; padding: 28px 16px 40px; border-top: 1px solid var(--
 <body>
 <main>
   <header class="hero">
-    <h1 class="brand"><img src="logo.png" alt="" width="84" height="84">Git Krill</h1>
+    <h1 class="brand"><img src="logo.png" alt="Git Krill logo" width="84" height="84">Git Krill</h1>
     <p class="pitch">A lean desktop git client for Linux, Windows and macOS: a commit graph, diffs you can stage from, a merge tool, and little else.</p>
     <p class="sub">Free and open source. It runs the <code>git</code> you already have, so your config, hooks, keys and credentials apply as usual.</p>
     <div class="dl">
@@ -90,15 +92,15 @@ footer { margin-top: 80px; padding: 28px 16px 40px; border-top: 1px solid var(--
 
   <h2>What it does</h2>
   <ul class="features">
-    <li><b>Graph</b>Every branch in lanes, with search; checkout, merge, rebase and reset from the menus.</li>
-    <li><b>Staging</b>Whole files, hunks or single lines; commit, amend, discard with undo.</li>
-    <li><b>Diffs</b>Hunk, inline or side by side, editable in place; images side by side.</li>
-    <li><b>Merge tool</b>Three panes, picks per hunk or per line.</li>
-    <li><b>Interactive rebase</b>Reorder, reword, squash, drop, one row or several at once.</li>
-    <li><b>File history</b>Every version of a file, with blame.</li>
-    <li><b>Sidebar</b>Branches, remotes, tags, stashes, worktrees and submodules.</li>
-    <li><b>Git LFS</b>Diffs by content, track and untrack from the menus.</li>
-    <li><b>Tabs</b>One repository each, with a terminal.</li>
+    <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9"/></svg><b>Graph</b>Every branch in lanes, with search; checkout, merge, rebase and reset from the menus.</li>
+    <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM12 2v6M12 16v6"/></svg><b>Staging</b>Whole files, hunks or single lines; commit, amend, discard with undo.</li>
+    <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h18v16H3zM12 4v16"/></svg><b>Diffs</b>Hunk, inline or side by side, editable in place; images side by side.</li>
+    <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21V9a9 9 0 0 0 9 9"/></svg><b>Merge tool</b>Three panes, picks per hunk or per line.</li>
+    <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 20 5-5 5 5M7 4l5 5 5-5"/></svg><b>Interactive rebase</b>Reorder, reword, squash, drop, one row or several at once.</li>
+    <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2"/></svg><b>File history</b>Every version of a file, with blame.</li>
+    <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h18v16H3zM9 4v16"/></svg><b>Sidebar</b>Branches, remotes, tags, stashes, worktrees and submodules.</li>
+    <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM14 3v5h5"/></svg><b>Git LFS</b>Diffs by content, track and untrack from the menus.</li>
+    <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8"/></svg><b>Tabs</b>One repository each, with a terminal.</li>
   </ul>
 
   <h2>A closer look</h2>
