@@ -9,6 +9,7 @@ import { conflictCount, getMsg, panelData, renderPanel, setMsg } from "./panel";
 import { stepBack, paintSelection, paintWipRow, renderGraph, renderSide, resetGraph, showRow } from "./graph";
 import { dropTerm, showTerm } from "./terminal";
 import { renderSettings, rerereTip } from "./settings";
+import krill from "../src-tauri/icons/32x32.png";
 
 // lfs: git-lfs stores it
 // sub: in a commit, whether git recorded a submodule there; the work tree asks today's list
@@ -429,11 +430,35 @@ async function reload() {
 // without git it cannot tell: the folder is taken as still there
 export const isRepo = (path: string) => invoke("repo_root", { path }).then(() => true, (e) => noGit(String(e)));
 
+const KRILL = /krill/i, WHALE = /whale/i;
+// branch names git or the eye reads as something else, and krill ones
+const ODD: [(b: string) => boolean, string][] = [
+  [(b) => /^\(?detached([ _-]?head)?\)?$/i.test(b), "...but HEAD is still firmly attached."],
+  [(b) => /^head$/i.test(b), "Windows and macOS may lose their HEAD on this."],
+  [(b) => b === "@", "@ who? This is Git's HEAD address."],
+  [(b) => /^[A-Z_]+_HEAD$/.test(b), "Git called dibs on that name, for its pet hydra"],
+  [(b) => refs.remotes.some((r) => b.startsWith(`${r}/`)), "Nice try, but you need to PUSH your branch, silly."],
+  [(b) => /^[0-9a-f]{40}$/i.test(b), "You (accidentally) pasted a hash output in the branch name it seems."],
+  [(b) => /^stash$/i.test(b), "This is not how stashing works!"],
+  [(b) => /^refs\/(heads|tags|remotes)\//.test(b), "refs/heads/refs/heads/... it's refs all the way down."],
+  [(b) => /^v?\d+\.\d+\.\d+$/.test(b), "That's a tag wearing a branch costume."],
+  // whales eat krill: checked first
+  [(b) => WHALE.test(b), "Krill is very much NOT thrilled."],
+  [(b) => KRILL.test(b), "Krill is thrilled."],
+];
+
 function renderToolbar() {
   if (!status) return;
-  $("branch").textContent = $("branch").title = status.branch || "detached HEAD";
+  const b = status.branch;
+  const odd = b && ODD.find(([is]) => is(b))?.[1];
+  $("branch").textContent = b || "detached HEAD";
+  $("branch").title = odd ? `A branch named ${b}. ${odd}` : b || "detached HEAD";
+  if (odd) warnOnce(`odd\0${repo}\0${b}`, `A branch named ${b}`, odd, "egg");
   $("repo-ico").innerHTML = svg(refs.superproject ? ICONS.submodule : tabs[active].worktree ? ICONS.worktree : ICONS.repo);
-  $("branch-ico").innerHTML = svg(ICONS.branch);
+  // a whale about: the krill shakes instead
+  const ico = WHALE.test(b) ? `<img class="fear" src="${krill}" alt="">` : KRILL.test(b) ? `<img src="${krill}" alt="">` : svg(ICONS.branch);
+  // set on a change only: a refresh would restart the logo's turn
+  if ($("branch-ico").dataset.ico !== ico) $("branch-ico").innerHTML = $("branch-ico").dataset.ico = ico;
   $("behind").textContent = status.behind ? String(status.behind) : "";
   $("ahead").textContent = status.ahead ? String(status.ahead) : "";
   $("opstate").hidden = !status.state;

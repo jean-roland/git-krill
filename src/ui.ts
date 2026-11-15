@@ -35,6 +35,7 @@ export const ICONS: Record<string, string> = {
   eye: "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zm10-3a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",
   info: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01",
   error: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM15 9l-6 6M9 9l6 6",
+  egg: "M12 3C8.7 3 5.5 8.6 5.5 13a6.5 6.5 0 0 0 13 0C18.5 8.6 15.3 3 12 3zM6 12.5l2 1.5 2-1.5 2 1.5 2-1.5 2 1.5 2-1.5",
   folder: "M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z",
   folderGone: "M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5zM3 3l18 18",
   folderOpen: "M3 18.5v-12A1.5 1.5 0 0 1 4.5 5H9l2 2.5h7A1.5 1.5 0 0 1 19.5 9v1.5M3 18.5l2.6-7A1.5 1.5 0 0 1 7 10.5h14l-2.8 8.5a1.5 1.5 0 0 1-1.4 1H4.5A1.5 1.5 0 0 1 3 18.5z",
@@ -177,10 +178,10 @@ export function hint(msg: string) {
 // what warnOnce said this run
 const warned = new Set<string>();
 /** A toast for `key`, once a run: a missing tool is said once, not on every refresh. */
-export const warnOnce = (key: string, title: string, body: string, kind: "err" | "info") => warned.has(key) || (warned.add(key), toast(title, body, kind));
+export const warnOnce = (key: string, title: string, body: string, kind: "err" | "info" | "egg") => warned.has(key) || (warned.add(key), toast(title, body, kind));
 
-/** A pop-up in the corner: errors stay until dismissed, info fades out. */
-export function toast(title: string, body: string, kind: "err" | "info") {
+/** A pop-up in the corner: errors stay until dismissed, the rest fades out. */
+export function toast(title: string, body: string, kind: "err" | "info" | "egg") {
   const dismiss = () => {
     el.classList.add("out");
     setTimeout(() => el.remove(), 300);
@@ -188,14 +189,14 @@ export function toast(title: string, body: string, kind: "err" | "info") {
   const el = h(
     "div",
     { className: `toast ${kind}` },
-    h("div", { className: "band", innerHTML: svg(kind === "err" ? ICONS.error : ICONS.info) }),
+    h("div", { className: "band", innerHTML: svg(ICONS[kind === "err" ? "error" : kind]) }),
     h("div", { className: "t-body" }, h("b", { textContent: title }), h("pre", {}, ...linkify(body))),
     h("button", { className: "x", textContent: "×", title: "Dismiss", onclick: dismiss }),
   );
   $("toasts").append(el);
   // a short stack: the oldest goes
   while ($("toasts").children.length > 4) $("toasts").firstElementChild!.remove();
-  if (kind === "info") setTimeout(dismiss, 10000);
+  if (kind !== "err") setTimeout(dismiss, 10000);
 }
 
 /** Text with its web links clickable. */

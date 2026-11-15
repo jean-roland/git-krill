@@ -103,6 +103,15 @@ header {
 .top-side .ico svg { width: 15px; height: 15px; }
 #repo-ico { margin-right: -2px; color: var(--dim); }
 #branch-ico { margin: 0 -2px 0 4px; padding: 2px 0 2px 12px; border-left: 1px solid color-mix(in srgb, var(--dim) 50%, transparent); color: var(--accent); }
+/* a krill branch: the logo flips round every few seconds */
+/* 16px off the 32px icon: whole pixels at 1x and 2x, a bigger one aliases */
+#branch-ico img { width: 16px; height: 16px; animation: krill 5s ease-in-out infinite; }
+/* the turn first: it shows as the branch does */
+@keyframes krill { 0% { transform: none; } 15%, to { transform: rotate(360deg); } }
+/* a whale branch: the logo shakes in fear, in bursts */
+#branch-ico img.fear { animation: fear 3s linear infinite; }
+@keyframes fear { 0%, 20%, to { transform: none; } 2%, 6%, 10%, 14%, 18% { transform: translateX(-1.5px) rotate(-8deg); } 4%, 8%, 12%, 16% { transform: translateX(1.5px) rotate(8deg); } }
+@media (prefers-reduced-motion: reduce) { #branch-ico img, #branch-ico img.fear { animation: none; } }
 #branch { min-width: 0; max-width: 340px; overflow: hidden; text-overflow: ellipsis; font-weight: 600; font-size: 14px; color: var(--accent); }
 #opstate { color: var(--mod); cursor: pointer; font-size: 15px; }
 #opstate.bad { color: var(--del); }
@@ -930,6 +939,7 @@ svg.blame-av { cursor: pointer; }
 @keyframes slide { from { opacity: 0; transform: translateX(-40px); } }
 .toast.err { --kind: var(--del); }
 .toast.info { --kind: var(--accent); }
+.toast.egg { --kind: #b18cff; }
 .toast .band { flex: none; display: flex; justify-content: center; width: 36px; padding-top: 14px; color: #fff; background: var(--kind); }
 .toast .band svg { width: 20px; height: 20px; }
 .toast .t-body { min-width: 0; padding: 12px 36px 14px 14px; }

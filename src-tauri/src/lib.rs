@@ -627,7 +627,8 @@ fn status(repo: String) -> Result<Status, String> {
     while let Some(e) = entries.next() {
         // "# branch.head main" or "(detached)"; "# branch.ab +1 -2" when it has an upstream
         if let Some(head) = e.strip_prefix("# branch.head ") {
-            branch = if head == "(detached)" { String::new() } else { head.to_string() };
+            // a branch named "(detached)" reads the same: HEAD tells them apart
+            branch = if head != "(detached)" { head.to_string() } else { git(&repo, &["symbolic-ref", "-q", "--short", "HEAD"]).map(|b| b.trim().to_string()).unwrap_or_default() };
         } else if let Some(ab) = e.strip_prefix("# branch.ab ") {
             let mut n = ab.split(' ').map(|c| c.get(1..).and_then(|c| c.parse().ok()));
             (ahead, behind) = (n.next().flatten(), n.next().flatten());
