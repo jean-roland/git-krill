@@ -50,7 +50,7 @@ Needs `git` (tested with 2.43; before 2.40 a commit's files lack their LFS chip)
 | --- | --- |
 | Ctrl+T, Ctrl+W, Ctrl+Shift+T | New tab, close it, reopen the last closed |
 | Ctrl+Tab, Ctrl+Shift+Tab | Next, previous tab |
-| Ctrl+O | Open a repository |
+| Ctrl+O | Open repositories, several at once with Ctrl or Shift+click in the picker |
 | Alt+← | Back from a worktree or a submodule to its repository |
 | Ctrl+F | Search the graph |
 | Ctrl+Z, Ctrl+Y | Undo, redo |

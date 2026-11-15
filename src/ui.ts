@@ -212,6 +212,11 @@ export async function pickDir(title: string) {
   return typeof p === "string" ? p : null;
 }
 
+/** Several folders at once, from the same start folder as pickDir. */
+export async function pickDirs(title: string) {
+  return (await openDialog({ directory: true, multiple: true, title, defaultPath: store("open-dir") || undefined })) ?? [];
+}
+
 // what closing the open dialog without its action means, if anything
 let dialogCancel: (() => unknown) | null = null;
 // dialogs a newer one covers, like a clone under its passphrase prompt: back on top when it goes
