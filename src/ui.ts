@@ -170,6 +170,8 @@ export const label = (b: HTMLElement, d: string, text: string) => ((b.innerHTML 
 
 /** A next step for the failures with a known cause. */
 export function hint(msg: string) {
+  if (/remote ref updated since checkout/.test(msg))
+    return "\n\nThe remote branch holds commits this branch never had, most likely brought in by a fetch: a force push would drop them unseen. Look at them in the graph first: Pull keeps them; to drop them anyway, run git push --force-with-lease in the terminal.";
   if (/could not read Username|Authentication failed|terminal prompts disabled/.test(msg))
     return "\n\nThis https remote needs credentials krill can use: run `gh auth setup-git` once, or switch the remote to ssh.";
   return "";
