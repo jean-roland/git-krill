@@ -81,7 +81,7 @@ function fetchRows() {
     // the window's own click would close it at once
     e.stopPropagation();
     const at = every.getBoundingClientRect();
-    showMenu([1, 5, 15, 30].map((n) => [`${n} min`, () => pick(n)]), at.left, at.bottom + 2);
+    showMenu([1, 5, 15, 30].map((n) => [`${n} min`, () => pick(n)]), at.left, at.bottom + 2, every);
   };
   return [
     row("Fetch", h("label", {}, on, " Fetch the remotes of the open repository in the background")),

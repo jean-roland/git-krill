@@ -106,7 +106,7 @@ function paint() {
           onclick: (e: MouseEvent) => {
             e.stopPropagation();
             const at = act.getBoundingClientRect();
-            showMenu(actionMenu(i), at.left, at.bottom + 2);
+            showMenu(actionMenu(i), at.left, at.bottom + 2, act);
           },
         },
         ico(icon),

@@ -290,16 +290,17 @@ export const ico = (d: string, title = "") => h("span", { className: "ico", titl
 
 export function popup(e: MouseEvent, items: MenuItem[]) {
   e.preventDefault();
-  // at the pointer: never the toggle of a button's menu
-  delete $("menu").dataset.at;
   if (items.some(Boolean)) showMenu(items, e.clientX, e.clientY);
 }
 
-export function showMenu(items: MenuItem[], x: number, y: number) {
+// the button whose menu is open
+let menuFrom: Element | undefined;
+
+export function showMenu(items: MenuItem[], x: number, y: number, from?: Element) {
   const m = $("menu");
   // its button clicked again: the menu closes
-  if (!m.hidden && m.dataset.at === `${x},${y}`) return void (m.hidden = true);
-  m.dataset.at = `${x},${y}`;
+  if (!m.hidden && from && from === menuFrom) return void (m.hidden = true);
+  menuFrom = from;
   fillMenu(m, items);
   $("submenu").hidden = true;
   m.hidden = false;
@@ -353,6 +354,7 @@ export function askName(label: string, initial: string, done: (name: string) => 
       }
     };
     const m = $("menu");
+    menuFrom = undefined;
     m.replaceChildren(h("small", { textContent: label }), box);
     m.hidden = false;
     box.select();

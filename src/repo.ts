@@ -257,6 +257,7 @@ export function pullMenu(e: MouseEvent) {
     ],
     r.left,
     r.bottom,
+    e.currentTarget as HTMLElement,
   );
 }
 
