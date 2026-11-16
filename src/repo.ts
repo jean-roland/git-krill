@@ -62,6 +62,8 @@ const DONE: Record<string, (arg: string, arg2: string, branch: string, upstream:
   "lfs-prune": () => "Pruned the LFS files",
   "submodule-add": (_url, path) => `Added submodule ${path}: commit to record it`,
 };
+// lib.rs restore_autostash's line when the changes kept aside would come back with conflicts
+const KEPT = "krill: changes kept in the stash";
 // what to do when git-lfs cannot serve a repository that uses it, by refs' lfsProblem
 const LFS_PROBLEMS: Record<string, string> = {
   missing: "git-lfs is not installed: its large files show as small pointer files. Install git-lfs, run `git lfs install` once, then Pull LFS files.",
@@ -169,6 +171,7 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
     // git said nothing: the title is all there is
     if (done) toast(done, remote.length ? remote.join("\n") : out.trim() ? last : "", "info");
     else if (remote.length) toast("Message from the remote", remote.join("\n"), "info");
+    if (out.includes(KEPT)) toast("Changes kept in the stash", 'Your changes would have conflicted: they are now in the stash "krill autostash".', "info");
   } catch (e) {
     const msg = String(e);
     const what = name === "push-upstream" ? "Push" : name === "push-force" ? "Force push" : name === "rebase-interactive" ? "Interactive rebase" : name[0].toUpperCase() + name.slice(1).replace(/-/g, " ");
@@ -177,9 +180,12 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
     const conflicts = msg.split("\n").filter((l) => l.startsWith("CONFLICT"));
     // rerere's replays: "Resolved 'f' using previous resolution."
     const reused = msg.split("\n").filter((l) => l.includes("using previous resolution"));
+    // an autostash that came back with conflicts stays listed
+    const kept = msg.split("\n").filter((l) => l.includes("kept in the stash"));
     if (conflicts.length) {
-      toast(`${what} stopped on conflicts`, [...conflicts, ...reused].join("\n"), "info");
-      if (!name.startsWith("stash")) rerereTip();
+      toast(`${what} stopped on conflicts`, [...conflicts, ...reused, ...kept].join("\n"), "info");
+      // rerere replays merges, not stashes
+      if (!/^(stash|checkout|branch-create)/.test(name)) rerereTip();
       if (tab === tabs[active]) pickWip();
     } else if (name === "push" && msg.includes("(non-fast-forward)") && tab === tabs[active]) forcePush(branch, status?.behind ?? 0);
     else toast(`${what} failed${onBranch}`, msg + hint(msg), "err");

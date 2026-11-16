@@ -1624,6 +1624,8 @@ fn resolve_all(repo: &str) -> Result<String, String> {
 // ops that need a clean tree: the local changes are kept aside around them
 const AUTOSTASH_OPS: [&str; 4] = ["pull", "merge", "rebase", "rebase-interactive"];
 const AUTOSTASH: &str = "krill autostash";
+// told to the window: the changes would have come back with conflicts, they wait in the stash
+const KEPT: &str = "krill: changes kept in the stash";
 
 /// \brief Keep the tracked changes aside in a stash, its hash in .git/krill-autostash; git's own --autostash brings them back all unstaged.
 fn autostash(repo: &str) -> Result<(), String> {
@@ -1641,7 +1643,7 @@ fn autostash(repo: &str) -> Result<(), String> {
     std::fs::write(git_dir(repo)?.join("krill-autostash"), sha.trim()).map_err(|e| e.to_string())
 }
 
-/// \brief Once nothing is in progress, pop the kept changes back, staged as they were; None when there is nothing to bring back yet.
+/// \brief Once nothing is in progress, pop the kept changes back, staged as they were, unless they would conflict; None when there is nothing to bring back yet.
 fn restore_autostash(repo: &str) -> Option<Result<String, String>> {
     static RESTORING: Mutex<()> = Mutex::new(());
     let _one = RESTORING.lock().unwrap();
@@ -1653,7 +1655,18 @@ fn restore_autostash(repo: &str) -> Option<Result<String, String>> {
     let _ = std::fs::remove_file(&marker);
     // popped by hand meanwhile: nothing left to do
     let i = git(repo, &["stash", "list", "--format=%H"]).ok()?.lines().position(|h| h == sha.trim())?;
-    Some(stash_restore(repo, "pop", &format!("stash@{{{i}}}")).map_err(|e| format!("{e}\nYour changes are kept in the stash \"{AUTOSTASH}\".")))
+    let stash = format!("stash@{{{i}}}");
+    let kept = |e: String| format!("{e}\nYour changes are kept in the stash \"{AUTOSTASH}\".");
+    // other changes beside them (a merge committed by hand) cannot be put back whole: git's pop, conflicts and all
+    if !git(repo, &["status", "--porcelain", "--untracked-files=no"]).ok()?.trim().is_empty() {
+        return Some(stash_restore(repo, "pop", &stash).map_err(kept));
+    }
+    Some(match stash_restore(repo, "apply", &stash) {
+        Ok(out) => git_with_stderr(repo, &["stash", "drop", &stash]).map(|d| format!("{out}\n{d}")),
+        // the clean tree it applied on comes back: the changes wait in the stash for a pop by hand
+        Err(e) if git(repo, &["ls-files", "-u"]).is_ok_and(|u| !u.trim().is_empty()) => git(repo, &["reset", "-q", "--hard"]).map(|_| format!("{e}\n{KEPT}")).map_err(kept),
+        Err(e) => Err(kept(e)),
+    })
 }
 
 #[tauri::command(async)]
@@ -1663,7 +1676,15 @@ fn git_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
     }
     // a fetch runs beside the others: it would bring the changes back under a pull
     let fetching = op.contains("fetch");
-    let out = run_op(repo.clone(), op, arg, arg2);
+    let switching = op == "checkout" || op == "branch-create";
+    let out = match run_op(repo.clone(), op.clone(), arg.clone(), arg2.clone()) {
+        // a switch the changes in progress block, which made nothing: they are kept aside around it
+        Err(e) if switching && e.contains("Your local changes to the following files would be overwritten") && op_state(&repo)?.is_empty() => {
+            autostash(&repo)?;
+            run_op(repo.clone(), op, arg, arg2)
+        }
+        out => out,
+    };
     // after this op or a later one (continue, abort): the changes come back when the tree is free again
     match (out, if fetching { None } else { restore_autostash(&repo) }) {
         (Ok(o), Some(Ok(back))) => Ok(format!("{o}\n{back}").trim().to_string()),
