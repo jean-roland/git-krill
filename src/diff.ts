@@ -542,7 +542,55 @@ function imageSides() {
   const { kind, f, c, orig, mod } = diffFile!;
   const side = HTML.test(f.path) ? pageSide : imageSide;
   const sides = sideSources(kind, f, c).flatMap(([at, path], i) => ((i ? mod : orig).exists ? [side(at, path, i ? "add" : "del")] : []));
-  return h("div", { className: "img-sides" }, ...sides);
+  return zoomable(h("div", { className: "img-sides" }, ...sides));
+}
+
+/** The wheel zooms the versions together around the pointer, a drag pans them, a double-click fits them back. */
+function zoomable(box: HTMLElement) {
+  // a page scrolls itself
+  if (box.querySelector("iframe")) return box;
+  let z = 1, x = 0, y = 0;
+  const label = h("small", { className: "img-zoom" });
+  const apply = () => {
+    box.style.setProperty("--zoom", `translate(${x}px, ${y}px) scale(${z})`);
+    box.classList.toggle("zoomed", z > 1);
+    const imgs = [...box.querySelectorAll("img")];
+    // past its own size a pixel shows as a square, not a blur
+    imgs.forEach((img) => (img.style.imageRendering = z * img.width > img.naturalWidth ? "pixelated" : ""));
+    label.textContent = z > 1 && imgs[0]?.naturalWidth ? `${Math.round((100 * z * imgs[0].width) / imgs[0].naturalWidth)}% · Space or double-click to fit` : z > 1 ? "Space or double-click to fit" : "Scroll to zoom";
+  };
+  box.onwheel = (e) => {
+    const frame = (e.target as HTMLElement).closest(".frame");
+    if (!frame) return;
+    e.preventDefault();
+    const r = frame.getBoundingClientRect(), px = e.clientX - r.left - r.width / 2, py = e.clientY - r.top - r.height / 2;
+    const to = Math.min(64, Math.max(1, z * Math.exp(-e.deltaY / 500)));
+    // the point under the pointer stays under it
+    [x, y, z] = to === 1 ? [0, 0, 1] : [px - ((px - x) * to) / z, py - ((py - y) * to) / z, to];
+    apply();
+  };
+  box.onpointerdown = (e) => {
+    // a button takes its own click
+    if (e.button || z === 1 || (e.target as HTMLElement).closest("button")) return;
+    const [x0, y0, cx, cy] = [x, y, e.clientX, e.clientY];
+    box.setPointerCapture(e.pointerId);
+    box.onpointermove = (m) => ((x = x0 + m.clientX - cx), (y = y0 + m.clientY - cy), apply());
+    box.onpointerup = box.onlostpointercapture = () => (box.onpointermove = null);
+  };
+  box.ondblclick = () => (([x, y, z] = [0, 0, 1]), apply());
+  // else the drag picks the picture up to drop it elsewhere
+  box.ondragstart = (e) => e.preventDefault();
+  box.append(label);
+  apply();
+  return box;
+}
+
+/** Space: zoomed images fit back, as a double-click does; false when none is. */
+export function fitImages() {
+  const box = document.querySelector<HTMLElement>("#diff-binary .img-sides.zoomed");
+  if (!box?.offsetParent) return false;
+  box.dispatchEvent(new MouseEvent("dblclick"));
+  return true;
 }
 
 /** One version of an image at its own size, captioned with its pixel and byte sizes once loaded. */
@@ -1287,7 +1335,7 @@ export async function showRev(i: number) {
     $("hist-file").hidden = true;
     $("diff-binary").hidden = false;
     $("diff-binary").classList.add("images");
-    $("diff-binary").replaceChildren(h("div", { className: "img-sides" }, (HTML.test(f.path) ? pageSide : imageSide)(c.hash, f.path)));
+    $("diff-binary").replaceChildren(zoomable(h("div", { className: "img-sides" }, (HTML.test(f.path) ? pageSide : imageSide)(c.hash, f.path))));
     return reveal();
   }
   const ed = historyEditor(), view = ed.saveViewState(), old = ed.getModel();

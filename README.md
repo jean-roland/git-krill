@@ -58,6 +58,7 @@ Needs `git` (tested with 2.43; before 2.40 a commit's files lack their LFS chip)
 | F5 | Refresh |
 | Arrows | Move through commits and files, open and close diffs |
 | Escape | Close the open view or dialog; on the graph, back from a worktree or a submodule |
+| Space | Fit a zoomed image back (the mouse wheel zooms, a drag pans) |
 | Ctrl+click, Shift+click | Pick several files of a WIP list, to stage, discard, stash or ignore them together, or several rows of an interactive rebase |
 
 On macOS, Cmd in place of Ctrl, but for Ctrl+Tab and Ctrl+`.

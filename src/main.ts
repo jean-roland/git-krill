@@ -1,7 +1,7 @@
 // Entry: wires the buttons and keys to the features, then reopens the tabs.
 import { invoke } from "@tauri-apps/api/core";
 import "@xterm/xterm/css/xterm.css";
-import { Mode, closeDiff, closeHistory, confirmDiscard, closeMerge, diffEditor, diffFile, editor, goConflict, hist, histEd, histView, loadMerge, loadMonaco, merging, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setMode, setSvgView, showRev, warmDiff } from "./diff";
+import { Mode, closeDiff, closeHistory, confirmDiscard, closeMerge, diffEditor, diffFile, editor, fitImages, goConflict, hist, histEd, histView, loadMerge, loadMonaco, merging, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setMode, setSvgView, showRev, warmDiff } from "./diff";
 import { rebaseKey } from "./rebase";
 import { SORTS, amending, commit, conflictCount, emptyStep, fileLists, filterFiles, foldAll, getMsg, openFile, paintFileOpts, pathArg, pickedFiles, renderCommitBtn, renderPanel, setMsg } from "./panel";
 import { $, ask, closeDialog, dismissToast, hideBanner, input, mod, onCtrlEnter, pickDir, popup, say, store, warnOnce } from "./ui";
@@ -262,6 +262,8 @@ addEventListener("keydown", (e) => {
   else if (mod(e) && key === "z") (e.preventDefault(), undoRedo(!e.shiftKey));
   else if (mod(e) && key === "y") (e.preventDefault(), undoRedo(false));
   else if (e.key.startsWith("Arrow") && !mod(e) && !e.altKey && !e.shiftKey) (e.preventDefault(), arrow(e.key));
+  // a focused button or box keeps its Space
+  else if (e.key === " " && !mod(e) && $("dialog").hidden && !(e.target as HTMLElement).closest?.("button, select, input, label") && fitImages()) e.preventDefault();
 });
 
 // Monaco and its diff worker warmed up under the splash: a cold first diff took ~0.5 s, and a file opened during the warm-up drew wrong
