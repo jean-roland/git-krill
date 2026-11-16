@@ -201,6 +201,13 @@ export function toast(title: string, body: string, kind: "err" | "info" | "egg")
   if (kind !== "err") setTimeout(dismiss, 10000);
 }
 
+/** Esc: the oldest toast goes; false when none is left. */
+export function dismissToast() {
+  const t = [...$("toasts").children].find((t) => !t.classList.contains("out"));
+  t?.querySelector<HTMLElement>(".x")?.click();
+  return !!t;
+}
+
 /** Text with its web links clickable. */
 function linkify(text: string) {
   return text

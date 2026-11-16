@@ -4,7 +4,7 @@ import "@xterm/xterm/css/xterm.css";
 import { Mode, closeDiff, closeHistory, confirmDiscard, closeMerge, diffEditor, diffFile, editor, goConflict, hist, histEd, histView, loadMerge, loadMonaco, merging, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setMode, setSvgView, showRev, warmDiff } from "./diff";
 import { rebaseKey } from "./rebase";
 import { SORTS, amending, commit, conflictCount, emptyStep, fileLists, filterFiles, foldAll, getMsg, openFile, paintFileOpts, pathArg, pickedFiles, renderCommitBtn, renderPanel, setMsg } from "./panel";
-import { $, ask, closeDialog, hideBanner, input, mod, onCtrlEnter, pickDir, popup, say, store, warnOnce } from "./ui";
+import { $, ask, closeDialog, dismissToast, hideBanner, input, mod, onCtrlEnter, pickDir, popup, say, store, warnOnce } from "./ui";
 import { closeFind, drawRows, findStep, findTyped, stepBack, openFind, paintSelection, showRow, shown } from "./graph";
 import { Change, active, addTab, autoFetch, cloneDialog, closeTab, fetchMinutes, gitOp, opInfo, newTabMenu, openInEditor, openPicked, openRepo, openSettings, paintPull, pull, pullMenu, push, refresh, renderTabHits, reopenTab, repo, restoreTabs, run, selection, switchTab, tabs, undoMenu, undoRedo } from "./repo";
 import { checkTools } from "./settings";
@@ -254,6 +254,7 @@ addEventListener("keydown", (e) => {
     else if (hist) closeHistory();
     else if (!$("diff").hidden) closeDiff();
     else if (merging) closeMerge();
+    else if (dismissToast()) e.preventDefault();
     // nothing left open: the graph itself steps back out of a worktree or a submodule
     else if (tabs[active].parent && !(e.target as HTMLElement).closest?.("input, textarea")) stepBack();
   } else if ((e.target as HTMLElement).closest?.("input:not([type=checkbox]), textarea, #diff-editor, #merge, #hist-file") || !repo) return;
