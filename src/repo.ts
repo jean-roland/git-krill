@@ -328,10 +328,9 @@ let refreshAgain: Promise<void> | null = null;
 /** Reload and repaint the tab; one run at a time so an older snapshot never lands last, callers meanwhile share the next run. */
 export function refresh(): Promise<void> {
   if (!refreshing) {
-    document.body.classList.add("loading");
     return (refreshing = reload()
       .catch((e) => say(String(e), true))
-      .finally(() => ((refreshing = null), document.body.classList.remove("loading"))));
+      .finally(() => (refreshing = null)));
   }
   return (refreshAgain ??= refreshing.then(() => ((refreshAgain = null), refresh())));
 }
