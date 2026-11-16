@@ -170,8 +170,8 @@ function actionMenu(i: number): MenuItem[] {
   const many = plan!.picked.has(plan!.rows[i].c.hash) ? pickedRows() : [i];
   const n = many.length > 1 ? ` ${many.length} commits` : "";
   // the oldest commit has nothing older to fold into; a new message is one commit's
-  const offered = ACTIONS.filter(([a]) => (a !== "squash" || n || target(i) >= 0) && (a !== "reword" || !n));
-  return offered.map(([a, label, icon]) => [label + n, () => setActions(many, a), "", icon]);
+  const why = (a: Action) => (a === "squash" && !n && target(i) < 0 ? "No older commit to squash into" : a === "reword" && n ? "Reword one commit at a time" : "");
+  return ACTIONS.map(([a, label, icon]) => [label + n, why(a) ? null : () => setActions(many, a), why(a), icon]);
 }
 
 /** The picked rows' indexes, newest first. */
