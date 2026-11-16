@@ -733,10 +733,10 @@ function branchMenu(name: string, remote: boolean): MenuItem[] {
     null,
     ...(remote ? [] : ([["Rename", () => askName("New branch name", name, (n) => gitOp("branch-rename", [name, n]))]] as MenuItem[])),
     // is_merged tests against the upstream, wherever it is
-    ...(remote || current ? [] : ([["Delete", () => deleteBranch(name, findRef(`refs/remotes/${up}`) ? up : "")]] as MenuItem[])),
+    ...(remote || current ? [] : ([["Delete local", () => deleteBranch(name, findRef(`refs/remotes/${up}`) ? up : "")]] as MenuItem[])),
     // a local branch's upstream too: one menu for both; none of it on the checked out branch
     ...(onRemote && !current
-      ? ([[remote ? `Delete on ${rem}` : `Delete ${remBranch} on ${rem}`, () => ask(`Delete branch ${remBranch} on ${rem}? This pushes the deletion.`, "Delete").then((ok) => ok && gitOp("push-delete", [rem, `refs/heads/${remBranch}`]))]] as MenuItem[])
+      ? ([[`Delete on ${rem}`, () => ask(`Delete branch ${remBranch} on ${rem}? This pushes the deletion.`, "Delete").then((ok) => ok && gitOp("push-delete", [rem, `refs/heads/${remBranch}`]))]] as MenuItem[])
       : []),
     ...(current || !ref ? [] : [hideItem(ref.name)]),
     null,
@@ -765,7 +765,7 @@ function tagMenu(name: string): MenuItem[] {
     ...refs.remotes.filter(lacks).map((r): MenuItem => [`Push to ${r}`, () => gitOp("tag-push", [r, name])]),
     ["Rename", () => askName(on.length ? `New tag name, on ${on.join(", ")} too` : "New tag name", name, (n) => n !== name && gitOp("tag-rename", [name, JSON.stringify([n, ...on])]))],
     // no question: the commit stays, and a pushed tag comes back with a fetch
-    ["Delete", () => gitOp("tag-delete", name)],
+    ["Delete local", () => gitOp("tag-delete", name)],
     ...refs.remotes.filter(has).map(
       (r): MenuItem => [
         `Delete on ${r}`,
