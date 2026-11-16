@@ -233,7 +233,19 @@ function forcePush(branch: string, behind: number) {
   );
 }
 
-const stepText = (s: UndoStep) => (s.what ? `${s.op} ${s.what}` : s.op);
+// the Undo menu's words for an op, {} what it acted on; the others read as they are
+const STEP_NAMES: Record<string, string> = {
+  rebase: "rebase onto {}",
+  "rebase-interactive": "interactive rebase onto {}",
+  "branch-create": "create branch {}",
+  "checkout-reset": "reset {} to its remote",
+  "reset-soft": "soft reset to {}",
+  "reset-mixed": "mixed reset to {}",
+  "reset-hard": "hard reset to {}",
+  "stash-apply": 'apply stash "{}"',
+  "stash-pop": 'pop stash "{}"',
+};
+const stepText = (s: UndoStep) => (STEP_NAMES[s.op] ?? `${s.op} {}`).replace("{}", s.what).trim();
 
 /** Undo's (or Redo's) steps, newest first: picking one walks back through it. */
 export function undoMenu(e: MouseEvent, back: boolean) {
