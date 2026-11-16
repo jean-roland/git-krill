@@ -1420,7 +1420,11 @@ fn stash_restore(repo: &str, verb: &str, name: &str) -> Result<String, String> {
         }
         return Ok(out);
     }
-    let mut args = vec!["stash", verb, "--index"];
+    let mut args = vec!["stash", verb];
+    // over staged changes git's --index refuses, and unstages them all on its way out
+    if git(repo, &["diff", "--cached", "--quiet"]).is_ok() {
+        args.push("--index");
+    }
     // no name: git's own "No stash entries found." when there is none
     if !name.is_empty() {
         args.push(stash);
