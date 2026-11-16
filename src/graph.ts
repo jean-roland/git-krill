@@ -650,10 +650,16 @@ function refMenu(name: string, remote: boolean): MenuItem[] {
   // the full name: a bare one may resolve to a tag or the stash list of the same name
   const branch = status?.branch || "HEAD", ref = remote ? `refs/remotes/${name}` : `refs/heads/${name}`, sha = findRef(ref)?.hash ?? "";
   if (!remote && name === status?.branch) return [];
+  // already in HEAD: nothing to merge, nothing to replay
+  const merged = inHistory(sha, headHash());
   return [
     ["Checkout", () => checkoutBranch(name, remote)],
-    [`Merge into ${branch}`, () => gitOp("merge", ref)],
-    [`Rebase ${branch} onto this branch`, () => gitOp("rebase", ref)],
+    ...(merged
+      ? []
+      : ([
+          [`Merge into ${branch}`, () => gitOp("merge", ref)],
+          [`Rebase ${branch} onto this branch`, () => gitOp("rebase", ref)],
+        ] as MenuItem[])),
     [`Interactive rebase ${branch} onto this branch`, () => openRebase(sha, ontoRange(sha))],
   ];
 }
