@@ -1439,6 +1439,57 @@ fn stash_restore(repo: &str, verb: &str, name: &str) -> Result<String, String> {
     }
 }
 
+/// \brief The index entries an apply over index tree `tree` changed, as `git diff --raw` gives them, and their paths.
+fn applied(repo: &str, tree: &str) -> Result<Vec<(String, String)>, String> {
+    let out = git_bytes(repo, &["diff", "--cached", "--raw", "-z", "--no-renames", not_option(tree)?, "--"], None)?;
+    let fields: Vec<String> = out.split(|&b| b == 0).map(|f| String::from_utf8_lossy(f).into_owned()).collect();
+    let mut entries: Vec<(String, String)> = fields.chunks_exact(2).map(|c| (c[0].clone(), c[1].clone())).collect();
+    entries.dedup_by(|a, b| a.1 == b.1);
+    Ok(entries)
+}
+
+/// \brief What an apply over index tree `tree` left, staged and on disk: two equal prints, nothing touched it in between.
+fn wip_print(repo: &str, tree: &str) -> Result<String, String> {
+    let entries = applied(repo, tree)?;
+    let on_disk: Vec<&str> = entries.iter().map(|(_, p)| p.as_str()).filter(|p| Path::new(repo).join(p).is_file()).collect();
+    let hashes = if on_disk.is_empty() { Vec::new() } else { git_bytes(repo, &["hash-object", "--no-filters", "--stdin-paths"], Some(on_disk.join("\n").as_bytes()))? };
+    Ok(format!("{entries:?}\n{}\n{}", on_disk.join("\0"), String::from_utf8_lossy(&hashes)))
+}
+
+/// \brief The index as a tree, taken before a stash applies over it: what undoing the apply puts back.
+#[tauri::command(async)]
+fn index_tree(repo: String) -> Result<String, String> {
+    git(&repo, &["write-tree"]).map(|t| t.trim().to_string())
+}
+
+/// \brief The print of what an apply over index tree `tree` left, taken once it stopped on conflicts.
+#[tauri::command(async)]
+fn stash_print(repo: String, tree: String) -> Result<String, String> {
+    wip_print(&repo, &tree)
+}
+
+/// \brief Take back a stash apply that stopped on conflicts: the entries it changed as index tree `tree` had them, staged and on disk, unless `print` says they changed since.
+fn stash_undo(repo: &str, tree: &str, print: &str) -> Result<String, String> {
+    if wip_print(repo, tree)? != print {
+        return Err("Files changed since the stash was applied: nothing to undo".into());
+    }
+    let listed = git_bytes(repo, &["ls-tree", "-r", "-z", "--name-only", not_option(tree)?], None)?;
+    let in_tree: HashSet<&[u8]> = listed.split(|&b| b == 0).collect();
+    let (had, made): (Vec<String>, Vec<String>) = applied(repo, tree)?.into_iter().map(|(_, p)| p).partition(|p| in_tree.contains(p.as_bytes()));
+    // only what git wrote over, which it refuses over unstaged changes: on disk these were as staged
+    if !had.is_empty() {
+        git_bytes(repo, &["checkout", tree, "--pathspec-from-file=-", "--pathspec-file-nul"], Some(had.join("\0").as_bytes()))?;
+    }
+    // ponytail: the untracked files a stash brings back stay, copies of its own
+    if !made.is_empty() {
+        git_bytes(repo, &["rm", "-q", "-f", "--cached", "--ignore-unmatch", "--pathspec-from-file=-", "--pathspec-file-nul"], Some(made.join("\0").as_bytes()))?;
+        for p in &made {
+            let _ = std::fs::remove_file(Path::new(repo).join(p));
+        }
+    }
+    Ok(String::new())
+}
+
 /// \brief Rename tag `old`: `to` is JSON [new name, remotes that have it...]. An annotated tag is made again with its message,
 /// tagger and date (a signature is not kept); the remotes get the new name and lose the old, then the old goes here.
 fn tag_rename(repo: &str, old: &str, to: &str) -> Result<String, String> {
@@ -1736,6 +1787,8 @@ fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         }
         "submodule-delete" => return submodule_delete(&repo, &arg, &arg2),
         "stash-apply" => return stash_restore(&repo, "apply", &arg),
+        // arg the index tree before the apply, arg2 the print after it
+        "stash-undo" => return stash_undo(&repo, &arg, &arg2),
         "stash-pop" => return stash_restore(&repo, "pop", &arg),
         // in the background: a key that needs its passphrase fails quietly instead of asking
         "auto-fetch" => return report(git_cmd(&repo, &["fetch", "--all", "--prune"], None, false)?),
@@ -1889,7 +1942,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, gh_verified, remote_tags, submodule_change, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, worktree_main, lfs_patterns, version_ids, keeps_crlf,
-            is_merged, revert_lines, tracing, trace_line, open_default, open_version, file_bytes, tool_status, global_config, set_global_config, trust_folder, delete_file, open_url, remote_urls, edit_remote,
+            is_merged, revert_lines, index_tree, stash_print, tracing, trace_line, open_default, open_version, file_bytes, tool_status, global_config, set_global_config, trust_folder, delete_file, open_url, remote_urls, edit_remote,
             pty::pty_spawn, pty::pty_write, pty::pty_resize, pty::pty_kill, askpass::askpass_reply
         ])
         .build(tauri::generate_context!())

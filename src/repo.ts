@@ -27,7 +27,8 @@ type Refs = { refs: Ref[]; stashes: Stash[]; remotes: string[]; worktrees: Workt
 // lfs: a git-lfs pointer in git, "here" when its object was read instead, "missing" when it is not downloaded
 export type Blob = { text: string; exists: boolean; binary: boolean; large: number | null; lfs: "" | "here" | "missing" };
 // what: the menu's name for it, the commit made or where HEAD went; files: a discard's, each path with its work tree text before and after (null: no file)
-type UndoStep = { op: string; what: string; branch: [string, string]; head: [string, string]; files?: [string, string | null, string | null][] };
+// stash: a stash applied with conflicts, [its hash, the index tree before, the print of its files after]
+type UndoStep = { op: string; what: string; branch: [string, string]; head: [string, string]; files?: [string, string | null, string | null][]; stash?: [string, string, string] };
 // limit: how many commits the graph loads, raised by "Load more"
 // parent: what this tab steps back to, the main checkout of a worktree or the repository a submodule was opened from in it; one level only
 // settings: the Settings tab, which has no repository either; back: the tab as it was before stepping into a worktree or submodule
@@ -157,6 +158,9 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
   document.body.classList.add("busy");
   // picked before the op: its refresh lands there in one go
   if (TO_WIP.has(name)) pickWip();
+  // the index a stash applies over: undoing a conflicted apply puts it back
+  const stash = record && (name === "stash-apply" || name === "stash-pop") ? refs.stashes.find((s) => s.name === (arg1 || "stash@{0}")) : undefined;
+  const tree = stash ? await run<string>("index_tree").catch(() => "") : "";
   let ok = true;
   try {
     const out = await run<string>("git_op", { op: name, arg: arg1, arg2 });
@@ -187,6 +191,9 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
       // rerere replays merges, not stashes
       if (!/^(stash|checkout|branch-create)/.test(name)) rerereTip();
       if (tab === tabs[active]) pickWip();
+      // no print, no undo: it could not tell what changed since
+      const print = stash && tree && tab === tabs[active] ? await run<string>("stash_print", { tree }).catch(() => "") : "";
+      if (stash && print) recordUndo(tab, { op: name, what: stash.subject, branch: [branch, branch], head: [head, head], stash: [stash.hash, tree, print] });
     } else if (name === "push" && msg.includes("(non-fast-forward)") && tab === tabs[active]) forcePush(branch, status?.behind ?? 0);
     else toast(`${what} failed${onBranch}`, msg + hint(msg), "err");
     say(`${what} ${conflicts.length ? "stopped on conflicts" : "failed"}`);
@@ -326,6 +333,12 @@ export async function undoRedo(back: boolean): Promise<boolean> {
     const write = ([path, ...text]: [string, string | null, string | null]) => (text[to] === null ? run("delete_file", { path }) : run("write_file", { path, text: text[to] }));
     ok = await Promise.all(step.files.map(write)).then(() => true, (e) => (say(String(e), true), false));
     await refresh();
+  } else if (step.stash) {
+    const [hash, tree, print] = step.stash;
+    // applied again, its conflicts are the redo's success
+    ok = back ? await gitOp("stash-undo", [tree, print], false) : (await gitOp("stash-apply", hash, false)) || conflictCount() > 0;
+    // refused, its files changed since: the step is spent, as a discard's
+    if (!ok) return (renderToolbar(), false);
   } else if (step.branch[0] !== step.branch[1]) ok = await gitOp("checkout", step.branch[to] || step.head[to], false);
   else ok = await gitOp(KEEP_INDEX.has(step.op) ? "reset-soft" : "reset-keep", step.head[to], false);
   (ok === back ? t.redo : t.undo).push(step);
