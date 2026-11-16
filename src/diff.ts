@@ -576,11 +576,15 @@ function pageSide(at: string, path: string, cls = "") {
     async (bytes) => {
       const doc = new DOMParser().parseFromString(new TextDecoder().decode(bytes), "text/html");
       await inlineLocal(doc, at, path);
-      // a refresh or a clicked link would load a remote page past the policy: no refresh, links aim at popups the sandbox blocks
-      doc.querySelectorAll("base, meta[http-equiv='refresh' i]").forEach((e) => e.remove());
+      // the policy covers loads, not navigation nor prefetches: no refresh, no link left, every link a script the sandbox never runs (still drawn as a link)
+      doc.querySelectorAll("base, link, meta[http-equiv='refresh' i]").forEach((e) => e.remove());
+      doc.querySelectorAll("a, area").forEach((a) => {
+        a.removeAttribute("target");
+        a.removeAttributeNS("http://www.w3.org/1999/xlink", "href");
+        if (a.hasAttribute("href")) a.setAttribute("href", "javascript:void 0");
+      });
       doc.head.prepend(
         h("meta", { httpEquiv: "Content-Security-Policy", content: "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:" }),
-        h("base", { target: "_blank" }),
         // a browser's light page under the page's own styles, not krill's dark scheme; a see-through scrollbar suits light and dark pages
         h("style", {
           textContent:
@@ -598,7 +602,17 @@ function pageSide(at: string, path: string, cls = "") {
 /** The page's own images and stylesheets, read from version `at` in place of their links; remote ones stay out. */
 async function inlineLocal(doc: Document, at: string, path: string) {
   // relative to the page, or to the repository's root for a leading /
-  const local = (url: string | null) => (!url || /^([a-z][\w+.-]*:|\/\/|#)/i.test(url) ? null : decodeURIComponent(new URL(url, `file:///${path}`).pathname.slice(1)));
+  const base = `file:///${encodeURI(path).replace(/[?#]/g, encodeURIComponent)}`;
+  const local = (url: string | null) => {
+    if (!url || /^([a-z][\w+.-]*:|\/\/|#)/i.test(url)) return null;
+    const p = new URL(url, base).pathname.slice(1);
+    // a bare % in a name is no escape: a browser asks for the name as written
+    try {
+      return decodeURIComponent(p);
+    } catch {
+      return p;
+    }
+  };
   const bytes = (p: string) => run<ArrayBuffer>("file_bytes", { at, path: p }).catch(() => null);
   // a video stays out, its poster is an image
   const images = [...doc.querySelectorAll("img, video[poster]")].map(async (el) => {
