@@ -75,7 +75,8 @@ export const loadMonaco = () =>
 type SubCommit = { hash: string; subject: string };
 type SubmoduleChange = { old: SubCommit | null; new: SubCommit | null; added: SubCommit[]; removed: SubCommit[]; changed: number; untracked: number; initialized: boolean };
 // full: loaded past the size a diff loads unasked; sub: what a submodule went through, shown instead of a text diff; ids: its sides' versions, see versionIds
-export let diffFile: { kind: DiffSource; f: Change; c?: Commit; orig: Blob; mod: Blob; dirty: boolean; full: boolean; sub?: SubmoduleChange; ids?: string } | null = null;
+// drawn: shown as images or a page
+export let diffFile: { kind: DiffSource; f: Change; c?: Commit; orig: Blob; mod: Blob; dirty: boolean; full: boolean; drawn?: boolean; sub?: SubmoduleChange; ids?: string } | null = null;
 export let diffEditor: Monaco.editor.IStandaloneDiffEditor | null = null;
 // hunk header bars, as view zone ids per side
 let hunkZones: { mod: string[]; orig: string[]; nodes: HTMLElement[] } = { mod: [], orig: [], nodes: [] };
@@ -233,11 +234,11 @@ export function setMode(m: Mode) {
 /** The view shown: Monaco cannot fold a file loaded on request, so Inline stands in for Hunk there. */
 const viewMode = (): Mode => {
   const m = (store("diff-mode") as Mode) || "hunk";
-  return m === "hunk" && diffFile?.full ? "inline" : m;
+  return m === "hunk" && (diffFile?.full || diffFile?.drawn) ? "inline" : m;
 };
 
 function applyMode() {
-  const m = viewMode(), full = !!diffFile?.full;
+  const m = viewMode(), full = !!diffFile?.full, none = !!diffFile?.drawn;
   setOptions({ renderSideBySide: m === "split", hideUnchangedRegions: { enabled: m === "hunk" } });
   updateHunkBars();
   document.querySelectorAll<HTMLElement>("[data-mode]").forEach((b) => b.classList.toggle("on", b.dataset.mode === m));
@@ -245,9 +246,9 @@ function applyMode() {
   $("diff-binary").classList.toggle("single", m !== "split");
   const hunk = document.querySelector<HTMLElement>('[data-mode="hunk"]')!;
   // on top of paintSides' dimming, which clears it for a text diff
-  if (full) hunk.classList.add("off");
+  if (full || none) hunk.classList.add("off");
   // Monaco cannot fold a file that big
-  hunk.title = full ? "Can't show hunks for files over 10 MB" : "Changed hunks only";
+  hunk.title = full ? "Can't show hunks for files over 10 MB" : none ? "No hunks to display" : "Changed hunks only";
 }
 
 const lineChanges = (): LineChange[] =>
@@ -419,20 +420,30 @@ function still(el?: HTMLElement) {
 // lib.rs MAX_ASKED: past it a file does not load even when asked
 const MAX_ASKED = 200 << 20;
 
+// a drawn view held over the editor while its text comes back: in place, as a moved frame reloads and a shown image's URL is gone
+let cover: HTMLElement | null = null;
+
 /** The open diff's sides in the editor, or in their place a submodule's card, the images, or why not: binary, not downloaded, too big. */
 function paintSides() {
   const { kind, f, c, orig, mod, sub } = diffFile!;
   const binary = orig.binary || mod.binary, large = Math.max(orig.large ?? 0, mod.large ?? 0);
-  const missing = orig.lfs === "missing" || mod.lfs === "missing", isSvg = SVG.test(f.path) && !sub && !missing && !large;
-  const images = (binary && !missing && (!large || large <= IMAGE_UNASKED) && IMAGE.test(f.path)) || (isSvg && store("svg-view") === "image");
+  const missing = orig.lfs === "missing" || mod.lfs === "missing", drawable = DRAWN.test(f.path) && !sub && !missing && !large;
+  const images = (binary && !missing && (!large || large <= IMAGE_UNASKED) && IMAGE.test(f.path)) || (drawable && store("svg-view") === "image");
   // the version a file opens in its app: the new one, the old when the file is gone
   const shown = sideSources(kind, f, c)[mod.exists ? 1 : 0];
   const pane = binary || !!large || !!sub || images;
+  cover?.removeAttribute("style");
+  const b = $("diff-binary"), held = !pane && !b.hidden && b.classList.contains("images");
+  cover = held ? b : null;
+  // opaque: its padding would show the editor drawing underneath; under the view switch (15), which stays
+  if (held) Object.assign(b.style, { position: "absolute", zIndex: "14", background: "var(--bg)", left: `${b.offsetLeft}px`, top: `${b.offsetTop}px`, width: `${b.offsetWidth}px`, height: `${b.offsetHeight}px` });
   $("diff-editor").hidden = pane;
-  $("diff-binary").hidden = !pane;
-  $("diff-binary").classList.toggle("images", images);
-  paintSvgView(isSvg, images);
-  $("diff-binary").replaceChildren(
+  if (!held) {
+    b.hidden = !pane;
+    b.classList.toggle("images", images);
+  }
+  paintSvgView(drawable, images, f.path);
+  if (!held) b.replaceChildren(
     ...(sub
       ? submoduleCard(f.path, sub)
       : missing
@@ -445,17 +456,28 @@ function paintSides() {
               ? [`Binary or non-UTF-8 file${large ? `, ${megabytes(large)}` : ""}: whole-file actions only.`, openButton(...shown)]
               : [`${basename(f.path)} is ${megabytes(large)}: too big to show, whole-file actions only.`, forceLoadButton(large), openButton(...shown)]),
   );
-  $("diff-save").hidden = true;
+  // a drawn SVG or page keeps its text's Save, greyed: the bar does not shift between views
+  $("diff-editable").hidden = $("diff-save").hidden = !(drawable && kind === "unstaged" && mod.exists);
+  ($("diff-save") as HTMLButtonElement).disabled = true;
   // no text diff: its view and change buttons have nothing to act on, but images still lay out by view
   dimDiffOpts(pane && !images);
   if (images) [$("prev-change"), $("next-change")].forEach((b) => b.classList.add("off"));
+  diffFile!.drawn = images;
   applyMode();
   if (pane) return Promise.resolve(dropModels());
   // Monaco gives up on a diff after 5 s and marks the whole file changed: a file loaded on request gets the time it takes
   setOptions({ maxComputationTime: diffFile!.full ? 0 : 5000 });
   setModels(false);
   // the folds land a moment after the text
-  return diffDrawn(diffFile!.full ? 300_000 : 500);
+  const mine = cover;
+  return diffDrawn(diffFile!.full ? 300_000 : 500).then(() => {
+    if (!mine || cover !== mine) return;
+    cover = null;
+    mine.removeAttribute("style");
+    mine.hidden = true;
+    mine.classList.remove("images");
+    mine.replaceChildren();
+  });
 }
 
 /** The commits a submodule moved between, and what changed in its folder. */
@@ -478,6 +500,9 @@ function submoduleCard(path: string, s: SubmoduleChange) {
 const IMAGE = /\.(png|jpe?g|gif|webp|bmp|ico|avif)$/i;
 // text, also shown drawn when asked
 const SVG = /\.svg$/i;
+const HTML = /\.html?$/i;
+// text files the switch can also draw: SVG as an image, HTML as a page
+const DRAWN = /\.(svg|html?)$/i;
 // raw bytes the window decodes itself, far cheaper than text in the editor: shown unasked up to this
 const IMAGE_UNASKED = 50 << 20;
 // past this an image is not drawn: decoded at 4 bytes a pixel, a 30000×30000 one would take the window's ~3.6 GB
@@ -500,9 +525,13 @@ export async function setSvgView(view: string) {
   }
 }
 
-/** The SVG switch: shown for an SVG, the half of its current view lit. */
-function paintSvgView(shown: boolean, image: boolean) {
+/** The text or drawn switch: shown for an SVG or an HTML page, the half of its current view lit. */
+function paintSvgView(shown: boolean, image: boolean, path: string) {
   $("svg-view").hidden = !shown;
+  const page = HTML.test(path), [text, drawn] = document.querySelectorAll<HTMLElement>("[data-svg]");
+  text.title = `Display ${page ? "HTML" : "SVG"} as text`;
+  drawn.title = page ? "Display HTML as a page" : "Display SVG as image";
+  drawn.querySelector("span")!.textContent = page ? "Page" : "Image";
   document.querySelectorAll<HTMLElement>("[data-svg]").forEach((b) => b.classList.toggle("on", (b.dataset.svg === "image") === image));
 }
 const sideName = (at: string) => (at === "WORKTREE" ? "Working tree" : at === "INDEX" ? "Staged" : at === "HEAD" ? "HEAD" : short(at));
@@ -511,7 +540,8 @@ const bytesText = (n: number) => (n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 10
 /** The open image's old and new versions, side by side. */
 function imageSides() {
   const { kind, f, c, orig, mod } = diffFile!;
-  const sides = sideSources(kind, f, c).flatMap(([at, path], i) => ((i ? mod : orig).exists ? [imageSide(at, path, i ? "add" : "del")] : []));
+  const side = HTML.test(f.path) ? pageSide : imageSide;
+  const sides = sideSources(kind, f, c).flatMap(([at, path], i) => ((i ? mod : orig).exists ? [side(at, path, i ? "add" : "del")] : []));
   return h("div", { className: "img-sides" }, ...sides);
 }
 
@@ -538,6 +568,59 @@ function imageSide(at: string, path: string, cls = "") {
   );
   return h("figure", { className: `img-side ${cls}` }, frame, caption);
 }
+
+/** One version of an HTML page, drawn without its scripts or anything remote: its own images and stylesheets come from the same version. */
+function pageSide(at: string, path: string, cls = "") {
+  const frame = h("iframe", { sandbox: "" }) as HTMLIFrameElement, caption = h("small", { textContent: sideName(at) });
+  run<ArrayBuffer>("file_bytes", { at, path }).then(
+    async (bytes) => {
+      const doc = new DOMParser().parseFromString(new TextDecoder().decode(bytes), "text/html");
+      await inlineLocal(doc, at, path);
+      // a refresh or a clicked link would load a remote page past the policy: no refresh, links aim at popups the sandbox blocks
+      doc.querySelectorAll("base, meta[http-equiv='refresh' i]").forEach((e) => e.remove());
+      doc.head.prepend(
+        h("meta", { httpEquiv: "Content-Security-Policy", content: "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:" }),
+        h("base", { target: "_blank" }),
+        // a browser's light page under the page's own styles, not krill's dark scheme; a see-through scrollbar suits light and dark pages
+        h("style", {
+          textContent:
+            ":root { color-scheme: light; background: #fff; color: #000; } ::-webkit-scrollbar { width: 14px; height: 14px; background: transparent; } ::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 7px; background: #8888 padding-box; } ::-webkit-scrollbar-corner { background: transparent; }",
+        }),
+      );
+      frame.srcdoc = `<!doctype html>${doc.documentElement.outerHTML}`;
+      caption.textContent = `${sideName(at)} · ${bytesText(bytes.byteLength)}`;
+    },
+    (e) => (caption.textContent = String(e)),
+  );
+  return h("figure", { className: `img-side ${cls}` }, h("div", { className: "frame" }, frame), caption);
+}
+
+/** The page's own images and stylesheets, read from version `at` in place of their links; remote ones stay out. */
+async function inlineLocal(doc: Document, at: string, path: string) {
+  // relative to the page, or to the repository's root for a leading /
+  const local = (url: string | null) => (!url || /^([a-z][\w+.-]*:|\/\/|#)/i.test(url) ? null : decodeURIComponent(new URL(url, `file:///${path}`).pathname.slice(1)));
+  const bytes = (p: string) => run<ArrayBuffer>("file_bytes", { at, path: p }).catch(() => null);
+  // a video stays out, its poster is an image
+  const images = [...doc.querySelectorAll("img, video[poster]")].map(async (el) => {
+    const attr = el.tagName === "VIDEO" ? "poster" : "src";
+    el.removeAttribute("srcset");
+    const p = local(el.getAttribute(attr)), b = p && (await bytes(p));
+    if (b) el.setAttribute(attr, await dataUrl(b, SVG.test(p) ? "image/svg+xml" : ""));
+  });
+  const sheets = [...doc.querySelectorAll("link[rel~='stylesheet' i]")].map(async (link) => {
+    const p = local(link.getAttribute("href")), b = p && (await bytes(p));
+    link.replaceWith(...(b ? [h("style", { textContent: new TextDecoder().decode(b) })] : []));
+  });
+  await Promise.all([...images, ...sheets]);
+}
+
+const dataUrl = (bytes: ArrayBuffer, type: string) =>
+  new Promise<string>((done) => {
+    const r = new FileReader();
+    r.onload = () => done(String(r.result));
+    // Blob here is git's, from ./repo
+    r.readAsDataURL(new globalThis.Blob([bytes], { type }));
+  });
 
 /** Download the open diff's LFS versions from the remote, then show them. */
 function lfsFetchButton() {
@@ -1160,14 +1243,14 @@ export async function showRev(i: number) {
   if (hist !== m || m.at !== i) return;
   if (!blob) return reveal();
   m.blame = [];
-  // an image, or an SVG asked as one, shows as itself in the diff's binary pane
-  const isSvg = SVG.test(f.path) && blob.exists && !blob.large, image = isSvg && store("svg-view") === "image";
-  paintSvgView(isSvg, image);
+  // an image, or an SVG or HTML page asked drawn, shows as itself in the diff's binary pane
+  const drawable = DRAWN.test(f.path) && blob.exists && !blob.large, image = drawable && store("svg-view") === "image";
+  paintSvgView(drawable, image, f.path);
   if (image || (IMAGE.test(f.path) && blob.binary && blob.lfs !== "missing" && (!blob.large || blob.large <= IMAGE_UNASKED))) {
     $("hist-file").hidden = true;
     $("diff-binary").hidden = false;
     $("diff-binary").classList.add("images");
-    $("diff-binary").replaceChildren(h("div", { className: "img-sides" }, imageSide(c.hash, f.path)));
+    $("diff-binary").replaceChildren(h("div", { className: "img-sides" }, (HTML.test(f.path) ? pageSide : imageSide)(c.hash, f.path)));
     return reveal();
   }
   const ed = historyEditor(), view = ed.saveViewState(), old = ed.getModel();
