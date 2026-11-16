@@ -99,6 +99,8 @@ const TO_WIP = new Set(["reset-soft", "reset-mixed", "stash-apply", "stash-pop"]
 /** Pick WIP before an op whose changes land there; its refresh moves on to HEAD if none are left. */
 function pickWip() {
   selection.stash = null;
+  // an op's landing, not a click: an empty WIP still goes to HEAD
+  selection.held = false;
   selection.hashes = [(selection.anchor = "WIP")];
   selection.isRange = false;
   reveal = true;
@@ -375,7 +377,7 @@ async function reload() {
         show = true;
       }
       selection.hashes = selection.hashes.filter((x) => x === "WIP" || commits.some((c) => c.hash === x));
-      if (!selection.hashes.length && !selection.stash) selection.hashes = ["WIP"];
+      if (!selection.hashes.length && !selection.stash) [selection.hashes, selection.held] = [["WIP"], false];
     }
     // nothing to commit: open on HEAD, not on an empty WIP panel; also after an op that changed nothing
     if (selection.hashes[0] === "WIP" && !selection.held && !s.staged.length && !s.unstaged.length && !opInfo && headHash()) selection.hashes = [(selection.anchor = headHash())];
