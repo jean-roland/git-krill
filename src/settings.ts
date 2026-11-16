@@ -18,15 +18,13 @@ const hint = (text: string) => h("small", { className: "set-hint", textContent: 
 const note = (text: string) => h("small", { className: "set-note", textContent: text });
 // "git-lfs/3.4.1 (GitHub; linux amd64; go 1.22.2)" says 3.4.1
 const version = (line: string) => line.match(/\d+(\.\d+)+/)?.[0] ?? line;
-// the describe only when it says more than the version: a tagged build's is "v<version>"
-const build = () => (__BUILD__.id === `v${__BUILD__.version}` ? __BUILD__.version : `${__BUILD__.version} (${__BUILD__.id})`);
 const state = (ok: boolean, text: string) => h("span", { className: ok ? "set-ok" : "set-bad", textContent: `${ok ? "✓" : "✗"} ${text}` });
 
 /** The Settings tab: the tools krill leans on, background fetch, the editor, the folder pickers' start, the global git identity, conflict replay and this build. */
 export function renderSettings() {
   const tools = h("div", {}, ...checking()), global = globalRows();
   $("settings-box").replaceChildren(
-    h("h1", {}, "Settings", h("small", { className: "set-build", textContent: `Build: ${build()}, ${dateTimeText(__BUILD__.time)}`, title: "This build: its version, git describe, then when it was built" })),
+    h("h1", {}, "Settings", h("small", { className: "set-build", textContent: `Build: ${__BUILD__.version} (${__BUILD__.id}), ${dateTimeText(__BUILD__.time)}`, title: "This build: its version, its commit, then when it was built" })),
     h("div", { className: "head" }, "Tool status ", h("button", { className: "set-again", innerHTML: `${svg(ICONS.sync)}Refresh`, title: "Check the tools again", onclick: () => paintTools(tools, true) })),
     tools,
     h("div", { className: "head", textContent: "Background fetch" }),

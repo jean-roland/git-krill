@@ -9,7 +9,7 @@ const host = process.env.TAURI_DEV_HOST;
 // which build this is, shown in Settings: a source tarball has no git to ask
 const describe = () => {
   try {
-    return execSync("git describe --tags --always --dirty", { encoding: "utf8" }).trim();
+    return execSync("git describe --always --dirty --exclude=*", { encoding: "utf8" }).trim();
   } catch {
     return "unknown";
   }
@@ -17,7 +17,7 @@ const describe = () => {
 
 // https://vite.dev/config/
 export default defineConfig(() => ({
-  // the version too: CI clones without tags, its describe is a bare hash
+  // the commit even on a tag: a tag can move to a newer build
   define: { __BUILD__: JSON.stringify({ version: JSON.parse(readFileSync("package.json", "utf8")).version, id: describe(), time: Math.floor(Date.now() / 1000) }) },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
