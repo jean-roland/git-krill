@@ -60,6 +60,7 @@ export function openRebase(base: string, range: Commit[] | null | undefined) {
   if (!range.length) return say("Interactive rebase: nothing to replay, the branch has no commit this one lacks", true);
   plan = { base, rows: range.map((c) => ({ c, action: "pick", message: "" })), at: 0, repo, head: headHash(), picked: new Set() };
   $("rebase").hidden = false;
+  paint();
   pick(0);
 }
 
@@ -114,7 +115,8 @@ function paint() {
         h("span", { textContent: label }),
         ico(ICONS.caret),
       );
-      const subject = r.action === "pick" || r.action === "reword" ? splitMsg(finalMessage(i))[0] : r.c.subject;
+      // squashed messages only add paragraphs: the subject is the row's own
+      const subject = r.message ? splitMsg(r.message)[0] : r.c.subject;
       return h(
         "div",
         {
@@ -161,7 +163,7 @@ function click(e: MouseEvent, i: number) {
   // never none: the keys would act on nothing
   if (!p.picked.size) p.picked.add(hash);
   // the run's start stays put
-  if (e.shiftKey) return paint();
+  if (e.shiftKey) return paintPicks();
   pick(i, mod(e));
 }
 
@@ -184,8 +186,14 @@ function pick(i: number, keep = false) {
   selection.stash = null;
   selection.hashes = [plan!.rows[plan!.at].c.hash];
   renderPanel();
-  paint();
+  paintPicks();
   $("rebase-rows").children[plan!.at]?.scrollIntoView({ block: "nearest" });
+}
+
+/** Only the picked rows' highlight: the arrows go through long plans without a repaint. */
+function paintPicks() {
+  const p = plan!;
+  [...$("rebase-rows").children].forEach((el, k) => el.classList.toggle("sel", p.picked.has(p.rows[k].c.hash)));
 }
 
 /** Set `action` on rows `idx` at once; one row goes through setAction, for its checks and reword's message. */
@@ -241,6 +249,7 @@ function move(i: number, by: number) {
   if (j < 0 || j >= rows.length) return;
   [rows[i], rows[j]] = [rows[j], rows[i]];
   unsquashOrphans();
+  paint();
   pick(j, plan!.picked.has(rows[j].c.hash));
 }
 
@@ -267,6 +276,7 @@ function drag(e: PointerEvent, i: number) {
     removeEventListener("pointermove", follow);
     if (!moved || !plan) return;
     unsquashOrphans();
+    paint();
     pick(at, plan.picked.has(plan.rows[at].c.hash));
   };
   addEventListener("pointermove", follow);
