@@ -150,7 +150,8 @@ $("undo").onclick = () => undoRedo(true);
 $("redo").onclick = () => undoRedo(false);
 $("undo").oncontextmenu = (e) => undoMenu(e, true);
 $("redo").oncontextmenu = (e) => undoMenu(e, false);
-$("all-files").onclick = () => ($("all-files").classList.toggle("on"), renderPanel());
+// one switch for both panels: the commit's files or the repository's
+document.querySelectorAll<HTMLElement>(".all-files").forEach((b) => (b.onclick = () => (document.querySelectorAll(".all-files").forEach((x) => x.classList.toggle("on")), renderPanel())));
 document.querySelectorAll<HTMLElement>("[data-files]").forEach(
   (b) =>
     (b.onclick = () => {

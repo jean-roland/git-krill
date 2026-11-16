@@ -2,7 +2,7 @@
 import type * as Monaco from "monaco-editor/esm/vs/editor/edcore.main";
 import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import { applyChanges, allLines, pickLines, parseConflicts, mergeSides, pickedLines, parseBlame, toggleSide, toggleLine, hasSide, pickedOf } from "./core.js";
-import { Blob, Change, Commit, active, fakeCommit, gitOp, headHash, lfsChip, opInfo, recordUndo, refresh, repo, run, status, tabs } from "./repo";
+import { Blob, Change, Commit, active, fakeCommit, gitOp, headHash, lfsChip, opInfo, recordUndo, refresh, repo, run, selection, status, tabs } from "./repo";
 import { $, COLORS, ICONS, MenuItem, ask, avatar, avatarSvg, basename, colorIndex, copy, cssVar, dateText, dateTimeText, esc, h, hideBanner, input, megabytes, plural, popup, say, short, showBanner, store, svg, toast, whileLoading } from "./ui";
 import { fileLists, isConflict, isSubmodule, markOpenFile, wipFiles } from "./panel";
 import { openSubmodule } from "./graph";
@@ -75,8 +75,8 @@ export const loadMonaco = () =>
 type SubCommit = { hash: string; subject: string };
 type SubmoduleChange = { old: SubCommit | null; new: SubCommit | null; added: SubCommit[]; removed: SubCommit[]; changed: number; untracked: number; initialized: boolean };
 // full: loaded past the size a diff loads unasked; sub: what a submodule went through, shown instead of a text diff; ids: its sides' versions, see versionIds
-// drawn: shown as images or a page
-export let diffFile: { kind: DiffSource; f: Change; c?: Commit; orig: Blob; mod: Blob; dirty: boolean; full: boolean; drawn?: boolean; sub?: SubmoduleChange; ids?: string } | null = null;
+// same: no change when opened (an All files entry): shown whole, so that a first edit does not fold the rest away; drawn: shown as images or a page
+export let diffFile: { kind: DiffSource; f: Change; c?: Commit; orig: Blob; mod: Blob; dirty: boolean; full: boolean; same: boolean; drawn?: boolean; sub?: SubmoduleChange; ids?: string } | null = null;
 export let diffEditor: Monaco.editor.IStandaloneDiffEditor | null = null;
 // hunk header bars, as view zone ids per side
 let hunkZones: { mod: string[]; orig: string[]; nodes: HTMLElement[] } = { mod: [], orig: [], nodes: [] };
@@ -234,11 +234,11 @@ export function setMode(m: Mode) {
 /** The view shown: Monaco cannot fold a file loaded on request, so Inline stands in for Hunk there. */
 const viewMode = (): Mode => {
   const m = (store("diff-mode") as Mode) || "hunk";
-  return m === "hunk" && (diffFile?.full || diffFile?.drawn) ? "inline" : m;
+  return m === "hunk" && (diffFile?.full || diffFile?.same || diffFile?.drawn) ? "inline" : m;
 };
 
 function applyMode() {
-  const m = viewMode(), full = !!diffFile?.full, none = !!diffFile?.drawn;
+  const m = viewMode(), full = !!diffFile?.full, none = !!(diffFile?.same || diffFile?.drawn);
   setOptions({ renderSideBySide: m === "split", hideUnchangedRegions: { enabled: m === "hunk" } });
   updateHunkBars();
   document.querySelectorAll<HTMLElement>("[data-mode]").forEach((b) => b.classList.toggle("on", b.dataset.mode === m));
@@ -379,7 +379,7 @@ export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistor
   const gen = ++opening, fresh = $("diff").hidden && !merging;
   const copy = document.querySelector(".still") ?? still(merging ? $("merge") : [$("diff-editor"), $("diff-binary")].find((e) => !$("diff").hidden && !e.hidden));
   await closeMerge(true);
-  diffFile = { kind, f, c, orig, mod, dirty: false, full: false, sub, ids };
+  diffFile = { kind, f, c, orig, mod, dirty: false, full: false, same: !sub && orig.exists === mod.exists && orig.text === mod.text, sub, ids };
   if (fresh) $("diff").classList.add("blank");
   $("diff").hidden = false;
   const range = c ? `  ·  ${c.parents[0] ? short(c.parents[0]) : "root"}..${short(c.hash)}` : "";
@@ -719,8 +719,9 @@ export const openRow = () => (diffFile && diffFile.kind !== "commit" ? (fileList
 
 /** The open file left its list: the file now in its `row`, else the file's other side, else nothing. */
 function moveOn(kind: "staged" | "unstaged", f: Change, row: number) {
-  const order = fileLists.get($(kind))?.order ?? status![kind];
-  const next = order[Math.min(Math.max(row, 0), order.length - 1)];
+  const order = fileLists.get($(kind))?.order ?? status![kind], at = Math.max(row, 0);
+  // the change now in its place, else the one before: All files' unchanged rows are no change to move on to
+  const next = order.slice(at).find((x) => x.code) ?? order.slice(0, at).reverse().find((x) => x.code);
   const other = kind === "staged" ? "unstaged" : "staged", same = status![other].find((x) => x.path === f.path);
   return next ? openDiff(kind, next) : same ? openDiff(other, same) : closeDiff();
 }
@@ -730,10 +731,18 @@ export async function reloadDiff(row = -1) {
   const d = diffFile;
   if (!d || d.dirty || !status) return;
   const { kind, f } = d;
-  if (kind !== "commit" && !status[kind].some((x) => x.path === f.path)) return moveOn(kind, f, row);
+  const listed = kind !== "commit" && status[kind].find((x) => x.path === f.path);
+  const onWip = selection.hashes[0] === "WIP" && !selection.stash;
+  // changed back to as it was, not staged: All files still lists it, so it stays open, whole again
+  const back = kind === "unstaged" && !listed && !!f.code && !!document.querySelector(".all-files.on") && onWip && !status.staged.some((x) => x.path === f.path);
+  // an All files entry belongs to the WIP panel: gone with it, as a commit moves on to HEAD
+  if (kind === "unstaged" && !listed && !f.code && !onWip) return closeDiff();
+  // an All files entry was never listed: it stays open, unchanged or not yet
+  if (kind !== "commit" && !listed && f.code && !back) return moveOn(kind, f, row);
   // the file may have changed status code
-  if (kind !== "commit") d.f = status[kind].find((x) => x.path === f.path)!;
-  // a commit's sides never change, the uncommitted row of a file history aside
+  if (listed) d.f = listed;
+  else if (back) d.f = { path: f.path, old: null, code: "" };
+  // a commit's sides never change, the uncommitted row of a file history aside, nor an All files entry still unchanged
   else if (d.c?.hash !== "WORKTREE") return paintOpenEditor();
   if (d.sub) {
     const sub = await submoduleChange(d.kind, d.f, d.c).catch(() => d.sub);
@@ -748,16 +757,21 @@ export async function reloadDiff(row = -1) {
   const [orig, mod] = await fetchSides(d.kind, d.f, d.c, d.full);
   // another file opened meanwhile, or edits began
   if (diffFile !== d || d.dirty) return;
+  // a new file discarded is gone: nothing to stay on
+  if (back && !orig.exists && !mod.exists) return moveOn(kind, f, row);
   d.ids = ids;
   paintOpenEditor();
   // an image has no text to compare: its new version is drawn
   const same = (a: Blob, b: Blob) => a.text === b.text && a.exists === b.exists && a.binary === b.binary && a.large === b.large && a.lfs === b.lfs && !a.binary;
   if (same(orig, d.orig) && same(mod, d.mod)) return;
-  Object.assign(d, { orig, mod });
+  // once saved with a change, its hunks show again
+  Object.assign(d, { orig, mod, same: orig.exists === mod.exists && orig.text === mod.text });
   // no text diff before or now: its pane is painted again
   if ($("diff-editor").hidden || orig.binary || mod.binary || orig.large || mod.large) return paintSides();
   // the old diff stays on screen until the new one is drawn
   const gen = opening, copy = still($("diff-editor"));
+  dimDiffOpts(false);
+  applyMode();
   setModels(true);
   await diffDrawn();
   // a file opened meanwhile took the copy over
@@ -796,6 +810,15 @@ export async function save() {
   diffFile.dirty = false;
   ($("diff-save") as HTMLButtonElement).disabled = true;
   say(`saved ${diffFile.f.path}`);
+  // a file opened unchanged gets its hunks once saved with a change: folded under a still copy, in one step
+  if (diffFile.same && text !== diffFile.orig.text) {
+    diffFile.same = false;
+    const copy = still($("diff-editor"));
+    // applyMode only greys: the text diff's buttons are lit again first
+    dimDiffOpts(false);
+    applyMode();
+    diffDrawn(150).then(() => requestAnimationFrame(() => copy?.remove()));
+  }
 }
 
 /** Changed lines under the selection of the side that had focus last. */

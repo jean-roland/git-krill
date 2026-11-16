@@ -1,5 +1,5 @@
 // The right panel: work in progress or a commit's details, the file lists, the commit box.
-import { Blob, Change, Commit, commits, fakeCommit, gitOp, isHead, lfsChip, opInfo, openInEditor, refresh, refs, repo, run, runFixed, selection, status } from "./repo";
+import { Blob, Change, Commit, commits, fakeCommit, gitOp, headHash, isHead, lfsChip, opInfo, openInEditor, refresh, refs, repo, run, runFixed, selection, status } from "./repo";
 import { $, ICONS, MenuItem, ask, avatar, basename, copy, dateTimeText, h, ico, input, mod, onCtrlEnter, label, plural, popup, say, shaLink, short, store, svg, warnOnce } from "./ui";
 import { DiffSource, closeDiff, confirmDiscard, diffFile, merging, openDiff, openHistory } from "./diff";
 import { discardSubmodule, linkRemote, openSubmodule, webUrl } from "./graph";
@@ -51,7 +51,8 @@ function fileMenu(f: Change, kind: DiffSource, c?: Commit): MenuItem[] {
           [`Take incoming (${opInfo?.incoming ?? "theirs"})`, () => gitOp("take-incoming", f.path)],
           ["Mark resolved", () => gitOp("stage", f.path)],
         ] as MenuItem[])
-      : kind === "unstaged"
+      // an unchanged file, listed by All files: nothing to stage or discard
+      : kind === "unstaged" && f.code
       ? ([
           ["Stage", () => gitOp("stage", f.path)],
           ["Discard changes", () => (isSubmodule(f.path) ? discardSubmodule(f.path) : confirmDiscard([f]))],
@@ -66,7 +67,8 @@ function fileMenu(f: Change, kind: DiffSource, c?: Commit): MenuItem[] {
     ["Show in folder", () => run("open_default", { path: f.path, folder: true }).catch(neutral)],
     null,
     ...(kind === "commit" ? [] : lfsItems(f)),
-    ...(kind === "commit" ? [] : ignoreItems(f)),
+    // a tracked file stays tracked whatever .gitignore says
+    ...(kind === "commit" || !f.code ? [] : ignoreItems(f)),
     null,
     ...(c
       ? ([
@@ -476,12 +478,14 @@ function editMessage(c: Commit, msg: string) {
   summary.focus();
 }
 
+const allFiles = () => document.querySelector(".all-files")!.classList.contains("on");
+
 /** The right panel: the work in progress, or the picked commit, range or stash. */
 /** What the commit panel reads, read ahead: a tab switch then lands with its panel. */
 export function panelData() {
   const view = !selection.stash && selection.hashes[0] === "WIP" ? null : panelCommit();
   if (!view) return Promise.resolve();
-  const all = $("all-files").classList.contains("on") ? [runFixed("tree_files", { at: view.c.hash })] : [];
+  const all = allFiles() ? [runFixed("tree_files", { at: view.c.hash })] : [];
   return Promise.all([runFixed("commit_info", { hash: view.c.hash, parent: view.c.parents[0] ?? "" }), ...all]).catch(() => {});
 }
 
@@ -490,13 +494,16 @@ export async function renderPanel() {
   const wip = !selection.stash && selection.hashes[0] === "WIP";
   $("wip").hidden = !wip;
   $("commit").hidden = wip;
-  if (wip) return renderWip();
+  if (wip) return renderWip(n);
   picked.paths.clear();
   return renderCommitDetails(n);
 }
 
-function renderWip() {
+async function renderWip(seq: number) {
   if (!status) return;
+  // all files: HEAD's tree, the files changed since listed as such
+  const head = headHash(), all = allFiles() && head ? await runFixed<string[]>("tree_files", { at: head }).catch(() => []) : [];
+  if (seq !== panelSeq || !status) return;
   const n = new Set([...status.unstaged, ...status.staged].map((f) => f.path)).size;
   const conflicts = status.unstaged.filter(isConflict), clean = (f: Change) => !isConflict(f);
   $("wip-title").replaceChildren(...(opInfo ? opTitle() : [`${plural(n, "file change")} on `, h("b", { textContent: status.branch || "detached HEAD" })]));
@@ -507,10 +514,14 @@ function renderWip() {
   renderCommitBtn();
   // a pick's files that left its list
   picked.paths = new Set([...picked.paths].filter((p) => status![picked.list].some((f) => f.path === p)));
-  fileList($("unstaged"), [...conflicts, ...status.unstaged.filter(clean)], (f, e) => clickFile("unstaged", f, e), [
+  const listed = new Set([...status.unstaged, ...status.staged].map((f) => f.path));
+  const same = all.filter((p) => !listed.has(p)).map((path): Change => ({ path, old: null, code: "" }));
+  const rest = [...status.unstaged.filter(clean), ...same].sort((a, b) => (same.length ? a.path.localeCompare(b.path) : 0));
+  // an unchanged file only opens: nothing to stage, pick or discard
+  fileList($("unstaged"), [...conflicts, ...rest], (f, e) => (f.code ? clickFile("unstaged", f, e) : openDiff("unstaged", f)), [
     ["Mark resolved", (f) => gitOp("stage", f.path), isConflict],
     // no Discard here: a slip next to Stage would cost work; it stays in the menu
-    ["Stage", (f) => gitOp("stage", f.path), clean],
+    ["Stage", (f) => gitOp("stage", f.path), (f) => clean(f) && !!f.code],
   ], wipMenu("unstaged"));
   fileList($("staged"), status.staged, (f, e) => clickFile("staged", f, e), [["Unstage", (f) => gitOp("unstage", f.path)]], wipMenu("staged"));
   markOpenFile();
@@ -523,7 +534,7 @@ async function renderCommitDetails(n: number) {
   try {
     const info = await runFixed<{ message: string; email: string; sign: string; files: Change[] }>("commit_info", { hash: view.c.hash, parent: view.c.parents[0] ?? "" });
     if (n !== panelSeq) return;
-    const all = $("all-files").classList.contains("on") ? await runFixed<string[]>("tree_files", { at: view.c.hash }) : [];
+    const all = allFiles() ? await runFixed<string[]>("tree_files", { at: view.c.hash }) : [];
     if (n !== panelSeq) return;
     const msg = view.message ?? info.message;
     $("commit-head").replaceChildren(...view.head);
