@@ -643,6 +643,8 @@ textarea.msg-in { height: 104px; resize: vertical; }
 .rb-row.squash .rb-subject, .rb-row.drop .rb-subject { color: var(--dim); }
 .rb-row.drop .rb-subject { text-decoration: line-through; }
 .rb-row small { color: var(--dim); }
+.rb-keep { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--dim); cursor: pointer; }
+.rb-keep input { margin: 0; }
 /* the actions under the rebase plan and the merge view */
 .foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--border); font-size: 14px; }
 .foot small { margin-right: auto; color: var(--dim); font-size: inherit; }

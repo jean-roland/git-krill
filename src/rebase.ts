@@ -5,7 +5,8 @@ import { countLeft, joinMsg, renderPanel, splitMsg } from "./panel";
 
 type Action = "pick" | "reword" | "squash" | "drop";
 // one commit of the plan; message is the reworded one, empty while unchanged
-type Row = { c: Commit; action: Action; message: string };
+// fixup: a squash whose message is dropped
+type Row = { c: Commit; action: Action; message: string; fixup?: boolean };
 
 const ACTIONS: [Action, string, string][] = [
   ["pick", "Pick", ICONS.check],
@@ -86,7 +87,7 @@ function target(i: number) {
 function finalMessage(i: number) {
   const rows = plan!.rows, own = rows[i].message || message(rows[i].c);
   // oldest first, as git folds them
-  const squashed = [...rows.keys()].reverse().flatMap((k) => (rows[k].action === "squash" && target(k) === i ? [message(rows[k].c)] : []));
+  const squashed = [...rows.keys()].reverse().flatMap((k) => (rows[k].action === "squash" && !rows[k].fixup && target(k) === i ? [message(rows[k].c)] : []));
   return rows[i].message ? own : [own, ...squashed].join("\n\n");
 }
 
@@ -128,10 +129,26 @@ function paint() {
         ...(r.action === "squash" ? [h("span", { className: "rb-into", innerHTML: svg(ICONS.into) })] : []),
         avatar(r.c.author),
         h("span", { className: "rb-subject", textContent: subject }),
-        ...(into >= 0 ? [h("small", { textContent: `into ${short(p.rows[into].c.hash)}` })] : []),
+        ...(into >= 0 ? [h("small", { textContent: `into ${short(p.rows[into].c.hash)}` }), keepBox(r, p.rows[into])] : []),
       );
     }),
   );
+}
+
+/** A squash's message goes into `into`'s, unless unticked; a reworded one is used as written. */
+function keepBox(r: Row, into: Row) {
+  const sha = short(into.c.hash), fixed = into.action === "reword";
+  const box = h("input", { type: "checkbox", checked: !r.fixup && !fixed, disabled: fixed, onchange: () => ((r.fixup = !box.checked), paint()) });
+  const title = fixed ? `${sha} is reworded: its new message is used as written` : `${r.fixup ? `Its message is dropped: ${sha} keeps its own` : `Its message is added to ${sha}'s`} — shortcut: M`;
+  return h("label", { className: "rb-keep", title, onclick: (e: Event) => e.stopPropagation(), ondblclick: (e: Event) => e.stopPropagation() }, box, " message");
+}
+
+/** M: the picked squashes keep or drop their messages, all alike. */
+function toggleMessages() {
+  const rows = plan!.rows, squashes = pickedRows().filter((k) => rows[k].action === "squash" && rows[target(k)]?.action !== "reword");
+  const fixup = !squashes.every((k) => rows[k].fixup);
+  squashes.forEach((k) => (rows[k].fixup = fixup));
+  paint();
 }
 
 /** Ctrl+click adds a row to the picked ones, Shift+click picks a run from the last one; a click picks one. */
@@ -174,7 +191,7 @@ function pick(i: number, keep = false) {
 /** Set `action` on rows `idx` at once; one row goes through setAction, for its checks and reword's message. */
 function setActions(idx: number[], action: Action) {
   if (idx.length === 1) return setAction(idx[0], action);
-  for (const i of idx) Object.assign(plan!.rows[i], { action, message: "" });
+  for (const i of idx) Object.assign(plan!.rows[i], { action, message: "", fixup: false });
   // the oldest of several squashes, with nothing older, is picked: the others fold into it
   unsquashOrphans();
   paint();
@@ -185,7 +202,7 @@ function setAction(i: number, action: Action) {
   if (action === "squash" && target(i) < 0) return paint();
   // any other action drops the new message: back to the commit's own
   if (action !== "reword") {
-    Object.assign(r, { action, message: "" });
+    Object.assign(r, { action, message: "", fixup: false });
     unsquashOrphans();
     return paint();
   }
@@ -229,7 +246,7 @@ function move(i: number, by: number) {
 
 /** Drag row `i` up or down: the rows reorder live under the pointer, like the tabs. */
 function drag(e: PointerEvent, i: number) {
-  if (e.button !== 0 || (e.target as HTMLElement).closest(".rb-act")) return;
+  if (e.button !== 0 || (e.target as HTMLElement).closest(".rb-act, .rb-keep")) return;
   const y0 = e.clientY;
   let at = i, moved = false;
   const follow = (m: PointerEvent) => {
@@ -273,7 +290,7 @@ async function start() {
     // the last squash into a commit, or the commit itself when none follows, carries its message
     const t = r.action === "squash" ? target(i) : r.action === "drop" ? -1 : i;
     const lastOfGroup = t >= 0 && !rows.slice(0, i).some((o, k) => o.action === "squash" && target(k) === t);
-    const rewritten = t >= 0 && (rows[t].action === "reword" || rows.some((o, k) => o.action === "squash" && target(k) === t));
+    const rewritten = t >= 0 && (rows[t].action === "reword" || rows.some((o, k) => o.action === "squash" && !o.fixup && target(k) === t));
     if (lastOfGroup && rewritten) steps[steps.length - 1].push(finalMessage(t));
   }
   // commits newest first, as the graph has them, when nothing moved
@@ -291,7 +308,8 @@ $("rebase-rows").onclick = $("rebase-rows").oncontextmenu = (e) => void (e.targe
 $("rebase-reset").onclick = () => {
   if (!plan) return;
   const at = new Map(commits.map((c, k) => [c.hash, k]));
-  plan.rows = plan.rows.sort((a, b) => at.get(a.c.hash)! - at.get(b.c.hash)!).map((r) => ({ ...r, action: "pick", message: "" }));
+  plan.rows = plan.rows.sort((a, b) => at.get(a.c.hash)! - at.get(b.c.hash)!).map((r) => ({ ...r, action: "pick", message: "", fixup: false }));
+  paint();
   pick(0);
 };
 $("rebase-start").onclick = () => plan && start();
@@ -306,6 +324,7 @@ export function rebaseKey(e: KeyboardEvent) {
   else if (e.key === "ArrowUp" || e.key === "ArrowDown") pick(i + (e.key === "ArrowUp" ? -1 : 1));
   // reword is one commit's: the row shown
   else if (!mod(e) && !e.altKey && "prsd".includes(key) && key) setActions(key === "r" ? [i] : pickedRows(), ACTIONS.find(([a]) => a[0] === key)![0]);
+  else if (!mod(e) && !e.altKey && key === "m") toggleMessages();
   else return false;
   return true;
 }
