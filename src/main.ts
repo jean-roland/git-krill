@@ -245,6 +245,9 @@ addEventListener("keydown", (e) => {
   // fields and buttons answer Enter themselves: elsewhere in a dialog it means its main action
   else if (e.key === "Enter" && !$("dialog").hidden && !(e.target as HTMLElement).closest?.("input, textarea, button, select"))
     (e.preventDefault(), $("dialog").querySelector<HTMLElement>("button.primary")?.click());
+  // the open diff's changes, from anywhere but a field or a text being edited; a greyed arrow says why
+  else if (!mod(e) && !e.altKey && (key === "p" || key === "n") && diffFile && !$("diff").hidden && $("dialog").hidden && !(e.target as HTMLElement).closest?.(`input:not([type=checkbox]), textarea, #merge, #hist-file${diffFile.kind === "unstaged" && diffFile.mod.exists ? ", #diff-editor" : ""}`))
+    (e.preventDefault(), $(key === "n" ? "next-change" : "prev-change").click());
   else if (e.key === "Escape") {
     if (!$("menu").hidden) $("menu").hidden = $("submenu").hidden = true;
     else if (!$("banner").hidden) hideBanner();
