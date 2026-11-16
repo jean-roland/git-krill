@@ -8,7 +8,7 @@ A lean desktop git client for Linux, Windows and macOS: a commit graph, diffs yo
 
 - **Graph**: every branch in lanes, with search; checkout, merge, rebase and reset from the menus.
 - **Staging**: whole files, hunks or single lines; commit, amend, discard with undo.
-- **Diffs**: hunk, inline or side by side, editable in place; images side by side.
+- **Diffs**: hunk, inline or side by side, editable in place; images with zoom, SVGs and HTML pages drawn.
 - **Merge tool**: three panes, picks per hunk or per line.
 - **Interactive rebase**: reorder, reword, squash, drop, one row or several at once.
 - **File history** with blame.
