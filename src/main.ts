@@ -41,14 +41,14 @@ function openListed(id: string, f: Change) {
 }
 
 /** Drag `grip` to size `prop` of `box` (a height, or a column width variable), kept across runs. */
-function resizer(grip: HTMLElement, box: HTMLElement, key: string, size: (m: PointerEvent) => number, prop = "height") {
+function resizer(grip: HTMLElement, box: HTMLElement, key: string, size: (m: PointerEvent) => number, prop = "height", unit = "px") {
   box.style.setProperty(prop, store(key) ?? "");
   grip.onpointerdown = (e) => {
     // else the drag selects the text it crosses
     e.preventDefault();
     grip.setPointerCapture(e.pointerId);
     grip.onpointermove = (m) => {
-      box.style.setProperty(prop, `${size(m)}px`);
+      box.style.setProperty(prop, `${size(m)}${unit}`);
       relayout();
     };
     grip.onpointerup = () => {
@@ -174,6 +174,11 @@ paintFileOpts();
 resizer($("term-grip"), $("term"), "term-height", (m) =>
   Math.min($("center").clientHeight - 120, Math.max(80, $("term").getBoundingClientRect().bottom - m.clientY)),
 );
+// the unstaged list's share of the two lists' height, 1 for half
+resizer($("files-grip"), $("wip"), "unstaged-share", (m) => {
+  const u = $("unstaged").getBoundingClientRect(), both = u.height + $("staged").clientHeight;
+  return (2 * Math.min(both - 60, Math.max(60, m.clientY - u.top))) / both;
+}, "--unstaged-share", "");
 resizer($("commit-grip"), $("commit-msg"), "msg-height", (m) => Math.min(innerHeight * 0.6, Math.max(60, m.clientY - $("commit-msg").getBoundingClientRect().top)));
 export const main = document.querySelector("main")!;
 resizer($("sidebar-grip"), main, "sidebar-width", (m) => Math.min(480, Math.max(160, m.clientX)), "--sidebar-w");

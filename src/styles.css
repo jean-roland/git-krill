@@ -507,6 +507,9 @@ body.home main { grid-template-columns: 1fr; }
 #discard-all svg { width: 14px; height: 14px; }
 #discard-n:not(:empty) { margin-left: 4px; font-size: 12px; line-height: 14px; vertical-align: top; }
 .files { flex: 1 1 0; overflow: auto; min-height: 60px; }
+/* the two WIP lists share their height by the grip between them, evenly at first */
+#unstaged { flex-grow: var(--unstaged-share, 1); }
+#staged { flex-grow: calc(2 - var(--unstaged-share, 1)); }
 .file {
   display: flex;
   align-items: center;
@@ -576,8 +579,10 @@ textarea.msg-in { height: 104px; resize: vertical; }
   border-radius: 6px;
 }
 #commit-msg.editing { height: auto !important; }
-#commit-grip { position: relative; flex: none; width: 70px; height: 12px; margin: 0 auto; cursor: ns-resize; }
-#commit-grip::after { content: ""; position: absolute; left: 0; right: 0; top: 5px; height: 2px; border-radius: 1px; background: var(--border); }
+/* grabbed anywhere across, shown as a bar in the middle */
+#commit-grip, #files-grip { position: relative; flex: none; height: 14px; cursor: ns-resize; }
+#commit-grip::after, #files-grip::after { content: ""; position: absolute; left: calc(50% - 45px); width: 90px; top: 5px; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--dim) 55%, transparent); transition: background 0.15s; }
+#commit-grip:hover::after, #files-grip:hover::after { background: var(--accent); }
 #commit-msg .edit { position: absolute; top: 8px; right: 8px; padding: 0 6px; visibility: hidden; }
 #commit-msg:hover .edit { visibility: visible; }
 .edit-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
