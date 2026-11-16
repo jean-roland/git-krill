@@ -89,7 +89,8 @@ export let commits: Commit[] = [];
 export let status: Status | null = null;
 export let refs: Refs = { refs: [], stashes: [], remotes: [], worktrees: [], submodules: [], superproject: "", repoTop: "", lfs: false, lfsProblem: "" };
 // the picked graph rows ("WIP" or hashes), where a Shift range starts, whether it is one, or the stash shown instead
-export const selection = { hashes: ["WIP"], anchor: "", isRange: false, stash: null as Stash | null };
+// held: WIP clicked, kept even with nothing to commit (its All files); never picked empty otherwise
+export const selection = { hashes: ["WIP"], anchor: "", isRange: false, stash: null as Stash | null, held: false };
 // the next refresh scrolls the pick into view: it moved on its own
 let reveal = false;
 // ops whose changes land in WIP: it is picked before they run
@@ -364,6 +365,8 @@ async function reload() {
       const was = headHash();
       commits = log;
       const now = headHash();
+      // a new HEAD, as a commit makes, lets go of an empty WIP
+      if (now !== was) selection.held = false;
       // HEAD moved (pull, checkout, rebase...): on to it, unless on WIP, where an op's changes went, or under a commit's open diff
       if (!landed && was && now && now !== was && selection.hashes[0] !== "WIP" && diffFile?.kind !== "commit") {
         selection.stash = null;
@@ -375,7 +378,7 @@ async function reload() {
       if (!selection.hashes.length && !selection.stash) selection.hashes = ["WIP"];
     }
     // nothing to commit: open on HEAD, not on an empty WIP panel; also after an op that changed nothing
-    if (selection.hashes[0] === "WIP" && !s.staged.length && !s.unstaged.length && !opInfo && headHash()) selection.hashes = [(selection.anchor = headHash())];
+    if (selection.hashes[0] === "WIP" && !selection.held && !s.staged.length && !s.unstaged.length && !opInfo && headHash()) selection.hashes = [(selection.anchor = headHash())];
     if (landed) {
       // the panel's data read first: graph, sidebar and panel then change in one frame
       await panelData();

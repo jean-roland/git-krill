@@ -394,11 +394,10 @@ export function resetGraph() {
 /** Draw the graph from `commits`, at `scroll` when given, before its rows draw: no frame at the old place. */
 export function renderGraph(scroll?: number) {
   updateHidden();
-  const n = status ? status.staged.length + status.unstaged.length : 0;
   const head = commits.find(isHead);
   const wip = fakeCommit("WIP", head ? [head.hash] : [], "// WIP");
-  // an operation in progress keeps the row: its controls live in the WIP panel
-  const list = n || opInfo ? [wip, ...commits] : [...commits];
+  // always there: an empty WIP still opens the work tree's files (All files)
+  const list = [wip, ...commits];
   // a stash hangs off its base commit
   for (const s of refs.stashes) {
     if (hiddenSet.has(s.hash)) continue;
@@ -602,6 +601,7 @@ function clickRow(e: MouseEvent, hash: string) {
     selection.anchor = hash;
     selection.isRange = false;
   } else {
+    selection.held = hash === "WIP";
     selection.hashes = [hash];
     selection.anchor = hash;
     selection.isRange = false;
