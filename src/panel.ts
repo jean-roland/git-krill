@@ -232,6 +232,8 @@ export const isSubmodule = (path: string) => refs.submodules.some((s) => s.path 
 
 const CODE_ICON: Record<string, string> = { M: "m", T: "m", A: "a", "?": "a", D: "d", R: "r", C: "r", U: "u" };
 const STATUS_ORDER = "U?AMTRCD";
+// All files' unchanged rows after every change
+const rank = (code: string) => (code ? STATUS_ORDER.indexOf(code) : STATUS_ORDER.length);
 
 function fileList(
   el: HTMLElement,
@@ -244,7 +246,7 @@ function fileList(
   const sort = store("files-sort") ?? "", dir = sort === "desc" ? -1 : 1;
   if (sort === "desc") files = [...files].sort((a, b) => b.path.localeCompare(a.path));
   if (sort === "status")
-    files = [...files].sort((a, b) => STATUS_ORDER.indexOf(a.code) - STATUS_ORDER.indexOf(b.code) || a.path.localeCompare(b.path));
+    files = [...files].sort((a, b) => rank(a.code) - rank(b.code) || a.path.localeCompare(b.path));
   const fileRow = (f: Change, dir: string, depth: number) => {
     const slash = f.path.lastIndexOf("/") + 1;
     const code = CODE_ICON[f.code];
@@ -495,6 +497,8 @@ export async function renderPanel() {
   $("wip").hidden = !wip;
   $("commit").hidden = wip;
   if (wip) return renderWip(n);
+  // an All files entry belongs to the WIP panel: gone with it, unless being edited
+  if (diffFile?.kind === "unstaged" && !diffFile.f.code && !diffFile.dirty) closeDiff();
   picked.paths.clear();
   return renderCommitDetails(n);
 }
@@ -514,7 +518,8 @@ async function renderWip(seq: number) {
   renderCommitBtn();
   // a pick's files that left its list
   picked.paths = new Set([...picked.paths].filter((p) => status![picked.list].some((f) => f.path === p)));
-  const listed = new Set([...status.unstaged, ...status.staged].map((f) => f.path));
+  // a rename's old path is part of its change
+  const listed = new Set([...status.unstaged, ...status.staged].flatMap((f) => [f.path, f.old ?? ""]));
   const same = all.filter((p) => !listed.has(p)).map((path): Change => ({ path, old: null, code: "" }));
   const rest = [...status.unstaged.filter(clean), ...same].sort((a, b) => (same.length ? a.path.localeCompare(b.path) : 0));
   // an unchanged file only opens: nothing to stage, pick or discard

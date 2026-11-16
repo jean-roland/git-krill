@@ -632,7 +632,7 @@ function lfsFetchButton() {
     const sides = await fetchSides(d.kind, d.f, d.c, d.full).catch((e) => void say(String(e), true));
     if (diffFile !== d || !sides) return;
     const [orig, mod] = sides;
-    Object.assign(d, { orig, mod });
+    Object.assign(d, { orig, mod, same: orig.exists === mod.exists && orig.text === mod.text });
     paintSides();
   };
   return h("button", { className: "lfs-fetch", innerHTML: `${svg(ICONS.load)}Download from LFS`, onclick: fetchLfs });
@@ -742,8 +742,8 @@ export async function reloadDiff(row = -1) {
   // the file may have changed status code
   if (listed) d.f = listed;
   else if (back) d.f = { path: f.path, old: null, code: "" };
-  // a commit's sides never change, the uncommitted row of a file history aside, nor an All files entry still unchanged
-  else if (d.c?.hash !== "WORKTREE") return paintOpenEditor();
+  // a commit's sides never change, the uncommitted row of a file history aside; an All files entry reads its file again below
+  else if (kind === "commit" && d.c?.hash !== "WORKTREE") return paintOpenEditor();
   if (d.sub) {
     const sub = await submoduleChange(d.kind, d.f, d.c).catch(() => d.sub);
     if (diffFile !== d || JSON.stringify(sub) === JSON.stringify(d.sub)) return;
@@ -757,8 +757,8 @@ export async function reloadDiff(row = -1) {
   const [orig, mod] = await fetchSides(d.kind, d.f, d.c, d.full);
   // another file opened meanwhile, or edits began
   if (diffFile !== d || d.dirty) return;
-  // a new file discarded is gone: nothing to stay on
-  if (back && !orig.exists && !mod.exists) return moveOn(kind, f, row);
+  // a new file discarded, or an All files entry a checkout took away, is gone: nothing to stay on
+  if (kind !== "commit" && (back || !f.code) && !orig.exists && !mod.exists) return moveOn(kind, f, row);
   d.ids = ids;
   paintOpenEditor();
   // an image has no text to compare: its new version is drawn
@@ -810,9 +810,9 @@ export async function save() {
   diffFile.dirty = false;
   ($("diff-save") as HTMLButtonElement).disabled = true;
   say(`saved ${diffFile.f.path}`);
-  // a file opened unchanged gets its hunks once saved with a change: folded under a still copy, in one step
-  if (diffFile.same && text !== diffFile.orig.text) {
-    diffFile.same = false;
+  // a file opened unchanged gets its hunks once saved with a change, and loses them once saved back: folded under a still copy, in one step
+  if (diffFile.same !== (text === diffFile.orig.text && diffFile.orig.exists)) {
+    diffFile.same = !diffFile.same;
     const copy = still($("diff-editor"));
     // applyMode only greys: the text diff's buttons are lit again first
     dimDiffOpts(false);
