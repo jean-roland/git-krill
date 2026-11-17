@@ -52,11 +52,10 @@ const gitEnv = (dir) => {
   return { ...process.env, GIT_CONFIG_GLOBAL: config, GIT_CONFIG_NOSYSTEM: "1", TZ: "UTC" };
 };
 
-/** Git Krill open on `repo`, in a profile of its own, with e2e/bin's gh; `more` overrides its environment. */
-export async function launch(repo, more = {}) {
-  const home = mkdtempSync(join(tmpdir(), "krill-e2e-"));
+/** Git Krill open on `repo` (none: the tabs it kept), in a profile of its own or `home`'s, with e2e/bin's gh; `more` overrides its environment. */
+export async function launch(repo, more = {}, home = mkdtempSync(join(tmpdir(), "krill-e2e-"))) {
   const run = join(home, "run");
-  mkdirSync(run, { mode: 0o700 });
+  mkdirSync(run, { mode: 0o700, recursive: true });
   const env = {
     ...gitEnv(home),
     PATH: `${join(ROOT, "e2e/bin")}:${process.env.PATH}`,
@@ -70,19 +69,25 @@ export async function launch(repo, more = {}) {
   };
   const native = process.env.WEBKIT_WEBDRIVER ? ["--native-driver", process.env.WEBKIT_WEBDRIVER] : [];
   const driver = spawn("tauri-driver", ["--port", String(PORT), ...native], { env, stdio: "ignore" });
-  for (let i = 0; ; i++) {
+  const k = new Krill(driver, home);
+  for (let i = 0; !k.id; i++) {
     try {
-      const k = new Krill(driver, home);
-      k.id = (await k.req("POST", "/session", { capabilities: { alwaysMatch: { "tauri:options": { application: APP, args: [repo] } } } })).sessionId;
-      // the repository on screen, the splash gone: a click before lands on it
-      await k.until(() => document.querySelector("#graph .row"));
-      await k.settle();
-      return k;
+      k.id = (await k.req("POST", "/session", { capabilities: { alwaysMatch: { "tauri:options": { application: APP, args: repo ? [repo] : [] } } } })).sessionId;
     } catch (e) {
       // the driver still starting
       if (i > 50) throw (driver.kill(), e);
       await sleep(200);
     }
+  }
+  try {
+    // the repository on screen, the splash gone: a click before lands on it
+    await k.until(() => document.querySelector("#graph .row"));
+    await k.settle();
+    return k;
+  } catch (e) {
+    // its window never came: closed with its driver, else the next launch finds no session free
+    await k.quit();
+    throw e;
   }
 }
 
@@ -195,9 +200,11 @@ class Krill {
     }
   }
 
-  async quit() {
+  /** Close the app; its profile goes too unless `keep`, for a launch on it again. */
+  async quit(keep = false) {
     await this.req("DELETE", `/session/${this.id}`).catch(() => {});
     this.driver.kill();
+    if (keep) return;
     // the app may still be writing its caches as it goes
     try {
       rmSync(this.home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });

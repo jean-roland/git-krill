@@ -23,3 +23,14 @@ test("Ctrl+N clones a repository into a new tab", async () => {
   await k.until(() => document.getElementById("repo-name").textContent.trim() === "origin");
   assert.ok(await k.js(() => document.querySelector("#graph .row")));
 });
+
+test("a clone from a path that is no repository says why, no tab opened", async () => {
+  const before = await k.js(() => document.querySelectorAll("#tablist .tab").length);
+  await k.keys("\uE009", "n");
+  await k.until(() => !document.getElementById("dialog").hidden && document.querySelector("#dialog .clone-dlg"));
+  await k.type("#dialog .dlg-row input", mkdtempSync(join(tmpdir(), "krill-e2e-clone-")));
+  await k.type('#dialog input[placeholder^="git@"]', "/nowhere/at/all.git");
+  await k.click("#dialog .dlg-actions button.primary", "Clone");
+  await k.until(() => document.body.textContent.includes("does not exist"));
+  assert.equal(await k.js(() => document.querySelectorAll("#tablist .tab").length), before);
+});
