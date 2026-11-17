@@ -241,6 +241,8 @@ addEventListener("keydown", (e) => {
   else if (mod(e) && e.shiftKey && key === "t") (e.preventDefault(), asking || reopenTab());
   else if (mod(e) && key === "t") (e.preventDefault(), asking || addTab());
   else if (mod(e) && key === "o") (e.preventDefault(), asking || openPicked());
+  else if (mod(e) && key === "n") (e.preventDefault(), asking || cloneDialog());
+  else if (mod(e) && key === "i") (e.preventDefault(), asking || $("init-repo").click());
   else if (mod(e) && key === "w") (e.preventDefault(), asking || closeTab(active));
   // fields and buttons answer Enter themselves: elsewhere in a dialog it means its main action
   else if (e.key === "Enter" && !$("dialog").hidden && !(e.target as HTMLElement).closest?.("input, textarea, button, select"))
