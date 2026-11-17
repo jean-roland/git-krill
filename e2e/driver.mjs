@@ -15,16 +15,25 @@ const GOLDEN = process.env.GOLDEN ?? (process.env.CI ? "check" : "skip");
 const ELEMENT = "element-6066-11e4-a52e-4f735466cecf";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// a test file's repositories, in the same folders each run: a tab's colour comes from its path
+let made = 0;
+const repoDir = () => {
+  const dir = join(tmpdir(), "krill-e2e-repos", String(++made));
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+  return dir;
+};
+
 /** A folder of its own with the README's demo repositories (demo/tidepool, demo/conflict/tidepool). */
 export function demo() {
-  const dir = mkdtempSync(join(tmpdir(), "krill-e2e-repo-"));
+  const dir = repoDir();
   execFileSync("sh", [join(ROOT, "test/make-demo.sh"), dir], { env: gitEnv(dir), stdio: "ignore" });
   return join(dir, "demo");
 }
 
 /** A repository made by `make({ dir, git, commit, write })` in a folder of its own: each commit a day after the last, from 2026-01-01. */
 export function repo(make) {
-  const top = mkdtempSync(join(tmpdir(), "krill-e2e-repo-")), dir = join(top, "repo"), env = gitEnv(top);
+  const top = repoDir(), dir = join(top, "repo"), env = gitEnv(top);
   let day = 0;
   const git = (...args) => execFileSync("git", args, { cwd: dir, env, maxBuffer: 1 << 30 }).toString();
   const date = () => new Date(Date.UTC(2026, 0, 1 + day)).toISOString();
@@ -179,8 +188,8 @@ class Krill {
     if (a.width !== b.width || a.height !== b.height) throw new Error(`${name}: ${b.width}×${b.height}, the golden is ${a.width}×${a.height}`);
     const diff = new PNG({ width: a.width, height: a.height });
     const n = pixelmatch(a.data, b.data, diff.data, a.width, a.height, { threshold: 0.1 });
-    // ponytail: a share of the window, about a blinking cursor and some antialiasing
-    if (n > a.width * a.height * 0.001) {
+    // antialiasing moves a few pixels between runs; a word changed is hundreds
+    if (n > 100) {
       writeFileSync(join(ROOT, "e2e/out", `${name}.diff.png`), PNG.sync.write(diff));
       throw new Error(`${name}: ${n} pixels differ from e2e/golden/${name}.png (see e2e/out)`);
     }
