@@ -6,7 +6,6 @@ let k;
 before(async () => (k = await launch(`${demo()}/tidepool`)));
 after(() => k?.quit());
 
-
 test("a file's history shows each version with its blame, then each commit's change", async () => {
   await k.click("#graph .row", "docs: --json in the README");
   await k.click('#commit-files .file[data-path="README.md"]');
