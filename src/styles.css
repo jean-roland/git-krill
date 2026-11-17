@@ -930,6 +930,8 @@ svg.blame-av { cursor: pointer; }
 /* a fixed width: the folder path would stretch it */
 .clone-dlg { width: min(720px, 80vw); }
 /* the parent folder gives way to the name */
+.clone-progress { display: flex; flex-direction: column; gap: 4px; margin-top: 14px; color: var(--dim); }
+.clone-progress progress { width: 100%; accent-color: var(--accent); }
 .clone-at { flex: 0 1 auto; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 13px var(--mono); color: var(--dim); }
 .dlg-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .dlg-actions button { flex: 1 0 auto; padding: 7px 14px; white-space: nowrap; }
@@ -960,6 +962,10 @@ svg.blame-av { cursor: pointer; }
 .toast .band { flex: none; display: flex; justify-content: center; width: 36px; padding-top: 14px; color: #fff; background: var(--kind); }
 .toast .band svg { width: 20px; height: 20px; }
 .toast .t-body { min-width: 0; padding: 12px 36px 14px 14px; }
+/* a clone's progress, carried over from its dialog: the toast's full width */
+.toast .t-body:has(.clone-progress) { flex: 1; }
+.toast .clone-progress { margin-top: 0; }
+.toast .clone-stop { display: block; margin: 10px 0 0 auto; padding: 3px 12px; }
 .toast b { display: block; margin-bottom: 6px; font-size: 15px; }
 .toast pre { margin: 0; max-height: 40vh; overflow: auto; font: 12px/1.45 var(--mono); white-space: pre-wrap; word-break: break-word; color: color-mix(in srgb, var(--text) 80%, var(--bg)); user-select: text; }
 .toast a { color: var(--accent); text-decoration: underline; cursor: pointer; }

@@ -874,6 +874,8 @@ export function cloneDialog() {
   const at = h("span", { className: "clone-at" });
   const fullLabel = h("label", { textContent: "Full path" }), full = h("div", { className: "dlg-row" }, at, "/", name);
   const go = h("button", { className: "primary", textContent: "Clone" });
+  const bar = h("progress", { max: 100, value: 0 }), step = h("small");
+  const progress = h("div", { className: "clone-progress", hidden: true }, step, bar);
   // a typed name sticks, an emptied one follows the URL again
   let named = false;
   const paint = () => {
@@ -885,20 +887,51 @@ export function cloneDialog() {
   };
   parent.oninput = url.oninput = paint;
   name.oninput = () => ((named = !!name.value), paint());
+  // Cancel stops the clone; the ×, Esc or a click beside only close the dialog, the clone goes on behind
+  let cloning = false, cancelled = false;
+  // a closed dialog stays in the page, hidden, until another one takes its place
+  const shown = () => go.isConnected && !$("dialog").hidden;
   const submit = async () => {
     if (go.disabled) return;
     go.disabled = true;
     go.textContent = "Cloning…";
+    [cloning, cancelled] = [true, false];
+    // git's steps one after the other, each from 0 to 100 %
+    [step.textContent, bar.value, bar.hidden, progress.hidden] = ["Connecting…", 0, false, false];
+    const stop = await listen<[string, number]>("clone-progress", ({ payload: [what, pct] }) => ((step.textContent = `${what} ${pct}%`), (bar.value = pct)));
     try {
-      const path = await invoke<string>("clone", { parent: parent.value.trim(), url: url.value.trim(), name: name.value.trim() });
+      const path = await run<string>("clone", { parent: parent.value.trim(), url: url.value.trim(), name: name.value.trim() }).finally(stop);
       store("clone-dir", parent.value.trim());
-      hideDialog();
+      // closed meanwhile: another dialog may be up by now
+      if (shown()) hideDialog();
+      if (behind) {
+        behind.el.querySelector("b")!.textContent = `Cloned ${name.value.trim()}`;
+        // nothing left to stop: greyed, saying why
+        Object.assign(behind.el.querySelector<HTMLElement>(".clone-stop")!, { className: "clone-stop off", title: "The clone is done" });
+        behind.fade();
+      }
       await openRepo(path);
     } catch (e) {
-      say(String(e), true);
+      behind?.dismiss();
+      // the dialog still up says it where the progress was, to try again from; closed, a toast does
+      const here = shown();
+      if (cancelled && !here) toast("Clone cancelled", `${name.value.trim()} was not cloned.`, "info");
+      else if (!cancelled && here) say(String(e), true);
+      else if (!cancelled) toast(`Clone of ${name.value.trim()} failed`, String(e), "err");
       go.textContent = "Clone";
+      [step.textContent, bar.hidden, progress.hidden] = ["Clone cancelled", true, !(cancelled && here)];
       paint();
     }
+    [cloning, behind] = [false, null];
+  };
+  // the dialog closed on a clone going on: its progress carries on in a toast, which goes 10 s on, but not before the clone ends
+  let behind: ReturnType<typeof toast> | null = null;
+  const background = () => {
+    if (!cloning) return;
+    behind = toast(`Cloning ${name.value.trim()}…`, "", "info", true);
+    // the dialog's Cancel, carried over too: the toast's × only puts it away
+    const stop = h("button", { className: "clone-stop", textContent: "Cancel", onclick: () => ((cancelled = true), invoke("clone_cancel")) });
+    behind.el.querySelector(".t-body")!.append(progress, stop);
   };
   for (const i of [parent, url, name]) i.onkeydown = (e) => void (e.key === "Enter" && submit());
   go.onclick = submit;
@@ -908,11 +941,14 @@ export function cloneDialog() {
   };
   showDialog(
     "Clone a repository",
-    [h("label", { textContent: "Where to clone to" }), h("div", { className: "dlg-row" }, parent, h("button", { textContent: "Browse…", onclick: browse })), h("label", { textContent: "URL" }), url, fullLabel, full],
+    [h("label", { textContent: "Where to clone to" }), h("div", { className: "dlg-row" }, parent, h("button", { textContent: "Browse…", onclick: browse })), h("label", { textContent: "URL" }), url, fullLabel, full, progress],
     [go],
-    null,
+    background,
     "clone-dlg",
   );
+  const cancel = $("dialog").querySelector<HTMLButtonElement>(".clone-dlg .dlg-actions button")!;
+  // a clone going on stops and the dialog stays, to try again; else it closes
+  cancel.onclick = () => (cloning ? ((cancelled = true), invoke("clone_cancel")) : hideDialog());
   paint();
   url.focus();
 }

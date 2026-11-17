@@ -4,7 +4,8 @@ mod pty;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::sync::OnceLock;
-use std::io::{Read, Write};
+use std::io::{BufRead, Read, Write};
+use tauri::Emitter;
 #[cfg(unix)]
 use std::os::unix::fs::DirBuilderExt;
 #[cfg(unix)]
@@ -389,16 +390,56 @@ fn home_path(p: &str) -> String {
     p.strip_prefix("~/").map_or(p.to_string(), |r| home().join(r).to_string_lossy().into_owned())
 }
 
-/// \brief Clone `url` into `parent`/`name`, creating `parent` if needed; returns the new work tree.
+// the clone running, for Cancel to stop; ponytail: one at a time, a second one started meanwhile takes the slot
+static CLONE: Mutex<Option<u32>> = Mutex::new(None);
+
+/// \brief Clone `url` into `parent`/`name`, creating `parent` if needed, git's progress sent as "clone-progress" [step, percent]; returns the new work tree.
 #[tauri::command(async)]
-fn clone(parent: String, url: String, name: String) -> Result<String, String> {
+fn clone(app: tauri::AppHandle, parent: String, url: String, name: String) -> Result<String, String> {
     if name.is_empty() || name == "." || name == ".." || name.contains('/') {
         return Err(format!("bad folder name {name}"));
     }
     let parent = home_path(&parent);
     std::fs::create_dir_all(&parent).map_err(|e| format!("{parent}: {e}"))?;
-    git(&parent, &["clone", "--", &url, &name])?;
-    Ok(Path::new(&parent).join(&name).to_string_lossy().into_owned())
+    let (started, target) = (std::time::Instant::now(), Path::new(&parent).join(&name));
+    let existed = target.exists();
+    let mut git = git_command(&parent, &["clone", "--progress", "--", &url, &name], true);
+    let mut child = git.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).spawn().map_err(git_spawn_error)?;
+    *CLONE.lock().unwrap() = Some(child.id());
+    let err = child.stderr.take().ok_or("no stderr")?;
+    // git redraws a progress line after a carriage return; the other lines are what an error says
+    let (said, status) = tokio::task::block_in_place(|| {
+        let mut said = String::new();
+        for part in std::io::BufReader::new(err).split(b'\r').map_while(Result::ok) {
+            for line in String::from_utf8_lossy(&part).lines().filter(|l| !l.trim().is_empty()) {
+                match progress(line) {
+                    Some(step) => {
+                        let _ = app.emit("clone-progress", step);
+                    }
+                    None => said += &format!("{line}\n"),
+                }
+            }
+        }
+        (said, child.wait())
+    });
+    CLONE.lock().unwrap().take_if(|id| *id == child.id());
+    if trace_file().is_some() {
+        trace(&format!("{:>6}ms git clone {}", started.elapsed().as_millis(), traced(&url)));
+    }
+    if !status.map_err(|e| e.to_string())?.success() {
+        // git cleans up after itself, but not when Windows ends it
+        if !existed {
+            let _ = std::fs::remove_dir_all(&target);
+        }
+        return Err(said.trim().to_string());
+    }
+    Ok(target.to_string_lossy().into_owned())
+}
+
+/// \brief Stop the clone running, if any.
+#[tauri::command]
+fn clone_cancel() {
+    kill_group(CLONE.lock().unwrap().take());
 }
 
 /// \brief The superproject's folder when `repo` is a submodule, else empty; asked once a run for each folder.
@@ -1949,10 +1990,25 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, gh_verified, remote_tags, submodule_change, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, worktree_main, lfs_patterns, version_ids, keeps_crlf,
-            is_merged, revert_lines, index_tree, stash_print, tracing, trace_line, open_default, open_version, file_bytes, tool_status, global_config, set_global_config, trust_folder, delete_file, open_url, remote_urls, edit_remote,
+            is_merged, revert_lines, index_tree, stash_print, clone_cancel, tracing, trace_line, open_default, open_version, file_bytes, tool_status, global_config, set_global_config, trust_folder, delete_file, open_url, remote_urls, edit_remote,
             pty::pty_spawn, pty::pty_write, pty::pty_resize, pty::pty_kill, askpass::askpass_reply
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
         .run(|_, _| {});
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn progress_lines() {
+        let out = Output { status: Default::default(), stdout: Vec::new(), stderr: b"Preparing worktree\nUpdating files:  67% (2/3)\rUpdating files: 100% (3/3)\rUpdating files: 100% (3/3), done.\r\nHEAD is now at abc fix\n".to_vec() };
+        assert_eq!(output_text(&out), "Preparing worktree\nUpdating files: 100% (3/3), done.\nHEAD is now at abc fix");
+        assert_eq!(progress("remote: Counting objects:  42% (21/50)"), Some(("Counting objects", 42)));
+        assert_eq!(progress("Receiving objects: 100% (5/5), done."), Some(("Receiving objects", 100)));
+        assert_eq!(progress("Cloning into 'x'..."), None);
+        assert_eq!(progress("warning: redirecting to https://x/"), None);
+    }
 }

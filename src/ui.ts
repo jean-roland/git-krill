@@ -158,7 +158,7 @@ export const noGit = (msg: string) => msg.startsWith("Git is not installed");
 export function say(msg: string, err = false) {
   if (err && noGit(msg)) return void warnOnce("no-git", "Git is not installed", msg.slice(msg.indexOf(". ") + 2), "err");
   // errors pop up, the status bar keeps the quiet news
-  if (err) return toast("Error", msg + hint(msg), "err");
+  if (err) return void toast("Error", msg + hint(msg), "err");
   const s = $("status");
   s.textContent = msg.replace(/\s*\n\s*/g, " · ");
   s.title = msg;
@@ -183,7 +183,8 @@ const warned = new Set<string>();
 export const warnOnce = (key: string, title: string, body: string, kind: "err" | "info" | "egg") => warned.has(key) || (warned.add(key), toast(title, body, kind));
 
 /** A pop-up in the corner: errors stay until dismissed, the rest fades out. */
-export function toast(title: string, body: string, kind: "err" | "info" | "egg") {
+/** A toast; a `held` one, its countdown running from the start all the same, also waits for its `fade` (an error has no countdown). */
+export function toast(title: string, body: string, kind: "err" | "info" | "egg", held = false) {
   const dismiss = () => {
     el.classList.add("out");
     setTimeout(() => el.remove(), 300);
@@ -198,7 +199,12 @@ export function toast(title: string, body: string, kind: "err" | "info" | "egg")
   $("toasts").append(el);
   // a short stack: the oldest goes
   while ($("toasts").children.length > 4) $("toasts").firstElementChild!.remove();
-  if (kind !== "err") setTimeout(dismiss, 10000);
+  // it goes once both are true: its 10 s ran out, and whatever held it let go
+  let due = false, freed = !held;
+  const end = () => due && freed && dismiss();
+  const fade = () => ((freed = true), end());
+  if (kind !== "err") setTimeout(() => ((due = true), end()), 10000);
+  return { el, fade, dismiss };
 }
 
 /** Esc: the oldest toast goes; false when none is left. */
