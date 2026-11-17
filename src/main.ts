@@ -56,6 +56,8 @@ function resizer(grip: HTMLElement, box: HTMLElement, key: string, size: (m: Poi
       store(key, box.style.getPropertyValue(prop));
     };
   };
+  // back to the default size
+  grip.ondblclick = () => (box.style.removeProperty(prop), store(key, ""), relayout());
 }
 
 /* wiring */
