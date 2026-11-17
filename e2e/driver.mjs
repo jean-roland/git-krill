@@ -93,10 +93,15 @@ class Krill {
     }
   }
 
-  /** Until the window is idle: no busy pointer, no fade or slide under way, a frame drawn. */
+  /** Until the window is idle: no busy pointer, no fade or slide under way, no view held hidden or covered while the next one draws, a frame drawn. */
   async settle() {
     await sleep(150);
-    await this.until(() => !document.body.classList.contains("slow") && document.getAnimations().every((a) => a.playState !== "running" || a.effect?.getTiming().iterations === Infinity));
+    await this.until(
+      () =>
+        !document.body.classList.contains("slow") &&
+        !document.querySelector("#diff.blank, #hist-main.blank, .still") &&
+        document.getAnimations().every((a) => a.playState !== "running" || a.effect?.getTiming().iterations === Infinity),
+    );
     await this.js(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
   }
 

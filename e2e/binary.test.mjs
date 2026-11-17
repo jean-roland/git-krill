@@ -25,9 +25,12 @@ after(() => k?.quit());
 test("an executable shows its sections and symbols, then its bytes in hex", async () => {
   await k.click("#graph .row", "Add whisper()");
   await k.click('#commit-files .file[data-path="tool"]');
-  const symbols = await k.until(() => document.querySelector('[data-svg="image"]')?.classList.contains("on") && document.querySelector("#diff-editor .view-line") && document.querySelector("#diff-editor").textContent.replace(/\u00a0/g, " "));
-  assert.match(symbols, /Elf 64-bit/);
-  assert.match(symbols, /Section.*Symbol/s);
+  // once Hunk has folded the unchanged rows away: the header too, the changed sizes and the new symbol stay
+  const symbols = await k.until(() => {
+    const text = document.querySelector("#diff-editor").textContent.replace(/\u00a0/g, " ");
+    return document.querySelector('[data-svg="image"]')?.classList.contains("on") && document.querySelector("#diff-editor .hunk-bar") && text.includes("whisper") && text;
+  });
+  assert.match(symbols, /\.text +\d+/);
   await k.shot("symbols");
   await k.click('[data-svg="text"]');
   await k.until(() => document.querySelector("#diff-editor").textContent.replace(/\u00a0/g, " ").includes("7f 45 4c 46"));
