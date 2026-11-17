@@ -77,12 +77,12 @@ type SubmoduleChange = { old: SubCommit | null; new: SubCommit | null; added: Su
 // full: loaded past the size a diff loads unasked; sub: what a submodule went through, shown instead of a text diff; ids: its sides' versions, see versionIds
 // same: no change when opened (an All files entry): shown whole, so that a first edit does not fold the rest away; drawn: shown as images or a page;
 // shown: the text in the editor in place of the blobs', a binary's listing or a big file's parts so far; more: how to load its next part
-export let diffFile: { kind: DiffSource; f: Change; c?: Commit; orig: Blob; mod: Blob; dirty: boolean; full: boolean; same: boolean; drawn?: boolean; sub?: SubmoduleChange; ids?: string; listing?: Listing; shown?: [string, string]; more?: More } | null = null;
+export let diffFile: { kind: DiffSource; f: Change; c?: Commit; orig: Blob; mod: Blob; dirty: boolean; full: boolean; same: boolean; drawn?: boolean; sub?: SubmoduleChange; ids?: string; listing?: Listing; shown?: [string, string]; more?: More; seq?: number; loading?: boolean } | null = null;
 // a binary's sides as text: an object file's sections and symbols when asked and one, else hex dumps
 type Listing = { symbols: boolean; object: boolean };
 // what is shown of a file loaded a part at a time, the loader of both sides' next part (or up to a new side's line), and the new side's line where git's next change past them ends
-// back: a side's last bytes to read again with the next part, false when that cannot line them up
-type More = { label: string; load?: (until?: number) => Promise<[string, string]>; change?: number; back?: (side: number, bytes: number) => boolean };
+// load: the part, and what is more after it; back: a side's last bytes to read again with the next part, false when that cannot line them up
+type More = { label: string; load?: (until?: number) => Promise<[[string, string], More | undefined]>; change?: number; back?: (side: number, bytes: number) => boolean };
 export let diffEditor: Monaco.editor.IStandaloneDiffEditor | null = null;
 // hunk header bars, as view zone ids per side
 let hunkZones: { mod: string[]; orig: string[]; nodes: HTMLElement[] } = { mod: [], orig: [], nodes: [] };
@@ -448,6 +448,8 @@ let cover: HTMLElement | null = null;
 /** The open diff's sides in the editor, or in their place a submodule's card, the images, or why not: not downloaded, an image too big. */
 function paintSides(): Promise<unknown> {
   const d = diffFile!, { kind, f, c, orig, mod, sub } = d;
+  // a load still under way is for the view before
+  d.seq = (d.seq ?? 0) + 1;
   const binary = orig.binary || mod.binary, large = Math.max(orig.large ?? 0, mod.large ?? 0);
   const missing = orig.lfs === "missing" || mod.lfs === "missing", drawable = DRAWN.test(f.path) && !sub && !missing && !large;
   const images = (binary && !missing && (!large || large <= IMAGE_UNASKED) && IMAGE.test(f.path)) || (drawable && store("svg-view") === "image");
@@ -456,8 +458,10 @@ function paintSides(): Promise<unknown> {
   // back to a view kept aside: what it had loaded too
   const back = parked.get(viewKey());
   if (back) Object.assign(d, back.state);
-  if (listed && d.listing?.symbols !== symbols) return loadListing(d, symbols).then(() => diffFile === d && paintSides());
-  if (parted && !d.shown) return loadParts(d).then(() => diffFile === d && paintSides(), (e) => say(String(e), true));
+  // the last file's text stays on screen while this one loads: read-only, a key typed there must not count for this one
+  if ((listed && d.listing?.symbols !== symbols) || (parted && !d.shown)) setOptions({ readOnly: true });
+  if (listed && d.listing?.symbols !== symbols) return loadListing(d, symbols).then((now) => now && diffFile === d && paintSides());
+  if (parted && !d.shown) return loadParts(d).then((now) => now && diffFile === d && paintSides(), (e) => say(String(e), true));
   // the version a file opens in its app: the new one, the old when the file is gone
   const shown = sideSources(kind, f, c)[mod.exists ? 1 : 0];
   const pane = !!sub || images || (binary && !listed);
@@ -518,19 +522,23 @@ const JUMP = 50 << 20;
 /** Binary diff `d`'s sides as text: an object file's sections and symbols if `symbols`, else hex dumps a part at a time. */
 async function loadListing(d: NonNullable<typeof diffFile>, symbols: boolean) {
   type Text = [boolean, string, boolean];
+  const seq = d.seq;
   const sides = sideSources(d.kind, d.f, d.c), size = Math.max(d.orig.large ?? 0, d.mod.large ?? 0);
   // per side: the next byte to read, and whether more follow
   const next = [0, 0], left = [false, false];
-  // whether an object file, the text, whether more bytes follow
+  // whether an object file, the text, whether more bytes follow; past the first part only a side with more, not a symbol listing
   const read = () =>
     Promise.all(
       sides.map(([at, path], i) =>
-        (at && (i ? d.mod : d.orig).exists ? run<Text>("binary_text", { at, path, symbols, offset: next[i] }).catch((e): Text => [false, String(e), false]) : Promise.resolve<Text>([false, "", false])).then(
-          (t) => ((left[i] = t[2]), (next[i] += HEX_PART), t),
-        ),
+        at && (i ? d.mod : d.orig).exists && (!next[i] || left[i])
+          ? run<Text>("binary_text", { at, path, symbols, offset: next[i] })
+              .catch((e): Text => [false, String(e), false])
+              .then((t) => ((left[i] = t[2]), (next[i] += HEX_PART), t))
+          : Promise.resolve<Text>([false, "", false]),
       ),
     );
   const [o, m] = await read();
+  if (d.seq !== seq) return false;
   const step = (): More | undefined => {
     if (!left[0] && !left[1]) return undefined;
     const label = `${bytesText(Math.max(...next))}${size ? ` of ${megabytes(size)}` : ""} shown`;
@@ -540,14 +548,14 @@ async function loadListing(d: NonNullable<typeof diffFile>, symbols: boolean) {
       // a dump has no newline after its last row
       load: async () => {
         const [o, m] = await read();
-        d.more = step();
-        return [o[1] && `\n${o[1]}`, m[1] && `\n${m[1]}`];
+        return [[o[1] && `\n${o[1]}`, m[1] && `\n${m[1]}`], step()];
       },
       // only mid-file on both sides: whole rows, and the other side's next part may hold their twins
       back: (side, bytes) => left[0] && left[1] && ((next[side] -= bytes), (d.more = step()), true),
     };
   };
   Object.assign(d, { listing: { symbols, object: o[0] || m[0] }, shown: [o[1], m[1]], more: step(), same: d.orig.exists === d.mod.exists && o[1] === m[1] && !o[2] && !m[2] });
+  return true;
 }
 
 /** A hex dump's last rows on one side only, likely moved by bytes added or removed before them: read again with the next part, where their twins come. */
@@ -575,9 +583,9 @@ type Hunk = [number, number, number, number];
 /** Big text diff `d`'s first part, and the loader of the next ones: its sides cut where they line up, by git's own diff of them. */
 async function loadParts(d: NonNullable<typeof diffFile>) {
   type Part = [string, number, number, boolean];
-  const sides = sideSources(d.kind, d.f, d.c), size = Math.max(d.orig.large ?? 0, d.mod.large ?? 0);
-  // past git's core.bigFileThreshold (512 MB by default) its diff is "Binary files differ": the sides are cut at the same line
-  const hunks = d.orig.exists && d.mod.exists && size <= 512 << 20 ? await run<Hunk[]>("diff_hunks", { sides }).catch((): Hunk[] => []) : [];
+  const sides = sideSources(d.kind, d.f, d.c), size = Math.max(d.orig.large ?? 0, d.mod.large ?? 0), seq = d.seq;
+  // past git's core.bigFileThreshold (512 MB by default) its diff is "Binary files differ", and an LFS file's is its pointers': the sides are cut at the same line
+  const hunks = d.orig.exists && d.mod.exists && size <= 512 << 20 && !d.orig.lfs && !d.mod.lfs ? await run<Hunk[]>("diff_hunks", { sides }).catch((): Hunk[] => []) : [];
   // per side: lines and bytes taken so far, and whether it ended
   const lines = [0, 0], bytes = [0, 0], end = [!d.orig.exists, !d.mod.exists];
   const read = (i: number, count: number | undefined, budget: number) =>
@@ -599,12 +607,17 @@ async function loadParts(d: NonNullable<typeof diffFile>) {
       ? undefined
       : {
           label: `${megabytes(Math.max(...bytes))} of ${megabytes(size)} shown`,
-          load: async (until) => [await next(until), (d.more = step())][0] as [string, string],
+          load: async (until) => {
+            const part = await next(until);
+            return [part, step()];
+          },
           // with some lines after it
           change: hunks.map((h) => h[2] + Math.max(h[3], 1) + 20).find((e) => e - 20 > lines[1]),
         };
-  Object.assign(d, { shown: await next(), same: false });
-  d.more = step();
+  const shown = await next();
+  if (d.seq !== seq) return false;
+  Object.assign(d, { shown, same: false, more: step() });
+  return true;
 }
 
 /** The lines of the other side that go with the first `n` of side `from` (0 old, 1 new): shifted by the hunks before, in proportion inside one. */
@@ -623,34 +636,39 @@ function lineUp(hunks: Hunk[], n: number, from: 0 | 1) {
 
 /** The open file's next part, added at the end of both sides. */
 async function loadMore(d: NonNullable<typeof diffFile>, until?: number) {
-  const more = d.more;
-  if (!more?.load || loadingMore) return;
-  loadingMore = true;
+  const more = d.more, seq = d.seq;
+  if (!more?.load || d.loading) return;
+  d.loading = true;
   try {
-    const part = await busy(more.load(until));
-    if (diffFile !== d || !diffView) return;
+    const [part, next] = await busy(more.load(until));
+    // the view switched or reloaded meanwhile: the part was for the one before
+    if (diffFile !== d || d.seq !== seq || !diffView) return;
+    d.more = next;
     d.shown = [d.shown![0] + part[0], d.shown![1] + part[1]];
     // a cursor at the end would move along with the text added there
     const eds = [editor().getOriginalEditor(), editor().getModifiedEditor()], at = eds.map((e) => e.getSelections());
     [diffView.model.original, diffView.model.modified].forEach((m, i) => m.applyEdits([{ range: m.getFullModelRange().collapseToEnd(), text: part[i] }]));
     eds.forEach((e, i) => at[i] && e.setSelections(at[i]!));
     fitLineNumbers();
+    // both sides had ended: no diff comes to redraw the bar
+    if (!part[0] && !part[1]) return updateHunkBars();
     const drawn = diffDrawn(fullText() ? 300_000 : 500);
     drawn.landed.then(() => alignTail(d));
     await drawn;
   } catch (e) {
     say(String(e), true);
   } finally {
-    loadingMore = false;
+    d.loading = false;
   }
 }
-
-let loadingMore = false;
 
 /** The next change, loading up to the next one git saw when the loaded part has none left below. */
 export async function nextChange() {
   const d = diffFile;
-  if (!d) return;
+  // a load under way already goes somewhere
+  if (!d || d.loading) return;
+  // the loaded part's own changes first: none are known before its diff
+  if (!editor().getLineChanges()) await diffView?.waitForDiff();
   const at = editor().getModifiedEditor().getPosition()?.lineNumber ?? 0, ahead = () => (editor().getLineChanges() ?? []).some((c) => Math.max(c.modifiedStartLineNumber, 1) > at);
   const shown = () => (d.shown?.[0].length ?? 0) + (d.shown?.[1].length ?? 0);
   for (let was = -1; diffFile === d && d.more?.change && !ahead() && was !== shown(); ) (was = shown()), await loadMore(d, d.more.change);
@@ -907,6 +925,9 @@ function pageSide(at: string, path: string, cls = "") {
     async (bytes) => {
       const text = new TextDecoder().decode(bytes);
       const doc = new DOMParser().parseFromString(MD.test(path) ? await markdownPage(text) : text, "text/html");
+      // what the scrub below cannot see: a template becomes a live shadow root in the frame, an SVG animation re-arms a link, MathML takes href too
+      doc.querySelectorAll("template, animate, set").forEach((e) => e.remove());
+      doc.querySelectorAll("math[href], math [href]").forEach((e) => e.removeAttribute("href"));
       await inlineLocal(doc, at, path);
       // a page that turns dark with the desktop gets dark diagrams
       await busy(drawMermaid(doc, MD.test(path) || (matchMedia("(prefers-color-scheme: dark)").matches && /prefers-color-scheme:\s*dark/.test(text)) ? "dark" : "default"));
@@ -981,10 +1002,21 @@ parent.postMessage(["ready"], "*");
 </script>`;
         const waiting = new Map<number, (svg: string | null) => void>();
         let seq = 0;
-        addEventListener("message", ({ source, data: [id, svg] }) => {
-          if (source !== frame.contentWindow) return;
+        addEventListener("message", ({ source, data }) => {
+          if (source !== frame.contentWindow || !Array.isArray(data)) return;
+          const [id, svg] = data;
           if (id === "ready") return frame.contentWindow!.postMessage(lib, "*");
-          if (id === "loaded") return done((code: string, theme: string) => new Promise((back) => (waiting.set(++seq, back), frame.contentWindow!.postMessage([seq, code, theme], "*"))));
+          // a diagram that never settles is left undrawn after 10 s
+          if (id === "loaded")
+            return done(
+              (code: string, theme: string) =>
+                new Promise((back) => {
+                  const n = ++seq;
+                  waiting.set(n, back);
+                  frame.contentWindow!.postMessage([n, code, theme], "*");
+                  setTimeout(() => (waiting.get(n)?.(null), waiting.delete(n)), 10_000);
+                }),
+            );
           waiting.get(id)?.(svg);
           waiting.delete(id);
         });
@@ -1149,9 +1181,10 @@ function setModels(keepView: boolean) {
   setOptions({ readOnly: !editable, glyphMargin: diffFile.kind !== "commit" && !diffFile.shown, lineNumbers: hex ? offset : "on" });
   fitLineNumbers();
   // a read-only side changes only by the parts added to it; a kept model has its listener
+  const d = diffFile;
   if (!back)
     modified.onDidChangeContent(() => {
-      if (!diffFile || !editable) return;
+      if (diffFile !== d || !editable) return;
       diffFile.dirty = true;
       ($("diff-save") as HTMLButtonElement).disabled = false;
     });
@@ -1276,7 +1309,8 @@ export async function closeDiff(force = false) {
 }
 
 export async function save() {
-  if (!diffFile?.dirty) return;
+  // only the working tree file as it is, never a part or a listing of it
+  if (!diffFile?.dirty || diffFile.kind !== "unstaged" || diffFile.shown) return;
   const text = editor().getModifiedEditor().getModel()!.getValue(monaco.editor.EndOfLinePreference.TextDefined, true);
   try {
     await run("write_file", { path: diffFile.f.path, text });

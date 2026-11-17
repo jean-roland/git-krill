@@ -361,8 +361,8 @@ export function linkRemote() {
 }
 
 export function jumpTo(hash: string) {
-  closePr(false);
   if (!commits.some((c) => c.hash === hash)) return say(`${short(hash)} is older than the last ${tabs[active].limit} commits`, true);
+  closePr(false);
   selection.stash = null;
   selection.hashes = [hash];
   selection.anchor = hash;
@@ -399,6 +399,8 @@ function stashMenu(s: Stash): MenuItem[] {
 /** Empty the graph, for another tab. */
 export function resetGraph() {
   closeRebase();
+  // another tab's graph starts at its first lane
+  gx = 0;
   shown = [];
   chunks = [];
   $("rows").replaceChildren();

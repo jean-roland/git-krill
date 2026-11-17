@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { openDiff } from "./diff";
 import { jumpTo, openWorktree, webUrl, worktreeOf } from "./graph";
 import { renderPanel } from "./panel";
+import { planOpen } from "./rebase";
 import { Change, commits, fakeCommit, findRef, gitOp, redraw, refs, repo, run, runFixed, selection, status } from "./repo";
 import { $, ICONS, MenuItem, copy, dateTimeText, dialog, esc, h, ico, label, popup, say, svg, toast } from "./ui";
 
@@ -32,6 +33,8 @@ const pulls = new Map<string, Pulls>();
 export const pullsHere = () => pulls.get(repo);
 // gh's answer for each GitHub repository and when: worktrees and tabs of one share it for a minute
 const asked = new Map<string, { at: number; got: Pr[] | string }>();
+// each one's asks, numbered: an older answer landing after a newer one is dropped
+const asking = new Map<string, number>();
 
 /** The open pull requests of upstream in a fork, else origin, else the first remote: gh's last answer for it, unless `fresh` or a minute old; the sidebar and labels repaint when they changed. */
 export async function loadPrs(fresh = false) {
@@ -39,13 +42,17 @@ export async function loadPrs(fresh = false) {
   const m = remote ? (await webUrl(remote).catch(() => "")).match(/^https:\/\/([^/]+)\/(.+)$/) : null;
   if (r !== repo) return;
   const slug = m ? `${m[1]}/${m[2]}` : "";
-  const hit = asked.get(slug);
+  const hit = asked.get(slug), cached = !fresh && !!hit && Date.now() - hit.at < 60_000, ask = (asking.get(slug) ?? 0) + 1;
+  if (m && !cached) asking.set(slug, ask);
   const got = !m
     ? remote ? "no-github" : "no-remote"
-    : !fresh && hit && Date.now() - hit.at < 60_000
-      ? hit.got
+    : cached
+      ? hit!.got
       : await run<string>("gh", { args: ["pr", "list", "-R", slug, "--limit", "100", "--json", FIELDS] }, true).then((out) => JSON.parse(out) as Pr[], (e) => String(e));
-  if (m && got !== hit?.got) asked.set(slug, { at: Date.now(), got });
+  if (m && !cached) {
+    if (asking.get(slug) !== ask) return;
+    asked.set(slug, { at: Date.now(), got });
+  }
   const was = pulls.get(r);
   // offline: the last list stays; a server that is no GitHub says so plainly
   if (r !== repo || (typeof got === "string" && !HELP[got] && was?.list.length)) return;
@@ -54,6 +61,9 @@ export async function loadPrs(fresh = false) {
   if (JSON.stringify(now) === JSON.stringify(was)) return;
   pulls.set(r, now);
   redraw();
+  // the page on show follows its pull request: a push moved its head
+  const open = onShow && now.list.find((x) => x.number === onShow!.number);
+  if (open && open.headRefOid !== onShow!.headRefOid) openPr(open, true);
 }
 
 const FAILED = /FAILURE|ERROR|CANCELLED|TIMED_OUT|ACTION_REQUIRED|STARTUP_FAILURE/;
@@ -97,9 +107,12 @@ export function prRows() {
 
 const openUrl = (url: string) => invoke("open_url", { url }).catch((e) => say(String(e), true));
 // git checks a branch out in one worktree only: the one that has it opens instead
+/** Whether local branch `pr.headRefName` is the pull request's: a fork's only on its head commit, its name being anyone's. */
+const ownBranch = (pr: Pr) => !pr.isCrossRepository || findRef(`refs/heads/${pr.headRefName}`)?.hash === pr.headRefOid;
+
 async function checkoutPr(pr: Pr) {
-  const wt = worktreeOf(pr.headRefName), p = pulls.get(repo);
-  if (!wt) return pr.headRefName === status?.branch || gitOp("pr-checkout", [String(pr.number), p!.slug]);
+  const own = ownBranch(pr), wt = own ? worktreeOf(pr.headRefName) : undefined, p = pulls.get(repo);
+  if (!wt) return (own && pr.headRefName === status?.branch) || gitOp("pr-checkout", [String(pr.number), p!.slug]);
   // the page stays, as over a checkout here: the worktree shares the remotes, so their list too until its own comes
   if (p && !pulls.has(wt.path)) pulls.set(wt.path, p);
   carried = true;
@@ -113,8 +126,8 @@ async function checkoutPr(pr: Pr) {
 let carried = false;
 /** Why `pr`'s checkout is greyed, or where it goes: its branch checked out here, in another worktree, or not yet. */
 function checkoutWhy(pr: Pr): [boolean, string, string | undefined] {
-  const wt = worktreeOf(pr.headRefName);
-  if (pr.headRefName === status?.branch) return [true, `${pr.headRefName} is checked out already`, undefined];
+  const own = ownBranch(pr), wt = own && worktreeOf(pr.headRefName);
+  if (own && pr.headRefName === status?.branch) return [true, `${pr.headRefName} is checked out already`, undefined];
   return wt ? [false, `${pr.headRefName} is checked out in the worktree ${wt.path}: this opens it`, ICONS.worktree] : [false, `Check out ${pr.headRefName}`, undefined];
 }
 
@@ -201,10 +214,15 @@ function createPr(branch: string) {
 let onShow: Pr | null = null;
 
 /** A pull request's page in the middle, its changed files in the panel: from where it left its base branch to its head. */
-export async function openPr(pr: Pr) {
-  const p = pulls.get(repo), r = repo;
-  if (!p || (onShow?.number === pr.number && !$("pr").hidden)) return;
+export async function openPr(pr: Pr, again = false) {
+  const p = pulls.get(repo);
+  if (!p || (onShow?.number === pr.number && !again && !$("pr").hidden)) return;
+  // the plan's rows own the panel until it closes
+  if (planOpen()) return say("Close the interactive rebase first", true);
+  // its own answers only, wherever the page goes: a worktree's tab takes it along
   onShow = pr;
+  // the last one's files go now, not once this one's come
+  if (selection.pr) (selection.pr = null), renderPanel();
   $("pr").hidden = false;
   $("pr-title").replaceChildren(ico(ICONS.pr), `Pull request #${pr.number}`);
   $("pr-checkout").onclick = () => checkoutPr(pr);
@@ -212,22 +230,26 @@ export async function openPr(pr: Pr) {
   $("pr-graph").onclick = () => jumpTo(pr.headRefOid);
   paintPrBar();
   showPage(pr, `<p class="dim">Loading…</p>`);
-  run<string>("pr_base", { remote: p.remote, number: pr.number, head: pr.headRefOid, base: pr.baseRefName }).then(
-    (base) => {
-      if (onShow?.number !== pr.number || r !== repo) return;
-      selection.pr = { number: pr.number, hash: pr.headRefOid, base, title: pr.title };
-      renderPanel();
-    },
-    (e) => toast(`Files of #${pr.number} not found`, String(e), "err"),
-  );
   const slash = p.slug.indexOf("/");
   const api = <T>(path: string) => run<string>("gh", { args: ["api", "--hostname", p.slug.slice(0, slash), `repos/${p.slug.slice(slash + 1)}/${path}?per_page=100`] }, true).then((o) => JSON.parse(o) as T);
+  // from where the server last saw its base branch: the local one may be behind
+  api<{ base?: { sha?: string } }>(`pulls/${pr.number}`)
+    .catch(() => null)
+    .then((info) => run<string>("pr_base", { remote: p.remote, number: pr.number, head: pr.headRefOid, base: pr.baseRefName, baseSha: info?.base?.sha ?? null }))
+    .then(
+      (base) => {
+        if (onShow !== pr) return;
+        selection.pr = { number: pr.number, hash: pr.headRefOid, base, title: pr.title };
+        renderPanel();
+      },
+      (e) => onShow === pr && toast(`Files of #${pr.number} not found`, String(e), "err"),
+    );
   try {
     // ponytail: the first 100 of each, --paginate's pages would need --slurp, newer than some distributions' gh
     const [reviews, notes, inline] = await Promise.all([api<Review[]>(`pulls/${pr.number}/reviews`), api<Note[]>(`issues/${pr.number}/comments`), api<Inline[]>(`pulls/${pr.number}/comments`)]);
-    if (onShow?.number === pr.number && r === repo) showPage(pr, await pageOf(pr, reviews, notes, inline));
+    if (onShow === pr) showPage(pr, await pageOf(pr, reviews, notes, inline));
   } catch (e) {
-    if (onShow?.number === pr.number && r === repo) showPage(pr, `<p>${esc(HELP[String(e)] ?? String(e))}</p>`);
+    if (onShow === pr) showPage(pr, `<p>${esc(HELP[String(e)] ?? String(e))}</p>`);
   }
 }
 
@@ -301,8 +323,8 @@ async function pageOf(pr: Pr, reviews: Review[], notes: Note[], inline: Inline[]
 // the tags a comment may use, as on the server: another one leaves its text, those in GONE leave nothing
 const TAGS = new Set("a abbr b blockquote br code dd del details div dl dt em h1 h2 h3 h4 h5 h6 hr i img input ins kbd li ol p pre q s samp small span strike strong sub summary sup table tbody td tfoot th thead tr tt ul".split(" "));
 const GONE = new Set("script style template iframe frame frameset object embed noscript svg math textarea select button form title".split(" "));
-// the attributes each keeps: no id, event, style or source of its own; class only in the page's own markup
-const ATTRS: Record<string, string[]> = { a: ["href", "data-file"], img: ["src", "alt", "width", "height"], td: ["align", "colspan", "rowspan"], th: ["align", "colspan", "rowspan"], ol: ["start"], details: ["open"], input: ["type", "checked"] };
+// the attributes each keeps: no id, event, style or source of its own
+const ATTRS: Record<string, string[]> = { a: ["href"], img: ["src", "alt", "width", "height"], td: ["align", "colspan", "rowspan"], th: ["align", "colspan", "rowspan"], ol: ["start"], details: ["open"], input: ["type", "checked"] };
 
 /** `html` down to formatting, its links made absolute from `base`: comments are anyone's, so no script, style, form, id or remote load gets through. */
 function clean(html: string, base: string, classes: boolean) {
@@ -312,7 +334,12 @@ function clean(html: string, base: string, classes: boolean) {
     const tag = el.localName;
     if (GONE.has(tag)) el.remove();
     else if (!TAGS.has(tag)) el.replaceWith(...el.childNodes);
-    else for (const a of [...el.attributes]) if (!(classes && a.name === "class") && !ATTRS[tag]?.includes(a.name)) el.removeAttribute(a.name);
+    else
+      for (const a of [...el.attributes]) {
+        // a class, and a thread's link to its file: the page's own markup only
+        const own = a.name === "class" || (a.name === "data-file" && tag === "a");
+        if (own ? !classes : !ATTRS[tag]?.includes(a.name)) el.removeAttribute(a.name);
+      }
   }
   // only pictures carried in the text: a remote one would tell its server who reads
   body.querySelectorAll("img").forEach((i) => /^data:image\//.test(i.getAttribute("src") ?? "") || i.removeAttribute("src"));

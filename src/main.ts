@@ -9,7 +9,7 @@ import { closeFind, drawRows, findStep, findTyped, stepBack, laneBarScrolled, op
 import { Change, active, addTab, autoFetch, cloneDialog, closeTab, fetchMinutes, gitOp, opInfo, newTabMenu, openPicked, openRepo, openSettings, paintPull, pull, pullMenu, push, refresh, renderTabHits, reopenTab, repo, restoreTabs, run, selection, switchTab, tabs, undoMenu, undoRedo } from "./repo";
 import { checkTools } from "./settings";
 import { terms, toggleTerm } from "./terminal";
-import { closePr, followPrLink } from "./pr";
+import { closePr, followPrLink, loadPrs } from "./pr";
 
 /** Up/Down walk the graph, or the files once Right opened one; Left goes back to the graph. */
 function arrow(key: string) {
@@ -27,6 +27,8 @@ function arrow(key: string) {
     const next = files[files.findIndex((x) => x.id === id && x.f.path === open.f.path) + (down ? 1 : -1)];
     return next && openListed(next.id, next.f);
   }
+  // the graph is under a pull request's page
+  if (!$("pr").hidden) return;
   const i = shown.findIndex((c) => c.hash === selection.anchor);
   const next = shown[i < 0 ? 0 : i + (down ? 1 : -1)];
   if (!next) return;
@@ -69,7 +71,7 @@ document.querySelectorAll<HTMLElement>("[data-op]").forEach((b) => (b.onclick = 
 $("pull-mode").onclick = pullMenu;
 $("pull").oncontextmenu = (e) => (e.preventDefault(), pullMenu(e));
 paintPull();
-addEventListener("focus", () => autoFetch());
+addEventListener("focus", () => (autoFetch(), loadPrs()));
 // every minute, a fetch once the Settings tab's interval has passed
 setInterval(() => autoFetch(fetchMinutes() * 60_000), 60_000);
 document.querySelectorAll<HTMLElement>("[data-mode]").forEach((b) => (b.onclick = () => setMode(b.dataset.mode as Mode)));
@@ -258,7 +260,7 @@ addEventListener("keydown", (e) => {
   else if (e.key === "Enter" && !$("dialog").hidden && !(e.target as HTMLElement).closest?.("input, textarea, button, select"))
     (e.preventDefault(), $("dialog").querySelector<HTMLElement>("button.primary")?.click());
   // the open diff's changes, from anywhere but a field or a text being edited; a greyed arrow says why
-  else if (!mod(e) && !e.altKey && (key === "p" || key === "n") && diffFile && !$("diff").hidden && $("dialog").hidden && !(e.target as HTMLElement).closest?.(`input:not([type=checkbox]), textarea, #merge, #hist-file${diffFile.kind === "unstaged" && diffFile.mod.exists ? ", #diff-editor" : ""}`))
+  else if (!mod(e) && !e.altKey && (key === "p" || key === "n") && diffFile && !$("diff").hidden && $("dialog").hidden && !(e.target as HTMLElement).closest?.(`input:not([type=checkbox]), textarea, #merge, #hist-file${diffFile.kind === "unstaged" && diffFile.mod.exists && !diffFile.shown ? ", #diff-editor" : ""}`))
     (e.preventDefault(), $(key === "n" ? "next-change" : "prev-change").click());
   else if (e.key === "Escape") {
     if (!$("menu").hidden) $("menu").hidden = $("submenu").hidden = true;

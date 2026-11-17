@@ -2,6 +2,7 @@ import { Commit, commits, gitOp, headHash, isHead, opInfo, repo, selection } fro
 import { paintSelection } from "./graph";
 import { $, ICONS, MenuItem, avatar, h, ico, mod, popup, say, short, showDialog, showMenu, hideDialog, onCtrlEnter, svg } from "./ui";
 import { countLeft, joinMsg, renderPanel, splitMsg } from "./panel";
+import { closePr } from "./pr";
 
 type Action = "pick" | "reword" | "squash" | "drop";
 // one commit of the plan; message is the reworded one, empty while unchanged
@@ -58,6 +59,8 @@ export function openRebase(base: string, range: Commit[] | null | undefined) {
   if (range === undefined) return say("Interactive rebase: the commits to replay go past the loaded ones, load more commits first", true);
   if (!range) return say("Interactive rebase: the commits to replay include a merge", true);
   if (!range.length) return say("Interactive rebase: nothing to replay, the branch has no commit this one lacks", true);
+  // its rows own the panel: a pull request's page goes
+  closePr(false);
   plan = { base, rows: range.map((c) => ({ c, action: "pick", message: "" })), at: 0, repo, head: headHash(), picked: new Set() };
   $("rebase").hidden = false;
   paint();

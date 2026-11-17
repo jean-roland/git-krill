@@ -42,6 +42,8 @@ before(async () => {
     writeFileSync(join(gh, "prs.json"), JSON.stringify([
       pr(7, "feature/moon", "Follow the moon", { body: "The tide **follows** the moon:\n\n- a lunar day\n- `12 * 2 + 1`", statusCheckRollup: [run("build", "SUCCESS"), run("test", "FAILURE")] }),
       pr(8, "docs/tides", "Document the tides", { isDraft: true, statusCheckRollup: [{ __typename: "CheckRun", name: "build", workflowName: "CI", status: "IN_PROGRESS", conclusion: "" }] }),
+      // a fork's main: not this clone's main
+      pr(6, "main", "From a fork", { isCrossRepository: true, headRefOid: sha("fix/typo") }),
     ]));
     const user = (login) => ({ login });
     writeFileSync(join(gh, "issues-7-comments.json"), JSON.stringify([{ id: 1, user: user("reef"), body: "Does it hold at neap tide?", created_at: at(3, 10) }]));
@@ -61,7 +63,7 @@ before(async () => {
 after(() => k?.quit());
 
 test("the open pull requests are listed, their numbers on their branches", async () => {
-  await k.until(() => document.querySelectorAll('#sidebar [data-key="pulls"] .item').length === 2);
+  await k.until(() => document.querySelectorAll('#sidebar [data-key="pulls"] .item').length === 3);
   assert.match(await k.js(() => document.querySelector('#sidebar [data-key="pulls"] .item.draft').textContent), /Document the tides#8/);
   assert.equal(await k.js(() => document.querySelector('#graph .ref[title*="feature/moon"] .pr-n')?.textContent), "#7");
 });
@@ -84,6 +86,12 @@ test("a thread's file opens in the diff, without reverting; Esc steps back out",
   await k.until(() => document.getElementById("diff").hidden && !document.getElementById("pr").hidden);
   await k.keys("\uE00C");
   await k.until(() => document.getElementById("pr").hidden && !document.getElementById("commit-head").textContent.includes("pull request"));
+});
+
+test("a fork's pull request from a branch named like one here still checks out", async () => {
+  await k.menu('#sidebar [data-key="pulls"] .item', "From a fork");
+  assert.equal(await k.js(() => [...document.querySelectorAll("#menu button")].find((b) => b.textContent === "Checkout branch").disabled), false);
+  await k.keys("\uE00C");
 });
 
 test("a pull request's last commit shows in the graph", async () => {

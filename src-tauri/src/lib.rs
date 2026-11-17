@@ -949,17 +949,20 @@ fn gh_run(dir: &str, args: &[&str]) -> Result<String, String> {
     Err(if err.contains("gh auth login") { "gh-auth".into() } else { err })
 }
 
-/// \brief Where pull request `number` starts: the merge base of its `head` commit and branch `base` on `remote`, both fetched first when missing.
+/// \brief Where pull request `number` starts: the merge base of its `head` commit and its base branch `base` on `remote`, from `base_sha`, where the server last saw that branch, when given: the local one may be behind. Both fetched first when missing.
 #[tauri::command(async)]
-fn pr_base(repo: String, remote: String, number: u64, head: String, base: String) -> Result<String, String> {
+fn pr_base(repo: String, remote: String, number: u64, head: String, base: String, base_sha: Option<String>) -> Result<String, String> {
     let base_ref = format!("refs/remotes/{}/{}", not_option(&remote)?, not_option(&base)?);
     let have = |rev: &str| git(&repo, &["cat-file", "-e", &format!("{rev}^{{commit}}")]).is_ok();
-    if !have(&head) || !have(&base_ref) {
+    let from = base_sha.filter(|s| !s.is_empty()).unwrap_or_else(|| base_ref.clone());
+    if !have(&head) || !have(&from) {
         // a fork's head is on the base repository too, under its number
         let (pull, into) = (format!("refs/pull/{number}/head"), format!("+refs/heads/{base}:{base_ref}"));
         report(git_cmd(&repo, &["fetch", "--no-tags", &remote, &pull, &into], None, true)?)?;
     }
-    Ok(git(&repo, &["merge-base", &base_ref, not_option(&head)?])?.trim().to_string())
+    // the branch moved on since the server's answer: its tip, fetched
+    let from = if have(&from) { from } else { base_ref };
+    Ok(git(&repo, &["merge-base", not_option(&from)?, not_option(&head)?])?.trim().to_string())
 }
 
 /// \brief End the running blame, if any.
@@ -1141,13 +1144,23 @@ fn blob(repo: String, at: String, path: String, full: Option<bool>) -> Result<Bl
 
 /// \brief The bytes of `path` `at` a commit, "INDEX" or "WORKTREE", a git-lfs pointer swapped for its object.
 fn version_bytes(repo: &str, at: &str, path: &str) -> Result<Vec<u8>, String> {
-    let bytes = match at {
-        "WORKTREE" => return std::fs::read(work_path(repo, path)?).map_err(|e| e.to_string()),
-        "INDEX" => git_bytes(repo, &["cat-file", "blob", &format!(":{path}")], None)?,
-        r => git_bytes(repo, &["cat-file", "blob", &format!("{}:{path}", not_option(r)?)], None)?,
+    // a plain file within MAX_ASKED: not a link to a device that never ends, nor gigabytes into memory
+    let read = |p: PathBuf| match std::fs::metadata(&p) {
+        Ok(m) if !m.is_file() => Err(format!("{path} is not a regular file")),
+        Ok(m) if m.len() > MAX_ASKED as u64 => Err(format!("{path} is too big to read here")),
+        _ => std::fs::read(p).map_err(|e| e.to_string()),
     };
+    let spec = match at {
+        "WORKTREE" => return read(work_path(repo, path)?),
+        "INDEX" => format!(":{path}"),
+        r => format!("{}:{path}", not_option(r)?),
+    };
+    if git(repo, &["cat-file", "-s", &spec])?.trim().parse::<usize>().is_ok_and(|n| n > MAX_ASKED) {
+        return Err(format!("{path} is too big to read here"));
+    }
+    let bytes = git_bytes(repo, &["cat-file", "blob", &spec], None)?;
     match lfs_object(repo, &bytes) {
-        Some((object, _)) => std::fs::read(object).map_err(|_| format!("{path} is stored with Git LFS and this version is not downloaded")),
+        Some((object, _)) => read(object).map_err(|e| if e.contains("too big") { e } else { format!("{path} is stored with Git LFS and this version is not downloaded") }),
         None => Ok(bytes),
     }
 }
@@ -1188,9 +1201,17 @@ fn version_part(repo: &str, at: &str, path: &str, offset: u64, limit: usize) -> 
             }
         }
     });
-    let _ = child.kill();
-    let _ = child.wait();
-    read.map(|_| out)
+    // short of `limit`, git ended: a version it could not read is an error, not an empty side
+    let ended = out.len() < limit;
+    if !ended {
+        let _ = child.kill();
+    }
+    let done = child.wait();
+    read?;
+    if ended && !done.is_ok_and(|s| s.success()) {
+        return Err(format!("{path}: git could not read this version"));
+    }
+    Ok(out)
 }
 
 /// \brief A binary version as text to compare: an object file's sections and symbols when `symbols`, else a hex dump of bytes `offset`..; whether it is an object file, and whether more bytes follow.
@@ -1225,10 +1246,29 @@ fn whole_lines(part: &[u8], lines: Option<usize>, end: bool) -> (usize, usize) {
         Some(0) => 0,
         Some(n) if ends.len() >= n => ends[n - 1],
         _ if end => part.len(),
-        // ponytail: a line longer than the budget is cut, and counted twice
-        _ => ends.last().copied().unwrap_or(part.len()),
+        // ponytail: a line longer than the budget is cut, on a character, and counted twice
+        _ => ends.last().copied().unwrap_or_else(|| char_end(part)),
     };
     (cut, part[..cut].iter().filter(|b| **b == b'\n').count() + usize::from(cut > 0 && part[cut - 1] != b'\n'))
+}
+
+/// \brief Where `b` ends on a whole UTF-8 character: before a last one it cuts.
+fn char_end(b: &[u8]) -> usize {
+    let n = b.len();
+    let Some(i) = (n.saturating_sub(4)..n).rev().find(|&i| b[i] & 0xC0 != 0x80) else { return n };
+    let len = match b[i] {
+        x if x >= 0xF0 => 4,
+        x if x >= 0xE0 => 3,
+        x if x >= 0xC0 => 2,
+        _ => 1,
+    };
+    if i + len > n { i } else { n }
+}
+
+/// \brief Whether `line` is the `+++` line of path `new`: git ends a name holding a space with a tab, and quotes one holding a tab, a quote or a backslash.
+fn new_side(line: &[u8], new: &str) -> bool {
+    let quoted = format!("+++ \"b/{}\"", new.replace('\\', "\\\\").replace('"', "\\\"").replace('\t', "\\t").replace('\n', "\\n"));
+    line.strip_suffix(b"\t").unwrap_or(line) == format!("+++ b/{new}").as_bytes() || line == quoted.as_bytes()
 }
 
 /// \brief The line ranges git's diff finds changed between two versions: (old start, old count, new start, new count) each, as its hunk headers say.
@@ -1247,12 +1287,12 @@ fn diff_hunks(repo: String, sides: Vec<(String, String)>) -> Vec<(u64, u64, u64,
     let Ok(mut child) = git_command(&repo, &args, true).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn() else { return Vec::new() };
     let out = std::io::BufReader::new(child.stdout.take().unwrap());
     // only the new path's own section: a rename git did not pair shows the old path's on its own
-    let (ours, mut hunks, mut on) = (format!("+++ b/{new}"), Vec::new(), false);
+    let (mut hunks, mut on) = (Vec::new(), false);
     tokio::task::block_in_place(|| {
         for line in out.split(b'\n').map_while(Result::ok) {
             if line.starts_with(b"diff --git ") {
                 on = false;
-            } else if line == ours.as_bytes() {
+            } else if new_side(&line, &new) {
                 on = true;
             } else if on && line.starts_with(b"@@ -") {
                 hunks.extend(hunk(&String::from_utf8_lossy(&line)));
@@ -1298,6 +1338,9 @@ fn hex_text(bytes: &[u8]) -> String {
 }
 
 /// \brief An object file's loaded sections and defined symbols with their sizes, symbols by name: a diff shows what grew.
+// the symbols a listing shows at most
+const MAX_SYMBOLS: usize = 100_000;
+
 fn symbol_text(f: &object::File) -> String {
     use object::{Object, ObjectSection, ObjectSymbol, SectionKind};
     let section = |s: &object::Section| s.name().unwrap_or("?").to_string();
@@ -1307,12 +1350,19 @@ fn symbol_text(f: &object::File) -> String {
         .filter(|s| s.size() > 0 && !matches!(s.kind(), SectionKind::Debug | SectionKind::DebugString | SectionKind::Metadata | SectionKind::Linker | SectionKind::Note | SectionKind::Other | SectionKind::OtherString))
         .map(|s| (section(&s), s.size(), String::new()))
         .collect();
+    // a crafted file's names and counts stay bounded: 40k names of 1 MB each would fill the memory
+    let name = |n: &str| if n.len() > 200 { format!("{}…", n.chars().take(200).collect::<String>()) } else { n.to_string() };
     let mut symbols: Vec<_> = f
         .symbols()
         .filter(|s| s.is_definition())
-        .filter_map(|s| Some((s.name().ok().filter(|n| !n.is_empty())?.to_string(), s.size(), s.section_index().and_then(|i| f.section_by_index(i).ok()).map_or(String::new(), |s| section(&s)))))
+        .filter_map(|s| Some((name(s.name().ok().filter(|n| !n.is_empty())?), s.size(), s.section_index().and_then(|i| f.section_by_index(i).ok()).map_or(String::new(), |s| section(&s)))))
+        .take(MAX_SYMBOLS + 1)
         .collect();
     symbols.sort();
+    if symbols.len() > MAX_SYMBOLS {
+        symbols.truncate(MAX_SYMBOLS);
+        symbols.push((format!("… past {MAX_SYMBOLS} symbols, the rest is left out"), 0, String::new()));
+    }
     // ponytail: a 200-character C++ name pushes its own row only
     let w = sections.iter().chain(&symbols).map(|r| r.0.len()).max().unwrap_or(0).min(48);
     let rows = |title: &str, rows: &[(String, u64, String)]| format!("{title:<w$} {:>10}\n", "Size") + &rows.iter().map(|(n, size, s)| format!("{n:<w$} {size:>10}  {s}\n")).collect::<String>();
@@ -2213,6 +2263,12 @@ mod tests {
 
     #[test]
     fn text_parts() {
+        // a long line cut on a character, names with a space or a quote matched
+        assert_eq!(whole_lines("aé".as_bytes().get(..2).unwrap(), None, false), (1, 1));
+        assert_eq!(char_end("aé".as_bytes()), 3);
+        assert!(new_side(b"+++ b/my file.txt\t", "my file.txt"));
+        assert!(new_side(b"+++ \"b/a\\\"b.txt\"", "a\"b.txt"));
+        assert!(!new_side(b"+++ b/other.txt", "my file.txt"));
         assert_eq!(whole_lines(b"a\nbb\nccc", None, false), (5, 2));
         assert_eq!(whole_lines(b"a\nbb\nccc", None, true), (8, 3));
         assert_eq!(whole_lines(b"a\nbb\nccc", Some(1), false), (2, 1));
