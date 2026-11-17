@@ -500,9 +500,11 @@ function submoduleCard(path: string, s: SubmoduleChange) {
 const IMAGE = /\.(png|jpe?g|gif|webp|bmp|ico|avif)$/i;
 // text, also shown drawn when asked
 const SVG = /\.svg$/i;
-const HTML = /\.html?$/i;
-// text files the switch can also draw: SVG as an image, HTML as a page
-const DRAWN = /\.(svg|html?)$/i;
+// drawn as a page: HTML as it is, Markdown rendered first
+const PAGE = /\.(html?|mdx?)$/i;
+const MD = /\.mdx?$/i;
+// text files the switch can also draw: SVG as an image, HTML and Markdown as a page
+const DRAWN = /\.(svg|html?|mdx?)$/i;
 // raw bytes the window decodes itself, far cheaper than text in the editor: shown unasked up to this
 const IMAGE_UNASKED = 50 << 20;
 // past this an image is not drawn: decoded at 4 bytes a pixel, a 30000×30000 one would take the window's ~3.6 GB
@@ -525,13 +527,14 @@ export async function setSvgView(view: string) {
   }
 }
 
-/** The text or drawn switch: shown for an SVG or an HTML page, the half of its current view lit. */
+/** The text or drawn switch: shown for an SVG, an HTML page or Markdown, the half of its current view lit. */
 function paintSvgView(shown: boolean, image: boolean, path: string) {
   $("svg-view").hidden = !shown;
-  const page = HTML.test(path), [text, drawn] = document.querySelectorAll<HTMLElement>("[data-svg]");
-  text.title = `Display ${page ? "HTML" : "SVG"} as text`;
-  drawn.title = page ? "Display HTML as a page" : "Display SVG as image";
-  drawn.querySelector("span")!.textContent = page ? "Page" : "Image";
+  const [kind, view, label] = MD.test(path) ? ["Markdown", "rendered", "Preview"] : PAGE.test(path) ? ["HTML", "as a page", "Page"] : ["SVG", "as image", "Image"];
+  const [text, drawn] = document.querySelectorAll<HTMLElement>("[data-svg]");
+  text.title = `Display ${kind} as text`;
+  drawn.title = `Display ${kind} ${view}`;
+  drawn.querySelector("span")!.textContent = label;
   document.querySelectorAll<HTMLElement>("[data-svg]").forEach((b) => b.classList.toggle("on", (b.dataset.svg === "image") === image));
 }
 const sideName = (at: string) => (at === "WORKTREE" ? "Working tree" : at === "INDEX" ? "Staged" : at === "HEAD" ? "HEAD" : short(at));
@@ -540,7 +543,7 @@ const bytesText = (n: number) => (n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 10
 /** The open image's old and new versions, side by side. */
 function imageSides() {
   const { kind, f, c, orig, mod } = diffFile!;
-  const side = HTML.test(f.path) ? pageSide : imageSide;
+  const side = PAGE.test(f.path) ? pageSide : imageSide;
   const sides = sideSources(kind, f, c).flatMap(([at, path], i) => ((i ? mod : orig).exists ? [side(at, path, i ? "add" : "del")] : []));
   return zoomable(h("div", { className: "img-sides" }, ...sides));
 }
@@ -623,8 +626,11 @@ function pageSide(at: string, path: string, cls = "") {
   const frame = h("iframe", { sandbox: "" }) as HTMLIFrameElement, caption = h("small", { textContent: sideName(at) });
   run<ArrayBuffer>("file_bytes", { at, path }).then(
     async (bytes) => {
-      const doc = new DOMParser().parseFromString(new TextDecoder().decode(bytes), "text/html");
+      const text = new TextDecoder().decode(bytes);
+      const doc = new DOMParser().parseFromString(MD.test(path) ? await markdownPage(text) : text, "text/html");
       await inlineLocal(doc, at, path);
+      // a page that turns dark with the desktop gets dark diagrams
+      await busy(drawMermaid(doc, MD.test(path) || (matchMedia("(prefers-color-scheme: dark)").matches && /prefers-color-scheme:\s*dark/.test(text)) ? "dark" : "default"));
       // the policy covers loads, not navigation nor prefetches: no refresh, no link left, every link a script the sandbox never runs (still drawn as a link)
       doc.querySelectorAll("base, link, meta[http-equiv='refresh' i]").forEach((e) => e.remove());
       doc.querySelectorAll("a, area").forEach((a) => {
@@ -634,18 +640,92 @@ function pageSide(at: string, path: string, cls = "") {
       });
       doc.head.prepend(
         h("meta", { httpEquiv: "Content-Security-Policy", content: "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:" }),
-        // a browser's light page under the page's own styles, not krill's dark scheme; a see-through scrollbar suits light and dark pages
+        // a browser's light page where the page says nothing, on the body: one on the root would stop the page's own body colour filling the frame; a see-through scrollbar suits light and dark pages
         h("style", {
           textContent:
-            ":root { color-scheme: light; background: #fff; color: #000; } ::-webkit-scrollbar { width: 14px; height: 14px; background: transparent; } ::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 7px; background: #8888 padding-box; } ::-webkit-scrollbar-corner { background: transparent; }",
+            ":root { color-scheme: light; } :where(body) { background: #fff; color: #000; } .mermaid-drawn svg { display: block; max-width: 100%; height: auto; margin: 1em auto; } ::-webkit-scrollbar { width: 14px; height: 14px; background: transparent; } ::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 7px; background: #8888 padding-box; } ::-webkit-scrollbar-corner { background: transparent; }",
         }),
       );
       frame.srcdoc = `<!doctype html>${doc.documentElement.outerHTML}`;
+      untilLoaded(frame, "load");
       caption.textContent = `${sideName(at)} · ${bytesText(bytes.byteLength)}`;
     },
     (e) => (caption.textContent = String(e)),
   );
-  return h("figure", { className: `img-side ${cls}` }, h("div", { className: "frame" }, frame), caption);
+  return h("figure", { className: `img-side ${cls}` }, h("div", { className: "frame page" }, frame), caption);
+}
+
+// a reading width and GitHub-like type in krill's colours: Markdown has no style of its own
+const MD_STYLE =
+  ":root { color-scheme: dark; } body { max-width: 860px; margin: 0 auto; padding: 24px 32px; font: 15px/1.6 system-ui, sans-serif; color: #e4e8ef; background: #1b1f27; } h1, h2 { padding-bottom: 0.3em; border-bottom: 1px solid #374050; } a { color: #58a6ff; } img { max-width: 100%; } code, pre { font-family: ui-monospace, Menlo, Consolas, monospace; background: #232832; border-radius: 6px; } code { padding: 0.2em 0.4em; font-size: 85%; } pre { padding: 16px; overflow: auto; } pre code { padding: 0; background: none; } blockquote { margin: 0; padding: 0 1em; color: #8c95a6; border-left: 0.25em solid #374050; } table { border-collapse: collapse; } th, td { padding: 6px 13px; border: 1px solid #374050; } hr { border: 0; border-top: 1px solid #374050; }";
+
+/** The page's mermaid diagrams (Markdown code blocks, HTML `.mermaid` blocks) drawn in place, as SVG. */
+async function drawMermaid(doc: Document, theme: string) {
+  const blocks = [...doc.querySelectorAll("pre.mermaid, div.mermaid, pre > code.language-mermaid")];
+  if (!blocks.length) return;
+  const draw = await mermaidDrawer();
+  for (const b of blocks) {
+    // both versions of a page, or the same page again, share their drawings; ponytail: dropped all at once past 100
+    const key = `${theme}\n${b.textContent}`;
+    if (drawings.size > 100) drawings.clear();
+    if (!drawings.has(key)) drawings.set(key, draw(b.textContent ?? "", theme));
+    const svg = await drawings.get(key);
+    if (svg) (b.tagName === "CODE" ? b.parentElement! : b).outerHTML = `<div class="mermaid-drawn">${svg}</div>`;
+  }
+}
+
+const drawings = new Map<string, Promise<string | null>>();
+
+// the library runs in a frame of its own, loaded once: scripts but no origin and no network, so a file's text never runs where git does
+let drawer: Promise<(code: string, theme: string) => Promise<string | null>> | null = null;
+function mermaidDrawer() {
+  return (drawer ??= import("mermaid/dist/mermaid.min.js?raw").then(
+    ({ default: lib }) =>
+      new Promise((done) => {
+        // laid out but out of sight: the library measures its text
+        const frame = h("iframe", { sandbox: "allow-scripts", style: "position: fixed; left: -10000px; width: 1200px; height: 900px; visibility: hidden" }) as HTMLIFrameElement;
+        const csp = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:";
+        frame.srcdoc = `<!doctype html><meta http-equiv="Content-Security-Policy" content="${csp}"><body><script>
+onmessage = async ({ data }) => {
+  // a script of its own: the library is strict, an eval would keep its globals to itself
+  if (typeof data === "string") return document.body.append(Object.assign(document.createElement("script"), { textContent: data })), parent.postMessage(["loaded"], "*");
+  const [id, code, theme] = data;
+  try {
+    // flat boxes: version 12's themes add gradient borders and a grey shadow
+    mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme, themeVariables: { useGradient: false, dropShadow: "none" } });
+    parent.postMessage([id, (await mermaid.render("m" + id, code)).svg], "*");
+  } catch {
+    parent.postMessage([id, null], "*");
+  }
+};
+parent.postMessage(["ready"], "*");
+</script>`;
+        const waiting = new Map<number, (svg: string | null) => void>();
+        let seq = 0;
+        addEventListener("message", ({ source, data: [id, svg] }) => {
+          if (source !== frame.contentWindow) return;
+          if (id === "ready") return frame.contentWindow!.postMessage(lib, "*");
+          if (id === "loaded") return done((code: string, theme: string) => new Promise((back) => (waiting.set(++seq, back), frame.contentWindow!.postMessage([seq, code, theme], "*"))));
+          waiting.get(id)?.(svg);
+          waiting.delete(id);
+        });
+        document.body.append(frame);
+      }),
+  ));
+}
+
+/** A Markdown file as an HTML page, with the parser Monaco carries; each block tagged with its first source line. */
+async function markdownPage(text: string) {
+  const { lexer, parser } = await import("monaco-editor/esm/vs/base/common/marked/marked.js");
+  // front matter is for a site generator, not for reading
+  const front = text.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n/)?.[0] ?? "";
+  let line = 1 + (front.match(/\n/g)?.length ?? 0);
+  const blocks = lexer(text.slice(front.length), { gfm: true }).map((t) => {
+    const at = line;
+    line += t.raw.match(/\n/g)?.length ?? 0;
+    return t.type === "space" ? "" : `<div data-line="${at}">${parser([t], { gfm: true })}</div>`;
+  });
+  return `<style>${MD_STYLE}</style>${blocks.join("")}`;
 }
 
 /** The page's own images and stylesheets, read from version `at` in place of their links; remote ones stay out. */
@@ -1336,7 +1416,7 @@ export async function showRev(i: number) {
     $("hist-file").hidden = true;
     $("diff-binary").hidden = false;
     $("diff-binary").classList.add("images");
-    $("diff-binary").replaceChildren(zoomable(h("div", { className: "img-sides" }, (HTML.test(f.path) ? pageSide : imageSide)(c.hash, f.path))));
+    $("diff-binary").replaceChildren(zoomable(h("div", { className: "img-sides" }, (PAGE.test(f.path) ? pageSide : imageSide)(c.hash, f.path))));
     return reveal();
   }
   const ed = historyEditor(), view = ed.saveViewState(), old = ed.getModel();

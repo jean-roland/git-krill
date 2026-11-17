@@ -701,6 +701,7 @@ textarea.msg-in { height: 104px; resize: vertical; }
 .img-side.del .frame { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--del) 60%, transparent); }
 .img-side.add .frame { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--add) 60%, transparent); }
 /* centred at its own size, shrunk to fit inside the frame's border: grid centring let a tall one spill over it */
+.img-side .frame.page { background: var(--bg); }
 .img-side iframe { position: absolute; inset: 2px; width: calc(100% - 4px); height: calc(100% - 4px); border: 0; border-radius: 3px; }
 .img-side img { position: absolute; inset: 8px; margin: auto; max-width: calc(100% - 16px); max-height: calc(100% - 16px); transform: var(--zoom); }
 .img-sides.zoomed .frame { cursor: grab; }
@@ -720,7 +721,7 @@ textarea.msg-in { height: 104px; resize: vertical; }
 #svg-view button:first-child span { text-align: right; }
 #svg-view:hover button:first-child svg { margin-left: 5px; }
 #svg-view:hover button:last-child svg { margin-right: 5px; }
-#svg-view:hover span { width: 42px; }
+#svg-view:hover span { width: 54px; }
 /* a tooltip at once, under its element: the native one waits a second */
 [data-tip] { position: relative; }
 [data-tip]:hover::after {
