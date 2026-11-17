@@ -149,8 +149,6 @@ class Krill {
     await this.cmd("POST", `element/${el[ELEMENT]}/value`, { text });
   }
 
-  /** The text of the rows Monaco has drawn in the open diff's new side (or its only one). */
-  lines = () => this.js(() => [...document.querySelectorAll("#diff-editor .editor.modified .view-line")].map((l) => l.textContent.replace(/\u00a0/g, " ")).join("\n"));
 
   /** The window as an image, against e2e/golden/<name>.png: a few pixels may differ. */
   async shot(name) {

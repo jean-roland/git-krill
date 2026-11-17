@@ -15,6 +15,6 @@ test("a Markdown diff shows its preview, then its text again where it was", asyn
   assert.match(h, /tidepool/i);
   await k.shot("markdown-preview");
   await k.click('[data-svg="text"]');
-  await k.until(() => !document.getElementById("diff-editor").hidden && document.querySelector("#diff-editor .view-line"));
-  assert.match(await k.lines(), /--json/);
+  // Monaco draws the rows a moment after the editor shows
+  await k.until(() => !document.getElementById("diff-editor").hidden && document.querySelector("#diff-editor").textContent.includes("--json"));
 });
