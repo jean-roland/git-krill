@@ -517,14 +517,54 @@ export async function setSvgView(view: string) {
   store("svg-view", view);
   if (diffFile) {
     diffFile.dirty = false;
-    paintSides();
+    // the page sides take it as they are made; the text is scrolled before its first frame
+    const spot = (readAt = readingAt()), drawn = paintSides();
+    readAt = null;
+    if (spot && !$("diff-editor").hidden) showLine(spot);
+    await drawn;
   }
-  // the history's File view: showRev only redraws another row
+  // the history's File view: showRev only redraws another row; it takes the spot on its way
   else if (hist) {
     const at = hist.at;
     hist.at = -1;
-    showRev(at);
+    readAt = readingAt();
+    await showRev(at);
+    readAt = null;
   }
+}
+
+// where a page or its text was read, carried across the Text | Page switch: a source line (Markdown blocks have theirs), else a fraction
+type Spot = { line: number; frac: number };
+let readAt: Spot | null = null;
+
+/** The text in sight: the history's File view, else the diff's new side. */
+const textEditor = () => (hist && !$("hist-file").hidden ? histEd : $("diff-editor").hidden ? null : editor().getModifiedEditor());
+
+/** Where the open file is read: the page's first block in sight, else the editor's top line. */
+function readingAt(): Spot | null {
+  const page = $("diff-binary").hidden ? null : [...document.querySelectorAll<HTMLIFrameElement>("#diff-binary iframe")].pop()?.contentDocument?.scrollingElement;
+  if (page) {
+    const block = [...page.querySelectorAll<HTMLElement>("[data-line]")].find((b) => b.getBoundingClientRect().bottom > 0);
+    return { line: block ? +block.dataset.line! : 0, frac: page.scrollTop / Math.max(1, page.scrollHeight - page.clientHeight) };
+  }
+  const ed = textEditor();
+  if (!ed) return null;
+  const top = ed.getVisibleRanges()[0]?.startLineNumber ?? 1;
+  return { line: top, frac: (top - 1) / Math.max(1, (ed.getModel()?.getLineCount() ?? 1) - 1) };
+}
+
+/** Editor `ed` scrolled to spot `s`. */
+function showLine(s: Spot, ed: Monaco.editor.ICodeEditor = editor().getModifiedEditor()) {
+  const n = ed.getModel()?.getLineCount() ?? 1;
+  ed.setScrollTop(ed.getTopForLineNumber(s.line || Math.round(s.frac * (n - 1)) + 1));
+}
+
+/** Page `doc` scrolled to spot `s`: its block at that line, else as far down. */
+function showSpot(doc: Document, s: Spot) {
+  const blocks = [...doc.querySelectorAll<HTMLElement>("[data-line]")];
+  if (blocks.length) return blocks.filter((b) => +b.dataset.line! <= Math.max(s.line, 1)).pop()?.scrollIntoView({ block: "start" });
+  const page = doc.scrollingElement;
+  if (page) page.scrollTop = s.frac * (page.scrollHeight - page.clientHeight);
 }
 
 /** The text or drawn switch: shown for an SVG, an HTML page or Markdown, the half of its current view lit. */
@@ -545,7 +585,9 @@ function imageSides() {
   const { kind, f, c, orig, mod } = diffFile!;
   const side = PAGE.test(f.path) ? pageSide : imageSide;
   const sides = sideSources(kind, f, c).flatMap(([at, path], i) => ((i ? mod : orig).exists ? [side(at, path, i ? "add" : "del")] : []));
-  return zoomable(h("div", { className: "img-sides" }, ...sides));
+  const box = zoomable(h("div", { className: "img-sides" }, ...sides));
+  syncPages([...box.querySelectorAll("iframe")]);
+  return box;
 }
 
 /** The wheel zooms the versions together around the pointer, a drag pans them, a double-click fits them back. */
@@ -621,9 +663,47 @@ function imageSide(at: string, path: string, cls = "") {
   return h("figure", { className: `img-side ${cls}` }, frame, caption);
 }
 
-/** One version of an HTML page, drawn without its scripts or anything remote: its own images and stylesheets come from the same version. */
+/** Two pages side by side scroll together, as a text diff's sides do. Checked each frame: scripts never run in them, so no scroll event reaches the window either. */
+function syncPages(frames: HTMLIFrameElement[]) {
+  if (frames.length !== 2) return;
+  const last = [0, 0];
+  const tick = () => {
+    // gone with its diff
+    if (!frames[0].isConnected) return;
+    const pages = frames.map((f) => f.contentDocument?.scrollingElement);
+    if (pages[0] && pages[1]) {
+      // the one that moved leads; the one it moves is not taken for a lead the next frame
+      const moved = pages.map((p, i) => p!.scrollTop !== last[i]);
+      if (moved[0] !== moved[1]) followPage(frames[+moved[1]].contentDocument!, frames[+moved[0]].contentDocument!);
+    }
+    pages.forEach((p, i) => (last[i] = p?.scrollTop ?? 0));
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+/** Page `to` scrolled to where `from` is read: the block in sight there, found unchanged here, at the same height; else as far down. */
+function followPage(from: Document, to: Document) {
+  // Markdown's source blocks, else the page's own top-level elements
+  const blocks = (d: Document) => {
+    const tagged = [...d.querySelectorAll<HTMLElement>("[data-line]")];
+    return tagged.length ? tagged : ([...d.body.children] as HTMLElement[]);
+  };
+  const page = to.scrollingElement!, s = from.scrollingElement!;
+  const top = blocks(from).find((b) => b.getBoundingClientRect().bottom > 0);
+  const twin = top && blocks(to).find((b) => b.textContent === top.textContent);
+  if (twin) page.scrollTop += twin.getBoundingClientRect().top - top.getBoundingClientRect().top;
+  else page.scrollTop = (s.scrollTop / Math.max(1, s.scrollHeight - s.clientHeight)) * (page.scrollHeight - page.clientHeight);
+}
+
+/** One version of an HTML page or a Markdown file, drawn without scripts or anything remote: its own images and stylesheets come from the same version. */
 function pageSide(at: string, path: string, cls = "") {
-  const frame = h("iframe", { sandbox: "" }) as HTMLIFrameElement, caption = h("small", { textContent: sideName(at) });
+  // its own origin for the window to read its scroll; scripts still never run
+  const frame = h("iframe", { sandbox: "allow-same-origin" }) as HTMLIFrameElement, caption = h("small", { textContent: sideName(at) });
+  const spot = readAt;
+  // out of sight until scrolled there: drawn at its top first, it would jump
+  if (spot) frame.style.visibility = "hidden";
+  if (spot) frame.onload = () => (frame.contentDocument && showSpot(frame.contentDocument, spot), (frame.style.visibility = ""));
   run<ArrayBuffer>("file_bytes", { at, path }).then(
     async (bytes) => {
       const text = new TextDecoder().decode(bytes);
@@ -1400,13 +1480,14 @@ export async function showRev(i: number) {
     histPane(false);
     return reveal(opening ? diffDrawn() : undefined);
   }
-  await closeDiff(true);
-  histPane(true);
   $("diff-path").textContent = `${f.path} · ${short(c.hash)}`;
   // the file shows first, its blame (slower) fills the gutter when it comes
   const blame = run<string>("blame", { at: c.hash, path: f.path }).catch(() => "");
   const blob = await run<Blob>("blob", { at: c.hash, path: f.path }).catch((e) => (say(String(e), true), null));
   if (hist !== m || m.at !== i) return;
+  // only now: until then the version shown before stays, not this pane's last text
+  await closeDiff(true);
+  histPane(true);
   if (!blob) return reveal();
   m.blame = [];
   // an image, or an SVG or HTML page asked drawn, shows as itself in the diff's binary pane
@@ -1423,8 +1504,9 @@ export async function showRev(i: number) {
   const text = blob.lfs === "missing" ? "Stored with Git LFS, this version is not downloaded" : blob.binary ? "Binary or non-UTF-8 file" : blob.large ? `${megabytes(blob.large)}: too big to show here, the Diff view can load it` : blob.exists ? blob.text : `Deleted in ${short(c.hash)}`;
   ed.setModel(newModel(text, `h/${f.path}`));
   old?.dispose();
-  // another version of the same file: stay around the same lines
-  if (view) ed.restoreViewState(view);
+  // from its page: the same place; another version of the same file: around the same lines
+  if (readAt) showLine(readAt, ed);
+  else if (view) ed.restoreViewState(view);
   paintBlame();
   reveal();
   const blamed = parseBlame(await blame) as Blamed[];
