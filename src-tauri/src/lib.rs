@@ -923,18 +923,43 @@ fn remote_tags(repo: String) -> Result<std::collections::HashMap<String, Vec<Str
 #[tauri::command(async)]
 fn gh_verified(host: String, slug: String, hash: String) -> Result<String, String> {
     let path = format!("repos/{}/commits/{}", not_option(&slug)?, not_option(&hash)?);
+    Ok(gh_run(".", &["api", "--hostname", not_option(&host)?, &path, "--jq", r#".commit.verification | "\(.verified) \(.reason)""#])?.trim().to_string())
+}
+
+/// \brief gh with `args` in `repo`: what it printed.
+#[tauri::command(async)]
+fn gh(repo: String, args: Vec<String>) -> Result<String, String> {
+    gh_run(&repo, &args.iter().map(String::as_str).collect::<Vec<_>>())
+}
+
+/// \brief gh's output in folder `dir`; "gh-missing" or "gh-auth" when it is not installed or signed out, for the window to say what to do.
+fn gh_run(dir: &str, args: &[&str]) -> Result<String, String> {
     let mut gh = command("gh");
-    gh.args(["api", "--hostname", not_option(&host)?, &path, "--jq", r#".commit.verification | "\(.verified) \(.reason)""#])
-        .env("GH_PROMPT_DISABLED", "1")
-        .env("GH_NO_UPDATE_NOTIFIER", "1")
-        .stdin(Stdio::null());
-    // off the async pool while the network answers; gh missing or signed out is told apart, for the badge to say what to do
+    gh.current_dir(dir).args(args).env("GH_PROMPT_DISABLED", "1").env("GH_NO_UPDATE_NOTIFIER", "1").env("GIT_TERMINAL_PROMPT", "0").stdin(Stdio::null());
+    // the git it runs (pr checkout) asks through krill's dialog, off the terminal
+    askpass::env(&mut gh, true);
+    #[cfg(unix)]
+    unsafe { gh.pre_exec(|| (libc::setsid() >= 0).then_some(()).ok_or_else(std::io::Error::last_os_error)) };
+    // off the async pool while the network answers
     let out = tokio::task::block_in_place(|| gh.output()).map_err(|e| if e.kind() == std::io::ErrorKind::NotFound { "gh-missing".to_string() } else { e.to_string() })?;
     if out.status.success() {
-        return Ok(String::from_utf8_lossy(&out.stdout).trim().to_string());
+        return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
     }
     let err = output_text(&out);
     Err(if err.contains("gh auth login") { "gh-auth".into() } else { err })
+}
+
+/// \brief Where pull request `number` starts: the merge base of its `head` commit and branch `base` on `remote`, both fetched first when missing.
+#[tauri::command(async)]
+fn pr_base(repo: String, remote: String, number: u64, head: String, base: String) -> Result<String, String> {
+    let base_ref = format!("refs/remotes/{}/{}", not_option(&remote)?, not_option(&base)?);
+    let have = |rev: &str| git(&repo, &["cat-file", "-e", &format!("{rev}^{{commit}}")]).is_ok();
+    if !have(&head) || !have(&base_ref) {
+        // a fork's head is on the base repository too, under its number
+        let (pull, into) = (format!("refs/pull/{number}/head"), format!("+refs/heads/{base}:{base_ref}"));
+        report(git_cmd(&repo, &["fetch", "--no-tags", &remote, &pull, &into], None, true)?)?;
+    }
+    Ok(git(&repo, &["merge-base", &base_ref, not_option(&head)?])?.trim().to_string())
 }
 
 /// \brief End the running blame, if any.
@@ -1941,7 +1966,7 @@ fn git_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
     }
     // a fetch runs beside the others: it would bring the changes back under a pull
     let fetching = op.contains("fetch");
-    let switching = op == "checkout" || op == "branch-create";
+    let switching = op == "checkout" || op == "branch-create" || op == "pr-checkout";
     let out = match run_op(repo.clone(), op.clone(), arg.clone(), arg2.clone()) {
         // a switch the changes in progress block, which made nothing: they are kept aside around it
         Err(e) if switching && e.contains("Your local changes to the following files would be overwritten") && op_state(&repo)?.is_empty() => {
@@ -2000,6 +2025,8 @@ fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         // arg the index tree before the apply, arg2 the print after it
         "stash-undo" => return stash_undo(&repo, &arg, &arg2),
         "stash-pop" => return stash_restore(&repo, "pop", &arg),
+        // arg the number, arg2 the repository as host/owner/name
+        "pr-checkout" => return gh_run(&repo, &["pr", "checkout", not_option(&arg)?, "-R", not_option(&arg2)?]),
         // in the background: a key that needs its passphrase fails quietly instead of asking
         "auto-fetch" => return report(git_cmd(&repo, &["fetch", "--all", "--prune"], None, false)?),
         "discard-all" => {
@@ -2151,7 +2178,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, gh_verified, remote_tags, submodule_change, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, worktree_main, lfs_patterns, version_ids, keeps_crlf,
+            initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, gh_verified, gh, pr_base, remote_tags, submodule_change, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, worktree_main, lfs_patterns, version_ids, keeps_crlf,
             is_merged, revert_lines, index_tree, stash_print, clone_cancel, tracing, trace_line, open_default, open_version, file_bytes, binary_text, text_part, diff_hunks, tool_status, global_config, set_global_config, trust_folder, delete_file, open_url, remote_urls, edit_remote,
             pty::pty_spawn, pty::pty_write, pty::pty_resize, pty::pty_kill, askpass::askpass_reply
         ])

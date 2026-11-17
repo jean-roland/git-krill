@@ -8,6 +8,7 @@ import { closeHistory, closeMerge, closeResolvedMerge, confirmDrop, diffFile, op
 import { conflictCount, getMsg, panelData, renderPanel, setMsg } from "./panel";
 import { stepBack, paintSelection, paintWipRow, renderGraph, renderSide, resetGraph, showRow } from "./graph";
 import { dropTerm, showTerm } from "./terminal";
+import { closePr, loadPrs, paintPrBar } from "./pr";
 import { renderSettings, rerereTip } from "./settings";
 import krill from "../src-tauri/icons/32x32.png";
 
@@ -37,7 +38,7 @@ export const LOG_LIMIT = 3000;
 // ops that move HEAD, walked back with a reset or a checkout
 const UNDOABLE = new Set([
   "commit", "amend", "reword", "checkout", "merge", "rebase", "rebase-interactive", "cherry-pick", "pull",
-  "branch-create", "checkout-reset", "reset-soft", "reset-mixed", "reset-hard", "revert",
+  "branch-create", "checkout-reset", "pr-checkout", "reset-soft", "reset-mixed", "reset-hard", "revert",
 ]);
 const KEEP_INDEX = new Set(["commit", "amend", "reword", "reset-soft", "reset-mixed"]);
 // ops named in the Undo menu by the commit they made
@@ -81,7 +82,7 @@ export function lfsChip() {
   return h("small", { className: why ? "lfs broken" : "lfs", textContent: "LFS", title: why ?? "Stored with Git LFS" });
 }
 // what may change the remotes' tags, or the list of them
-const NET_OPS = new Set(["fetch", "fetch-remote", "pull", "push", "push-force", "push-upstream", "tag-push", "push-delete", "tag-rename"]);
+const NET_OPS = new Set(["fetch", "fetch-remote", "pr-checkout", "pull", "push", "push-force", "push-upstream", "tag-push", "push-delete", "tag-rename"]);
 // how Pull reconciles a diverged branch, by git_op's pull argument
 const PULLS: Record<string, string> = { "": "fast-forward if possible", "ff-only": "fast-forward only", rebase: "rebase" };
 
@@ -93,7 +94,8 @@ export let status: Status | null = null;
 export let refs: Refs = { refs: [], stashes: [], remotes: [], worktrees: [], submodules: [], superproject: "", repoTop: "", lfs: false, lfsProblem: "" };
 // the picked graph rows ("WIP" or hashes), where a Shift range starts, whether it is one, or the stash shown instead
 // held: WIP clicked, kept even with nothing to commit (its All files); never picked empty otherwise
-export const selection = { hashes: ["WIP"], anchor: "", isRange: false, stash: null as Stash | null, held: false };
+// pr: the pull request whose files the panel lists, from `base`, where it left its base branch, to its head commit `hash`
+export const selection = { hashes: ["WIP"], anchor: "", isRange: false, stash: null as Stash | null, held: false, pr: null as { number: number; hash: string; base: string; title: string } | null };
 // the next refresh scrolls the pick into view: it moved on its own
 let reveal = false;
 // ops whose changes land in WIP: it is picked before they run
@@ -204,7 +206,7 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
   document.body.classList.remove("busy");
   await refresh();
   trace(`${ms(started)} op ${name}, its refresh included`);
-  if (ok && NET_OPS.has(name)) loadRemoteTags();
+  if (ok && NET_OPS.has(name)) (loadRemoteTags(), loadPrs(true));
   if (ok && record && UNDOABLE.has(name) && tab === tabs[active]) {
     const what = MAKE_COMMIT.has(name) ? `"${commits.find(isHead)?.subject ?? ""}"` : name === "pull" ? "" : short(arg1).replace(/^refs\/(heads|remotes|tags)\//, "");
     const step: UndoStep = { op: name, what, branch: [branch, status?.branch ?? ""], head: [head, headHash()] };
@@ -241,6 +243,7 @@ const STEP_NAMES: Record<string, string> = {
   "rebase-interactive": "interactive rebase onto {}",
   "branch-create": "create branch {}",
   "checkout-reset": "reset {} to its remote",
+  "pr-checkout": "checkout of pull request #{}",
   "reset-soft": "soft reset to {}",
   "reset-mixed": "mixed reset to {}",
   "reset-hard": "hard reset to {}",
@@ -441,9 +444,10 @@ async function reload() {
       renderSide();
     }
     renderToolbar();
+    paintPrBar();
     // a picked commit's panel changes only with the pick, or with HEAD for its Edit button
-    const panel = JSON.stringify([selection.hashes, selection.stash?.hash, headHash()]), row = openRow();
-    if ((selection.hashes[0] === "WIP" && !selection.stash) || panel !== panelKey) {
+    const panel = JSON.stringify([selection.hashes, selection.stash?.hash, selection.pr, headHash()]), row = openRow();
+    if ((selection.hashes[0] === "WIP" && !selection.stash && !selection.pr) || panel !== panelKey) {
       panelKey = panel;
       await renderPanel();
     }
@@ -659,6 +663,7 @@ export async function switchTab(i: number, save = true) {
   selection.anchor = selection.hashes[0];
   selection.isRange = false;
   selection.stash = null;
+  closePr(false);
   commits = [];
   status = null;
   opInfo = null;
@@ -674,6 +679,7 @@ export async function switchTab(i: number, save = true) {
   // its refresh failed: show it empty rather than the last tab
   if (landing === t) land();
   autoFetch();
+  loadPrs();
 }
 
 let landing: Tab | null = null;
@@ -1039,7 +1045,7 @@ export function autoFetch(gap = 60_000) {
   run<string>("git_op", { op: "auto-fetch", arg: "" }, true).then(
     (out) => {
       fetchedAt.set(r, started);
-      if (r === repo) loadRemoteTags();
+      if (r === repo) (loadRemoteTags(), loadPrs());
       // with several remotes git names each one even when nothing came
       if (r === repo && out.split("\n").some((l) => l.trim() && !l.startsWith("Fetching "))) refresh();
     },

@@ -54,6 +54,9 @@ export const ICONS: Record<string, string> = {
   submodule: "M12 3l9 4.5-9 4.5-9-4.5zM3 12l9 4.5 9-4.5M3 16.5l9 4.5 9-4.5",
   sync: "M21 12a9 9 0 0 1-15.4 6.4L3 16M3 12a9 9 0 0 1 15.4-6.4L21 8M3 21v-5h5M21 3v5h-5",
   warn: "M12 3 2 21h20zM12 10v5M12 18h.01",
+  pr: "M18 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM13 6h3a2 2 0 0 1 2 2v7M6 9v12",
+  dot: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
+  locate: "M12 2v4M12 18v4M2 12h4M18 12h4M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10z",
   eyeOff: "M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.1 4M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a10 10 0 0 0 5.4-1.6",
 };
 export const colorIndex = (s: string) => [...s].reduce((a, ch) => a + ch.charCodeAt(0), 0) % COLORS.length;
@@ -268,29 +271,31 @@ export function closeDialog() {
   cancel?.();
 }
 
-/** A dialog of `fields` ([label, value, input type]); a password is kept as typed, the rest trimmed. */
+/** A dialog of `fields` ([label, value, input type or "textarea"]); a password is kept as typed, the rest trimmed. The `more` actions get the values too. */
 export function dialog(
   title: string,
   fields: [string, string, string?][],
   action: string,
   save: (values: string[]) => unknown,
-  more: [string, () => unknown][] = [],
+  more: [string, (values: string[]) => unknown][] = [],
   cancel?: () => unknown,
 ) {
-  const inputs = fields.map(([, value, type = "text"]) => h("input", { value, type, spellcheck: false }));
+  const inputs = fields.map(([, value, type = "text"]) => (type === "textarea" ? h("textarea", { value, spellcheck: false }) : h("input", { value, type, spellcheck: false })));
+  const values = () => inputs.map((i) => (i.type === "password" ? i.value : i.value.trim()));
   const submit = () => {
     hideDialog();
-    save(inputs.map((i) => (i.type === "password" ? i.value : i.value.trim())));
+    save(values());
   };
   for (const i of inputs) {
+    // a description's Enter is a new line: Ctrl+Enter sends it
     i.onkeydown = (e) => {
-      if (e.key === "Enter") submit();
+      if (e.key === "Enter" && (i.tagName !== "TEXTAREA" || mod(e))) submit();
     };
   }
   showDialog(
     title,
     fields.flatMap(([label], k) => [h("label", { textContent: label }), inputs[k]]),
-    [...more.map(([label, fn]) => h("button", { textContent: label, onclick: () => (hideDialog(), fn()) })), h("button", { className: "primary", textContent: action, onclick: submit })],
+    [...more.map(([label, fn]) => h("button", { textContent: label, onclick: () => (hideDialog(), fn(values())) })), h("button", { className: "primary", textContent: action, onclick: submit })],
     cancel ?? null,
   );
   (inputs[0] ?? $("dialog").querySelector("button.primary")).focus();

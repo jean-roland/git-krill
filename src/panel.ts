@@ -373,6 +373,10 @@ export function paintFileOpts() {
 
 /** What the commit panel shows: one commit, a stash, a compare or a range as one pseudo commit. */
 function panelCommit(): { c: Commit; message?: string; head: (Node | string)[]; author?: Commit } | null {
+  if (selection.pr) {
+    const p = selection.pr;
+    return { c: fakeCommit(p.hash, [p.base], p.title), message: p.title, head: [`pull request #${p.number} · `, shaLink(p.base), "..", shaLink(p.hash)] };
+  }
   if (selection.stash) {
     const s = selection.stash;
     const c = fakeCommit(s.hash, s.parents.slice(0, 1), s.subject);
@@ -485,7 +489,7 @@ const allFiles = () => document.querySelector(".all-files")!.classList.contains(
 /** The right panel: the work in progress, or the picked commit, range or stash. */
 /** What the commit panel reads, read ahead: a tab switch then lands with its panel. */
 export function panelData() {
-  const view = !selection.stash && selection.hashes[0] === "WIP" ? null : panelCommit();
+  const view = !selection.stash && !selection.pr && selection.hashes[0] === "WIP" ? null : panelCommit();
   if (!view) return Promise.resolve();
   const all = allFiles() ? [runFixed("tree_files", { at: view.c.hash })] : [];
   return Promise.all([runFixed("commit_info", { hash: view.c.hash, parent: view.c.parents[0] ?? "" }), ...all]).catch(() => {});
@@ -493,7 +497,7 @@ export function panelData() {
 
 export async function renderPanel() {
   const n = ++panelSeq;
-  const wip = !selection.stash && selection.hashes[0] === "WIP";
+  const wip = !selection.stash && !selection.pr && selection.hashes[0] === "WIP";
   $("wip").hidden = !wip;
   $("commit").hidden = wip;
   if (wip) return renderWip(n);

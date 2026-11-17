@@ -1,0 +1,38 @@
+#!/usr/bin/env node
+// gh for the e2e tests: answers from the JSON files in the gh folder beside the repository, notes its calls in gh/calls, the pull requests it creates in gh/created.
+import { execFileSync } from "node:child_process";
+import { appendFileSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
+const args = process.argv.slice(2), dir = join(process.cwd(), "..", "gh");
+const read = (name, or) => {
+  try {
+    return readFileSync(join(dir, name), "utf8");
+  } catch {
+    if (or === undefined) fail(`no ${name}`);
+    return or;
+  }
+};
+function fail(msg) {
+  process.stderr.write(`${msg}\n`);
+  process.exit(1);
+}
+
+const [cmd, sub] = args;
+try {
+  appendFileSync(join(dir, "calls"), `${args.join(" ")}\n`);
+} catch {}
+if (cmd === "--version") console.log("gh version 2.0.0 (e2e)");
+else if (cmd === "auth") console.log("github.com\n  ✓ Logged in to github.com account krill-e2e (keyring)");
+else if (cmd === "pr" && sub === "list") process.stdout.write(read("prs.json"));
+else if (cmd === "api") {
+  // repos/<owner>/<name>/pulls/7/reviews?per_page=100 -> pulls-7-reviews.json
+  const path = args.find((a) => a.startsWith("repos/")).split("?")[0].split("/").slice(3).join("-");
+  process.stdout.write(read(`${path}.json`, "[]"));
+} else if (cmd === "pr" && sub === "checkout") {
+  const pr = JSON.parse(read("prs.json")).find((p) => String(p.number) === args[2]) ?? fail(`no pull request ${args[2]}`);
+  execFileSync("git", ["checkout", "-q", "-B", pr.headRefName, pr.headRefOid], { stdio: "inherit" });
+} else if (cmd === "pr" && sub === "create") {
+  appendFileSync(join(dir, "created"), `${JSON.stringify(args.slice(2))}\n`);
+  console.log("https://github.invalid/krill/tides/pull/9");
+} else fail(`gh ${args.join(" ")}: not faked`);

@@ -43,12 +43,22 @@ const gitEnv = (dir) => {
   return { ...process.env, GIT_CONFIG_GLOBAL: config, GIT_CONFIG_NOSYSTEM: "1", TZ: "UTC" };
 };
 
-/** Git Krill open on `repo`, in a profile of its own. */
-export async function launch(repo) {
+/** Git Krill open on `repo`, in a profile of its own, with e2e/bin's gh; `more` overrides its environment. */
+export async function launch(repo, more = {}) {
   const home = mkdtempSync(join(tmpdir(), "krill-e2e-"));
   const run = join(home, "run");
   mkdirSync(run, { mode: 0o700 });
-  const env = { ...gitEnv(home), XDG_CONFIG_HOME: join(home, "config"), XDG_DATA_HOME: join(home, "data"), XDG_CACHE_HOME: join(home, "cache"), XDG_RUNTIME_DIR: run, LANG: "C.UTF-8", MESA_SHADER_CACHE_DISABLE: "true" };
+  const env = {
+    ...gitEnv(home),
+    PATH: `${join(ROOT, "e2e/bin")}:${process.env.PATH}`,
+    XDG_CONFIG_HOME: join(home, "config"),
+    XDG_DATA_HOME: join(home, "data"),
+    XDG_CACHE_HOME: join(home, "cache"),
+    XDG_RUNTIME_DIR: run,
+    LANG: "C.UTF-8",
+    MESA_SHADER_CACHE_DISABLE: "true",
+    ...more,
+  };
   const native = process.env.WEBKIT_WEBDRIVER ? ["--native-driver", process.env.WEBKIT_WEBDRIVER] : [];
   const driver = spawn("tauri-driver", ["--port", String(PORT), ...native], { env, stdio: "ignore" });
   for (let i = 0; ; i++) {

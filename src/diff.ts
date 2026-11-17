@@ -187,7 +187,7 @@ function lineActions(ed: Monaco.editor.ICodeEditor, orig: boolean) {
         ? ([["Discard selected lines", lines("discard")], ["Stage selected lines", lines("stage")]] as MenuItem[])
         : []),
       ...(diffFile?.kind === "staged" && staging() ? ([["Unstage selected lines", lines("unstage")]] as MenuItem[]) : []),
-      ...(diffFile?.kind === "commit" && diffFile.c?.hash !== "WORKTREE" && !diffFile.shown ? ([["Revert selected lines", () => revertLines(selectedLines(), "lines")]] as MenuItem[]) : []),
+      ...(diffFile?.kind === "commit" && diffFile.c?.hash !== "WORKTREE" && !diffFile.shown && !selection.pr ? ([["Revert selected lines", () => revertLines(selectedLines(), "lines")]] as MenuItem[]) : []),
       null,
       ["Copy", () => copy(text)],
     ]);
@@ -291,7 +291,8 @@ function updateHunkBars() {
     !diffFile || diffFile.shown ? []
     : diffFile.kind === "unstaged" ? [["discard", "Discard hunk"], ["stage", "Stage hunk"]]
     : diffFile.kind === "staged" ? [["unstage", "Unstage hunk"]]
-    : diffFile.c?.hash !== "WORKTREE" ? [["revert", "Revert hunk"]]
+    // a pull request's changes are not this checkout's to take back
+    : diffFile.c?.hash !== "WORKTREE" && !selection.pr ? [["revert", "Revert hunk"]]
     : [];
   hunks = diffFile ? lineChanges() : [];
   // a deletion marks the line it follows; a changed hunk splits the lane, removed left and added right

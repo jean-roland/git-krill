@@ -9,6 +9,7 @@ import { closeFind, drawRows, findStep, findTyped, stepBack, openFind, paintSele
 import { Change, active, addTab, autoFetch, cloneDialog, closeTab, fetchMinutes, gitOp, opInfo, newTabMenu, openPicked, openRepo, openSettings, paintPull, pull, pullMenu, push, refresh, renderTabHits, reopenTab, repo, restoreTabs, run, selection, switchTab, tabs, undoMenu, undoRedo } from "./repo";
 import { checkTools } from "./settings";
 import { terms, toggleTerm } from "./terminal";
+import { closePr, followPrLink } from "./pr";
 
 /** Up/Down walk the graph, or the files once Right opened one; Left goes back to the graph. */
 function arrow(key: string) {
@@ -202,6 +203,8 @@ $("hist-blame").onclick = () => {
 };
 $("prev-change").onclick = () => diffFile && editor().goToDiff("previous");
 $("next-change").onclick = nextChange;
+$("pr-close").onclick = () => closePr();
+$("pr-page").onclick = $("pr-page").onauxclick = followPrLink;
 $("open-editor").onclick = openDiffFile;
 $("diff-save").onclick = () => save().then(refresh);
 $("open-repo").onclick = openPicked;
@@ -259,6 +262,7 @@ addEventListener("keydown", (e) => {
     else if (hist) closeHistory();
     else if (!$("diff").hidden) closeDiff();
     else if (merging) closeMerge();
+    else if (!$("pr").hidden) closePr();
     else if (dismissToast()) e.preventDefault();
     // nothing left open: the graph itself steps back out of a worktree or a submodule
     else if (tabs[active].parent && !(e.target as HTMLElement).closest?.("input, textarea")) stepBack();

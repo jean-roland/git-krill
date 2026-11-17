@@ -5,6 +5,7 @@ import { closeRebase, ontoRange, openRebase, rebaseRange } from "./rebase";
 import { Commit, LOG_LIMIT, Stash, Status, Submodule, Worktree, active, closeTab, commits, dropEdits, fakeCommit, findRef, FOLDS_KEY, gitOp, headHash, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, keepTab, newTab, opInfo, openRepo, paintRepoName, pull, push, redraw, refs, remoteTags, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
 import { $, COLORS, ICONS, MenuItem, ask, askName, basename, copy, dateTimeText, dialog, h, ico, input, mod, popup, say, short, spriteId, store, svg, toast } from "./ui";
 import { dropTerm } from "./terminal";
+import { closePr, newPr, prChip, prItems, prOf, prRows, pullsHere } from "./pr";
 import { conflictCount, conflictLine, fileCounts, opLine, renderPanel, wipFiles } from "./panel";
 
 type Label = { name: string; tag: boolean; head: boolean; local: boolean; remotes: string[] };
@@ -68,8 +69,11 @@ export function renderSide() {
   // what the user folded stays folded, per repository
   const r = repo, folds = sideFolds();
   updateHidden();
-  const section = (key: string, title: string, count: number, rows: () => HTMLElement[], open: boolean, icon = "") => {
-    const d = h("details", { open: folds[key] ?? open }, h("summary", {}, ...(icon ? [ico(ICONS[icon])] : []), title, h("span", { className: "n", textContent: String(count) })));
+  // a null count: still being asked, a spinner in its place
+  const section = (key: string, title: string, count: number | null, rows: () => HTMLElement[], open: boolean, icon = "") => {
+    // the count first: floated right, it keeps its line however narrow the title gets
+    const n = h("span", { className: "n" }, count === null ? h("span", { className: "spinner", title: "Asking gh" }) : String(count));
+    const d = h("details", { open: folds[key] ?? open }, h("summary", {}, n, ...(icon ? [ico(ICONS[icon])] : []), title));
     // a folded section's rows are made when it first opens
     let filled = false;
     const fill = () => !filled && d.open && ((filled = true), d.append(...rows()));
@@ -92,6 +96,8 @@ export function renderSide() {
     const row = sideItem(name, "branch", hash, trackLabel(track), current ? "current" : "", () => branchMenu(name, false), () => current || checkoutBranch(name, false), current ? undefined : ref);
     // its upstream was deleted on the remote, like a merged pull request's branch
     if (track === "[gone]") row.append(ico(ICONS.gone, `${findRef(ref)?.upstream || "Its upstream"} was deleted on the remote`));
+    const pr = prOf(name, hash);
+    if (pr) row.append(prChip(pr));
     return row;
   };
   const remoteRow = ([full, hash, ref]: string[]) => sideItem(full.slice(full.indexOf("/") + 1), "branch", hash, "", "", () => branchMenu(full, true), () => checkoutBranch(full, true), ref);
@@ -150,13 +156,14 @@ export function renderSide() {
     // shown even empty, for their +: folded until opened
     addButton(section("worktrees", "Worktrees", refs.worktrees.length, () => refs.worktrees.map(worktreeRow), false, "worktree"), "Create a worktree", () => createWorktree("", headHash(), status?.branch ?? "")),
     addButton(section("submodules", "Submodules", refs.submodules.length, () => refs.submodules.map(submoduleRow), false, "submodule"), "Add a submodule", addSubmodule),
+    addButton(section("pulls", "Pull requests", pullsHere()?.list.length ?? null, prRows, true, "pr"), "Create a pull request from the checked out branch", newPr),
   );
 }
 
 /** A section's + on hover, adding one more of what it lists. */
 function addButton(d: HTMLElement, title: string, add: () => unknown) {
   // the fold stays as it is
-  d.querySelector("summary")!.append(h("button", { className: "add", title, innerHTML: svg(ICONS.a), onclick: (e: Event) => (e.preventDefault(), e.stopPropagation(), add()) }));
+  d.querySelector("summary .n")!.after(h("button", { className: "add", title, innerHTML: svg(ICONS.a), onclick: (e: Event) => (e.preventDefault(), e.stopPropagation(), add()) }));
   return d;
 }
 
@@ -214,7 +221,7 @@ function submoduleMenu(s: Submodule): MenuItem[] {
 }
 
 /** The worktree other than this one that has `branch` checked out, its folder still there. */
-const worktreeOf = (branch: string) => refs.worktrees.find((w) => w.branch === branch && w !== thisWorktree() && !w.prunable);
+export const worktreeOf = (branch: string) => refs.worktrees.find((w) => w.branch === branch && w !== thisWorktree() && !w.prunable);
 
 const prune = (w: Worktree) =>
   ask(`The folder of ${basename(w.path)} is gone. Prune it from the worktree list?`, "Prune").then((ok) => ok && gitOp("worktree-prune"));
@@ -236,7 +243,7 @@ function worktreeMenu(w: Worktree, main: boolean): MenuItem[] {
 }
 
 /** Show worktree `path` in this tab, or switch to the tab that has it; a submodule opened from `parent` too. */
-async function openWorktree(path: string, parent = "") {
+export async function openWorktree(path: string, parent = "") {
   const i = tabs.findIndex((t) => t.repo === path);
   if (i >= 0) return switchTab(i);
   if (!(await isRepo(path))) return say(`${path} no longer exists`, true);
@@ -350,6 +357,7 @@ export function linkRemote() {
 }
 
 export function jumpTo(hash: string) {
+  closePr(false);
   if (!commits.some((c) => c.hash === hash)) return say(`${short(hash)} is older than the last ${tabs[active].limit} commits`, true);
   selection.stash = null;
   selection.hashes = [hash];
@@ -361,6 +369,7 @@ export function jumpTo(hash: string) {
 }
 
 function showStash(s: Stash, scroll = false) {
+  closePr(false);
   selection.stash = s;
   selection.hashes = [];
   selection.anchor = s.hash;
@@ -528,7 +537,7 @@ function labels(c: Commit): Label[] {
   return [...out.values()].sort((a, b) => +b.head - +a.head || +a.tag - +b.tag || +b.local - +a.local);
 }
 
-function chip(l: Label) {
+function chip(l: Label, hash: string) {
   const el = h(
     "span",
     {
@@ -548,6 +557,8 @@ function chip(l: Label) {
   if (l.remotes.length) el.append(ico(ICONS.remote, l.remotes.map((r) => `${r} -> ${l.name} (remote branch)`).join("\n")));
   const wt = l.local && worktreeOf(l.name);
   if (wt) el.append(ico(ICONS.worktree, `Checked out in the worktree ${wt.path}`));
+  const pr = !l.tag && prOf(l.name, hash);
+  if (pr) el.append(prChip(pr));
   return el;
 }
 
@@ -563,7 +574,7 @@ function graphRow(c: Commit, lane: string, nodeX: number) {
     h(
       "div",
       { className: `refs${ls.length ? " has" : ""}${ls.length > 1 ? " multi" : ""}` },
-      h("div", { className: "refs-in" }, ...ls.map(chip), ...(ls.length > 1 ? [h("span", { className: "more", textContent: `+${ls.length - 1}` })] : [])),
+      h("div", { className: "refs-in" }, ...ls.map((l) => chip(l, c.hash)), ...(ls.length > 1 ? [h("span", { className: "more", textContent: `+${ls.length - 1}` })] : [])),
     ),
     c.hash === "WIP"
       ? h(
@@ -739,6 +750,8 @@ function branchMenu(name: string, remote: boolean): MenuItem[] {
       ? ([[`Delete on ${rem}`, () => ask(`Delete branch ${remBranch} on ${rem}? This pushes the deletion.`, "Delete").then((ok) => ok && gitOp("push-delete", [rem, `refs/heads/${remBranch}`]))]] as MenuItem[])
       : []),
     ...(current || !ref ? [] : [hideItem(ref.name)]),
+    null,
+    ...prItems(name, remote, sha),
     null,
     ["Copy branch name", () => copy(remote ? remBranch : name)],
     ...(rem ? ([[`Copy link to branch on ${rem}`, async () => copy(`${await webUrl(rem)}/tree/${remBranch}`)]] as MenuItem[]) : []),

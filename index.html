@@ -71,6 +71,16 @@
             <div id="cols"><span class="refs">Branch / Tag</span><span class="g-col">Graph</span><span class="subject">Commit message</span><button class="icon" id="find-open" title="Search commits (Ctrl+F)"><svg data-icon="search"></svg></button></div>
             <div id="rows"></div>
           </div>
+          <div id="pr" hidden>
+            <div class="bar">
+              <span id="pr-title"></span>
+              <button class="icon" id="pr-graph"><svg data-icon="locate"></svg></button>
+              <button id="pr-checkout" title="Check out its branch"><svg data-icon="check"></svg>Checkout</button>
+              <button id="pr-web" title="Open it in the browser"><svg data-icon="external"></svg>Open in browser</button>
+              <button class="icon" id="pr-close" title="Close (Esc)"><svg data-icon="close"></svg></button>
+            </div>
+            <div id="pr-page"></div>
+          </div>
           <div id="rebase" hidden>
             <div class="bar"><b>Interactive rebase</b><span id="rebase-what"></span><button class="icon" id="rebase-close" title="Close (Esc)"><svg data-icon="close"></svg></button></div>
             <div id="rebase-rows"></div>
