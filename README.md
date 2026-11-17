@@ -1,20 +1,20 @@
 <h1 align="center"><img src="src-tauri/icons/128x128@2x.png" alt="" width="72" align="center"> Git Krill</h1>
 
-A lean desktop git client for Linux, Windows and macOS: a commit graph, diffs you can stage from, a merge tool, and little else. It runs the `git` you already have, so your config, hooks, keys and credentials apply as usual.
+A lean desktop git client for Linux, Windows and macOS: a commit graph, diffs you can stage from, a merge tool, pull requests, and little else. It runs the `git` you already have, so your config, hooks, keys and credentials apply as usual.
 
 ![Staging a hunk, committing, squashing three commits in an interactive rebase, then undoing it all](docs/screenshots/demo.gif)
 
 ## Features
 
-- **Graph**: every branch in lanes, with search; checkout, merge, rebase and reset from the menus.
-- **Staging**: whole files, hunks or single lines; commit, amend, discard with undo.
-- **Diffs**: hunk, inline or side by side, editable in place; images with zoom, SVGs and HTML pages drawn.
-- **Merge tool**: three panes, picks per hunk or per line.
-- **Interactive rebase**: reorder, reword, squash, drop, one row or several at once.
-- **File history** with blame.
-- **Sidebar**: branches, remotes, tags, stashes, worktrees and submodules.
-- **Git LFS**: diffs by content, track and untrack from the menus.
-- **Tabs**, one repository each, with a terminal.
+- **Git Workflow**: explore the commit graph, manage branches, stashes and rebases in a click. Stage down to a single line.
+- **Diffs**: inspect changes by hunk, inline or side by side, and edit uncommitted ones in place.
+- **Tabs**: work across multiple repositories in dedicated tabs, each paired with a built-in terminal.
+- **Conflicts**: resolve tricky merges in a three-pane editor, picking changes by the hunk or down to the individual line.
+- **History**: step through past revisions of a file with inline blame so you know who changed what and why.
+- **Rebase**: clean up commit history visually by reordering, rewording, squashing or dropping commits, individually or in bulk.
+- **Pull requests**, powered by the GitHub CLI: check CI statuses, read review threads or open new PRs without leaving the app.
+- **Previews**: render Markdown, HTML and SVG. Inspect images and binaries or open any file in its default app.
+- **Advanced Git**: manage worktrees, submodules and LFS files right from the interface.
 
 ## Screenshots
 
