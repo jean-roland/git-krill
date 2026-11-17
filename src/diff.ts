@@ -1534,15 +1534,19 @@ const dimDiffOpts = (dim: boolean) =>
 /** Show the history's pane once `drawn` settles, a frame later so it is painted. */
 const reveal = (drawn?: Promise<unknown>) => (drawn ?? Promise.resolve()).then(() => requestAnimationFrame(() => $("hist-main").classList.remove("blank")));
 
-// a diff's hunks and folds land a moment after its text; a big file's take long enough to show the busy pointer
-const diffDrawn = (ms = 500) =>
-  busy(
-    new Promise((done) => {
-      // the first update only drops the old diff: wait for one with changes computed, and the frame that draws its deleted lines
-      const d = editor().onDidUpdateDiff(() => editor().getLineChanges() && (d.dispose(), requestAnimationFrame(done)));
-      setTimeout(() => (d.dispose(), done(0)), ms);
-    }),
-  );
+// a diff's hunks and folds land a moment after its text: waited for `ms` at most, the busy pointer up until they land or Monaco gives up (5 s)
+const diffDrawn = (ms = 500) => {
+  const landed = new Promise((done) => {
+    const end = (then: () => void) => (d.dispose(), m.dispose(), then());
+    // the first update only drops the old diff: wait for one with changes computed, and the frame that draws its deleted lines
+    const d = editor().onDidUpdateDiff(() => editor().getLineChanges() && end(() => requestAnimationFrame(done)));
+    // another file in its place: its own wait takes over
+    const m = editor().onDidChangeModel(() => end(() => done(0)));
+    setTimeout(() => end(() => done(0)), Math.max(ms, 5500));
+  });
+  busy(landed);
+  return Object.assign(Promise.race([landed, new Promise((r) => setTimeout(r, ms))]), { landed });
+};
 
 /** Busy until `el` fires one of `events`, or 10 s pass: one taken off the page meanwhile never does. */
 const untilLoaded = (el: HTMLElement, ...events: string[]) =>
