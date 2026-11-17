@@ -271,9 +271,16 @@ fn git_cmd(repo: &str, args: &[&str], input: Option<&[u8]>, ask: bool) -> Result
     out
 }
 
-/// \brief All git said, stdout then stderr.
+/// \brief All git said, stdout then stderr; a progress line it redrew after carriage returns only as it ended.
 fn output_text(out: &Output) -> String {
-    format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr)).trim().to_string()
+    let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    text.lines().map(|l| l.rsplit('\r').find(|s| !s.trim().is_empty()).unwrap_or("")).collect::<Vec<_>>().join("\n").trim().to_string()
+}
+
+/// \brief A git progress line's step and percent: "remote: Counting objects:  42% (21/50)" gives ("Counting objects", 42).
+fn progress(line: &str) -> Option<(&str, u32)> {
+    let (step, rest) = line.trim_start_matches("remote: ").trim().split_once(':')?;
+    Some((step, rest.trim_start().split_once('%')?.0.parse().ok()?))
 }
 
 /// \brief All git said, as the error when it failed.
