@@ -936,7 +936,7 @@ export function cloneDialog() {
   for (const i of [parent, url, name]) i.onkeydown = (e) => void (e.key === "Enter" && submit());
   go.onclick = submit;
   const browse = async () => {
-    const p = await pickDir("Clone into");
+    const p = await pickDir("Select folder to clone into");
     if (p) (parent.value = p), paint();
   };
   showDialog(
@@ -1053,5 +1053,5 @@ export function autoFetch(gap = 60_000) {
 }
 export const openPicked = async () => {
   // a tab each, the last one picked in front
-  for (const p of await pickDirs("Open repositories")) await openRepo(p);
+  for (const p of await pickDirs("Select folders to open")) await openRepo(p);
 };

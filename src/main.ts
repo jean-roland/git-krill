@@ -209,7 +209,7 @@ $("settings-btn").onclick = $("settings-home").onclick = openSettings;
 $("m-sync").classList.toggle("on", store("merge-sync") !== "off");
 $("m-sync").onclick = () => store("merge-sync", $("m-sync").classList.toggle("on") ? "on" : "off");
 $("init-repo").onclick = async () => {
-  const p = await pickDir("Folder to init");
+  const p = await pickDir("Select folder to init");
   if (!p) return;
   try {
     await invoke("init", { path: p });

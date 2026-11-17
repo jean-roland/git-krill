@@ -100,7 +100,7 @@ function openDirRow() {
   // the picker wants it absolute
   const save = async (p: string) => (store("open-dir", (dir.value = p.trim().replace(/^~(?=\/|$)/, await homeDir()))), say("Start folder saved"));
   dir.onchange = () => save(dir.value);
-  const browse = h("button", { textContent: "Browse…", onclick: () => pickDir("Start folder").then((p) => void (p && save(p))) });
+  const browse = h("button", { textContent: "Browse…", onclick: () => pickDir("Select start folder").then((p) => void (p && save(p))) });
   return row("Start folder", h("div", { className: "dlg-row" }, dir, browse), hint("Where Open repository (Ctrl+O), Init and Clone's Browse start."));
 }
 
