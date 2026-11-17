@@ -20,6 +20,10 @@ export let shown: Commit[] = [];
 let rowColors: string[] = [];
 export let chunks: HTMLElement[] = [];
 let laneW = 0;
+// how far the lanes are scrolled sideways, when wider than their column
+let gx = 0;
+// the graph column's widest by default, in px: ten lanes; past it the lanes scroll
+const GRAPH_MAX = 10 * LANE + 10;
 let graphLayout: { width: number; nodes: number[]; edges: { row: number; lane: number; toRow: number; toLane: number; via: number }[] } = { width: 0, nodes: [], edges: [] };
 
 /* branches sidebar */
@@ -416,7 +420,7 @@ export function renderGraph(scroll?: number) {
   graphLayout = layoutGraph(list);
   // wide enough for its column title
   laneW = Math.max(graphLayout.width * LANE + 10, 64);
-  $("graph").style.setProperty("--graph-w", `${laneW}px`);
+  $("graph").style.setProperty("--lane-w", `${laneW}px`);
   shown = list;
   rowColors = list.map((_, i) => laneColor(graphLayout.nodes[i]));
   chunks = Array.from({ length: Math.ceil(list.length / CHUNK) }, (_, k) =>
@@ -426,8 +430,36 @@ export function renderGraph(scroll?: number) {
   const loadMore = h("button", { className: "load-more", innerHTML: svg(ICONS.down), onclick: () => ((tab.limit += LOG_LIMIT), (loadMore.disabled = true), redraw()) }, "Load more commits");
   $("rows").replaceChildren(...chunks, ...(more ? [loadMore] : []));
   if (scroll !== undefined) $("graph").scrollTop = scroll;
+  scrollLanes();
   drawRows();
   if (!$("find").hidden) markHits();
+}
+
+/** The graph column's width: the lanes', up to the one dragged (or GRAPH_MAX). */
+const graphW = () => Math.min(laneW, parseFloat($("graph").style.getPropertyValue("--graph-max")) || GRAPH_MAX);
+
+/** The lanes scrolled `by` px sideways, kept within them; a cut edge fades. */
+export function scrollLanes(by = 0) {
+  const g = $("graph"), w = graphW();
+  gx = Math.max(0, Math.min(laneW - w, gx + by));
+  g.style.setProperty("--gx", `${gx}px`);
+  g.classList.toggle("cut-left", gx > 0);
+  g.classList.toggle("cut-right", gx + w < laneW);
+  // its scrollbar along, once shown: an equal value fires no scroll back
+  $("lane-bar").scrollLeft = gx;
+}
+
+/** The lanes' scrollbar dragged. */
+export const laneBarScrolled = () => scrollLanes($("lane-bar").scrollLeft - gx);
+
+/** A sideways wheel, or Shift with the wheel, scrolls the lanes when they are wider than their column. */
+export function wheelLanes(e: WheelEvent) {
+  // a touchpad's vertical swipe drifts sideways a little: the larger delta wins
+  const dx = e.shiftKey ? e.deltaX || e.deltaY : Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : 0;
+  if (!dx || laneW <= graphW()) return;
+  e.preventDefault();
+  // a mouse notch is ~100 px, most of the column: two lanes at most a step
+  scrollLanes(Math.sign(dx) * Math.min(Math.abs(dx), 2 * LANE));
 }
 
 const laneX = (l: number) => l * LANE + LANE / 2 + 4;
@@ -486,7 +518,7 @@ export function paintWipRow() {
 }
 function fillChunk(k: number) {
   const from = k * CHUNK, to = Math.min(shown.length, from + CHUNK);
-  chunks[k].innerHTML = lanesSvg(from, to);
+  chunks[k].innerHTML = `<div class="lane-box">${lanesSvg(from, to)}</div>`;
   chunks[k].append(...shown.slice(from, to).map((c, i) => graphRow(c, rowColors[from + i], laneX(graphLayout.nodes[from + i]))));
 }
 
@@ -506,6 +538,9 @@ export function showRow(hash: string, block: ScrollLogicalPosition) {
   if (i < 0) return;
   if (!chunks[Math.floor(i / CHUNK)].childElementCount) fillChunk(Math.floor(i / CHUNK));
   document.querySelector(`.row[data-hash="${hash}"]`)?.scrollIntoView({ block });
+  // its dot into view too, in the middle of the column
+  const x = laneX(graphLayout.nodes[i]), w = graphW();
+  if (x - LANE / 2 < gx || x + LANE / 2 > gx + w) scrollLanes(x - w / 2 - gx);
   drawRows();
 }
 

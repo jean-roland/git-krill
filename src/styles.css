@@ -387,7 +387,8 @@ body.home main { grid-template-columns: 1fr; }
 #find-n { min-width: 44px; text-align: center; color: var(--dim); font-variant-numeric: tabular-nums; }
 #find button { padding: 2px 4px; border: none; background: none; line-height: 0; }
 #rows.finding .row:not(.match) { opacity: 0.35; }
-#graph { --refs-w: 170px; position: absolute; inset: 0; overflow: auto; scroll-padding-top: 22px; contain: strict; background: linear-gradient(var(--panel) 22px, var(--border) 0 23px, transparent 0); }
+/* the graph column: as wide as its lanes, up to the width dragged; wider lanes scroll sideways by --gx */
+#graph { --refs-w: 170px; --graph-w: min(var(--lane-w, 64px), var(--graph-max, 230px)); --gx: 0px; position: absolute; inset: 0; overflow: auto; scroll-padding-top: 22px; contain: strict; background: linear-gradient(var(--panel) 22px, var(--border) 0 23px, transparent 0); }
 /* the scrollbar starts below the column titles */
 #graph::-webkit-scrollbar-track { margin-top: 23px; }
 #cols {
@@ -408,6 +409,7 @@ body.home main { grid-template-columns: 1fr; }
 }
 #cols .refs { display: flex; align-items: center; padding-left: 8px; }
 #cols .g-col { position: relative; flex: none; width: var(--graph-w); padding-left: 6px; }
+#graph-grip { right: -4px; }
 #cols > span + span::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 1px; background: var(--border); }
 #cols .subject { top: 0; margin-left: 0; }
 /* the titles take the row's height, so their separators run top to bottom */
@@ -417,7 +419,17 @@ body.home main { grid-template-columns: 1fr; }
 #cols .icon svg { width: 14px; height: 14px; stroke-width: 2.6; }
 .chunk { position: relative; }
 .load-more { display: block; margin: 12px auto 16px; }
-.lanes { position: absolute; top: 0; left: var(--refs-w); pointer-events: none; }
+.lane-box { position: absolute; top: 0; bottom: 0; left: var(--refs-w); width: var(--graph-w); overflow: hidden; pointer-events: none; }
+.lanes { position: absolute; top: 0; left: calc(-1 * var(--gx)); }
+/* lanes cut at the column's edge: a fade says there is more */
+#graph.cut-left .lane-box::before, #graph.cut-right .lane-box::after { content: ""; position: absolute; top: 0; bottom: 0; width: 18px; }
+#graph.cut-left .lane-box::before { left: 0; z-index: 1; background: linear-gradient(90deg, var(--bg), transparent); }
+/* short of the edge: the rows' lane colour bar there stays clear */
+#graph.cut-right .lane-box::after { right: 3px; background: linear-gradient(90deg, transparent, var(--bg)); }
+/* the lanes' own scrollbar, under the graph column at the foot of the view, while they are cut */
+#lane-bar { position: sticky; bottom: 0; z-index: 3; display: none; width: var(--graph-w); margin-left: var(--refs-w); overflow-x: auto; overflow-y: hidden; }
+#lane-bar > div { width: var(--lane-w); height: 1px; }
+#graph.cut-left #lane-bar, #graph.cut-right #lane-bar { display: block; }
 .lanes path { fill: none; stroke-width: 2; }
 .lanes path.link { stroke-width: 1; }
 .lanes circle { stroke: var(--bg); stroke-width: 1.5; }
@@ -436,7 +448,7 @@ body.home main { grid-template-columns: 1fr; }
 /* the commit's lane colour leads from its node to its message: a tint that deepens, then a bar */
 .row:not(.wip) {
   --msg-x: calc(var(--refs-w) + var(--graph-w));
-  background: linear-gradient(90deg, transparent calc(var(--refs-w) + var(--node-x)), color-mix(in srgb, var(--lane) 14%, transparent) calc(var(--msg-x) - 3px), color-mix(in srgb, var(--lane) 50%, transparent) 0 var(--msg-x), transparent 0) 0 50% / 100% calc(100% - 4px) no-repeat;
+  background: linear-gradient(90deg, transparent calc(var(--refs-w) + clamp(0px, var(--node-x) - var(--gx), var(--graph-w))), color-mix(in srgb, var(--lane) 14%, transparent) calc(var(--msg-x) - 3px), color-mix(in srgb, var(--lane) 50%, transparent) 0 var(--msg-x), transparent 0) 0 50% / 100% calc(100% - 4px) no-repeat;
 }
 .row:hover { background-color: var(--hover); }
 .row.sel { background-color: var(--sel); }

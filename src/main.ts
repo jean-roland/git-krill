@@ -5,7 +5,7 @@ import { Mode, closeDiff, closeHistory, confirmDiscard, closeMerge, diffEditor, 
 import { rebaseKey } from "./rebase";
 import { SORTS, amending, commit, conflictCount, emptyStep, fileLists, filterFiles, foldAll, getMsg, openFile, paintFileOpts, pathArg, pickedFiles, renderCommitBtn, renderPanel, setMsg } from "./panel";
 import { $, ask, closeDialog, dismissToast, hideBanner, input, mod, onCtrlEnter, pickDir, popup, say, store, warnOnce } from "./ui";
-import { closeFind, drawRows, findStep, findTyped, stepBack, openFind, paintSelection, showRow, shown } from "./graph";
+import { closeFind, drawRows, findStep, findTyped, stepBack, laneBarScrolled, openFind, paintSelection, scrollLanes, showRow, shown, wheelLanes } from "./graph";
 import { Change, active, addTab, autoFetch, cloneDialog, closeTab, fetchMinutes, gitOp, opInfo, newTabMenu, openPicked, openRepo, openSettings, paintPull, pull, pullMenu, push, refresh, renderTabHits, reopenTab, repo, restoreTabs, run, selection, switchTab, tabs, undoMenu, undoRedo } from "./repo";
 import { checkTools } from "./settings";
 import { terms, toggleTerm } from "./terminal";
@@ -186,6 +186,11 @@ resizer($("files-grip"), $("wip"), "unstaged-share", (m) => {
 }, "--unstaged-share", "");
 resizer($("commit-grip"), $("commit-msg"), "msg-height", (m) => Math.min(innerHeight * 0.6, Math.max(60, m.clientY - $("commit-msg").getBoundingClientRect().top)));
 export const main = document.querySelector("main")!;
+resizer($("graph-grip"), $("graph"), "graph-width", (m) => Math.max(64, m.clientX - $("graph-grip").parentElement!.getBoundingClientRect().left), "--graph-max");
+// dragged or redrawn, the column keeps its lanes' scroll in range and its fades right
+new ResizeObserver(() => scrollLanes()).observe($("graph-grip").parentElement!);
+$("graph").onwheel = wheelLanes;
+$("lane-bar").onscroll = laneBarScrolled;
 resizer($("sidebar-grip"), main, "sidebar-width", (m) => Math.min(480, Math.max(160, m.clientX)), "--sidebar-w");
 resizer($("details-grip"), main, "details-width", (m) => Math.min(innerWidth * 0.5, Math.max(300, innerWidth - m.clientX)), "--details-w");
 new ResizeObserver(() => terms.get(tabs[active])?.fit.fit()).observe($("term"));
