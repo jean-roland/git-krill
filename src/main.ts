@@ -87,9 +87,11 @@ $("tab-find").onclick = () => {
   input("tab-q").focus();
 };
 $("tab-q").oninput = renderTabHits;
+// a click on the dimmed backdrop closes it: pressed there too, not a text selection dragged out of a field and let go there
+let pressedOn: EventTarget | null = null;
+$("dialog").onpointerdown = (e) => (pressedOn = e.target);
 $("dialog").onclick = (e) => {
-  // a click on the dimmed backdrop closes it
-  if (e.target === $("dialog")) closeDialog();
+  if (e.target === $("dialog") && pressedOn === $("dialog")) closeDialog();
 };
 $("tab-q").onkeydown = (e) => {
   if (e.key === "Enter") $("tab-hits").querySelector<HTMLElement>(".tab-hit")?.click();
