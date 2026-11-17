@@ -4,7 +4,7 @@ mod pty;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::sync::OnceLock;
-use std::io::{BufRead, Read, Write};
+use std::io::{BufRead, Read, Seek, Write};
 use tauri::Emitter;
 #[cfg(unix)]
 use std::os::unix::fs::DirBuilderExt;
@@ -1133,6 +1133,168 @@ fn file_bytes(repo: String, at: String, path: String) -> Result<tauri::ipc::Resp
     version_bytes(&repo, &at, &path).map(tauri::ipc::Response::new)
 }
 
+// a hex dump comes this much at a time
+const HEX_PART: usize = 64 << 10;
+
+/// \brief Bytes `offset`.. of a version, `limit` at most, read no further: git's output is cut there; a git-lfs pointer's object in its place.
+fn version_part(repo: &str, at: &str, path: &str, offset: u64, limit: usize) -> Result<Vec<u8>, String> {
+    let mut out = Vec::new();
+    let file = |p: PathBuf, out: &mut Vec<u8>| -> std::io::Result<()> {
+        let mut f = std::fs::File::open(p)?;
+        f.seek(std::io::SeekFrom::Start(offset))?;
+        f.take(limit as u64).read_to_end(out).map(drop)
+    };
+    if at == "WORKTREE" {
+        file(work_path(repo, path)?, &mut out).map_err(|e| e.to_string())?;
+        return Ok(out);
+    }
+    let spec = if at == "INDEX" { format!(":{path}") } else { format!("{}:{path}", not_option(at)?) };
+    let mut child = git_command(repo, &["cat-file", "blob", &spec], true).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().map_err(|e| e.to_string())?;
+    let mut git = child.stdout.take().unwrap();
+    let read = tokio::task::block_in_place(|| -> Result<(), String> {
+        let mut head = Vec::new();
+        (&mut git).take(1024).read_to_end(&mut head).map_err(|e| e.to_string())?;
+        match lfs_object(repo, &head) {
+            Some((object, _)) => file(object, &mut out).map_err(|_| format!("{path} is stored with Git LFS and this version is not downloaded")),
+            None => {
+                let mut all = std::io::Cursor::new(head).chain(git);
+                std::io::copy(&mut (&mut all).take(offset), &mut std::io::sink()).map_err(|e| e.to_string())?;
+                all.take(limit as u64).read_to_end(&mut out).map(drop).map_err(|e| e.to_string())
+            }
+        }
+    });
+    let _ = child.kill();
+    let _ = child.wait();
+    read.map(|_| out)
+}
+
+/// \brief A binary version as text to compare: an object file's sections and symbols when `symbols`, else a hex dump of bytes `offset`..; whether it is an object file, and whether more bytes follow.
+#[tauri::command(async)]
+fn binary_text(repo: String, at: String, path: String, symbols: bool, offset: u64) -> Result<(bool, String, bool), String> {
+    use object::FileKind as K;
+    // a byte over the part tells whether more follow
+    let mut part = version_part(&repo, &at, &path, offset, HEX_PART + 1)?;
+    let more = part.len() > HEX_PART;
+    part.truncate(HEX_PART);
+    // told by its header; a symbol listing needs the whole file
+    let object = offset == 0 && matches!(K::parse(&*part), Ok(K::Elf32 | K::Elf64 | K::MachO32 | K::MachO64 | K::Pe32 | K::Pe64 | K::Coff | K::CoffBig | K::Xcoff32 | K::Xcoff64));
+    if symbols && object && let Ok(f) = object::File::parse(&*version_bytes(&repo, &at, &path)?) {
+        return Ok((true, symbol_text(&f), false));
+    }
+    Ok((object, hex_text(&part), more))
+}
+
+/// \brief Whole lines of a text version from byte `offset`: `lines` of them when given, within `budget` bytes; the text, the bytes and lines it takes, and whether the file ends there.
+#[tauri::command(async)]
+fn text_part(repo: String, at: String, path: String, offset: u64, lines: Option<usize>, budget: usize) -> Result<(String, u64, usize, bool), String> {
+    let part = version_part(&repo, &at, &path, offset, budget)?;
+    let end = part.len() < budget;
+    let (cut, count) = whole_lines(&part, lines, end);
+    Ok((String::from_utf8_lossy(&part[..cut]).into_owned(), cut as u64, count, end && cut == part.len()))
+}
+
+/// \brief Where `part` ends after `lines` lines, else after its last whole line (all of it at the file's `end`), and the lines up to there.
+fn whole_lines(part: &[u8], lines: Option<usize>, end: bool) -> (usize, usize) {
+    let ends: Vec<usize> = part.iter().enumerate().filter(|(_, b)| **b == b'\n').map(|(i, _)| i + 1).collect();
+    let cut = match lines {
+        Some(0) => 0,
+        Some(n) if ends.len() >= n => ends[n - 1],
+        _ if end => part.len(),
+        // ponytail: a line longer than the budget is cut, and counted twice
+        _ => ends.last().copied().unwrap_or(part.len()),
+    };
+    (cut, part[..cut].iter().filter(|b| **b == b'\n').count() + usize::from(cut > 0 && part[cut - 1] != b'\n'))
+}
+
+/// \brief The line ranges git's diff finds changed between two versions: (old start, old count, new start, new count) each, as its hunk headers say.
+#[tauri::command(async)]
+fn diff_hunks(repo: String, sides: Vec<(String, String)>) -> Vec<(u64, u64, u64, u64)> {
+    let [(a, old), (b, new)] = <[_; 2]>::try_from(sides).unwrap_or_default();
+    let mut args = vec!["-c", "core.quotePath=false", "diff", "-U0", "-M", "--no-color", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/"];
+    match (not_option(&a), not_option(&b)) {
+        (_, Ok("WORKTREE")) if a == "INDEX" => {}
+        (Ok(x), Ok("INDEX")) => args.extend(["--cached", x]),
+        (Ok(x), Ok("WORKTREE")) => args.push(x),
+        (Ok(x), Ok(y)) => args.extend([x, y]),
+        _ => return Vec::new(),
+    }
+    args.extend(["--", &old, &new]);
+    let Ok(mut child) = git_command(&repo, &args, true).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn() else { return Vec::new() };
+    let out = std::io::BufReader::new(child.stdout.take().unwrap());
+    // only the new path's own section: a rename git did not pair shows the old path's on its own
+    let (ours, mut hunks, mut on) = (format!("+++ b/{new}"), Vec::new(), false);
+    tokio::task::block_in_place(|| {
+        for line in out.split(b'\n').map_while(Result::ok) {
+            if line.starts_with(b"diff --git ") {
+                on = false;
+            } else if line == ours.as_bytes() {
+                on = true;
+            } else if on && line.starts_with(b"@@ -") {
+                hunks.extend(hunk(&String::from_utf8_lossy(&line)));
+            }
+        }
+    });
+    let _ = child.wait();
+    hunks
+}
+
+/// \brief A hunk header's ranges, `@@ -start[,count] +start[,count] @@`.
+fn hunk(line: &str) -> Option<(u64, u64, u64, u64)> {
+    let range = |s: &str| -> Option<(u64, u64)> {
+        let (start, count) = s.split_once(',').unwrap_or((s, "1"));
+        Some((start.parse().ok()?, count.parse().ok()?))
+    };
+    let mut it = line.strip_prefix("@@ -")?.split(' ');
+    let (os, oc) = range(it.next()?)?;
+    let (ns, nc) = range(it.next()?.strip_prefix('+')?)?;
+    Some((os, oc, ns, nc))
+}
+
+/// \brief Rows of 16 bytes as hex then ASCII; their offsets are the window's line numbers.
+fn hex_text(bytes: &[u8]) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() / 16 * 67 + 64);
+    for row in bytes.chunks(16) {
+        let start = out.len();
+        for (i, b) in row.iter().enumerate() {
+            out.extend([DIGITS[(b >> 4) as usize] as char, DIGITS[(b & 15) as usize] as char, ' ']);
+            if i == 7 {
+                out.push(' ');
+            }
+        }
+        // a short last row keeps its ASCII in the column
+        out.extend(std::iter::repeat_n(' ', 50 - (out.len() - start)));
+        out.extend(row.iter().map(|&b| if b.is_ascii_graphic() || b == b' ' { b as char } else { '.' }));
+        out.push('\n');
+    }
+    // no empty row after the last
+    out.pop();
+    out
+}
+
+/// \brief An object file's loaded sections and defined symbols with their sizes, symbols by name: a diff shows what grew.
+fn symbol_text(f: &object::File) -> String {
+    use object::{Object, ObjectSection, ObjectSymbol, SectionKind};
+    let section = |s: &object::Section| s.name().unwrap_or("?").to_string();
+    // debug info, notes and symbol tables change with every build and never load
+    let sections: Vec<_> = f
+        .sections()
+        .filter(|s| s.size() > 0 && !matches!(s.kind(), SectionKind::Debug | SectionKind::DebugString | SectionKind::Metadata | SectionKind::Linker | SectionKind::Note | SectionKind::Other | SectionKind::OtherString))
+        .map(|s| (section(&s), s.size(), String::new()))
+        .collect();
+    let mut symbols: Vec<_> = f
+        .symbols()
+        .filter(|s| s.is_definition())
+        .filter_map(|s| Some((s.name().ok().filter(|n| !n.is_empty())?.to_string(), s.size(), s.section_index().and_then(|i| f.section_by_index(i).ok()).map_or(String::new(), |s| section(&s)))))
+        .collect();
+    symbols.sort();
+    // ponytail: a 200-character C++ name pushes its own row only
+    let w = sections.iter().chain(&symbols).map(|r| r.0.len()).max().unwrap_or(0).min(48);
+    let rows = |title: &str, rows: &[(String, u64, String)]| format!("{title:<w$} {:>10}\n", "Size") + &rows.iter().map(|(n, size, s)| format!("{n:<w$} {size:>10}  {s}\n")).collect::<String>();
+    let head = format!("{:?} {}-bit {:?} {:?}, entry {:#x}\n\n", f.format(), if f.is_64() { 64 } else { 32 }, f.architecture(), f.kind(), f.entry());
+    head + &rows("Section", &sections) + "\n" + &rows("Symbol", &symbols)
+}
+
 /// \brief Open a version of `path` with the desktop's default app: the working tree file, else a copy in a temporary folder.
 #[tauri::command(async)]
 fn open_version(repo: String, at: String, path: String) -> Result<(), String> {
@@ -1990,7 +2152,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, gh_verified, remote_tags, submodule_change, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, worktree_main, lfs_patterns, version_ids, keeps_crlf,
-            is_merged, revert_lines, index_tree, stash_print, clone_cancel, tracing, trace_line, open_default, open_version, file_bytes, tool_status, global_config, set_global_config, trust_folder, delete_file, open_url, remote_urls, edit_remote,
+            is_merged, revert_lines, index_tree, stash_print, clone_cancel, tracing, trace_line, open_default, open_version, file_bytes, binary_text, text_part, diff_hunks, tool_status, global_config, set_global_config, trust_folder, delete_file, open_url, remote_urls, edit_remote,
             pty::pty_spawn, pty::pty_write, pty::pty_resize, pty::pty_kill, askpass::askpass_reply
         ])
         .build(tauri::generate_context!())
@@ -2010,5 +2172,26 @@ mod tests {
         assert_eq!(progress("Receiving objects: 100% (5/5), done."), Some(("Receiving objects", 100)));
         assert_eq!(progress("Cloning into 'x'..."), None);
         assert_eq!(progress("warning: redirecting to https://x/"), None);
+    }
+
+    #[test]
+    fn binary_listings() {
+        assert_eq!(hex_text(b"\x7fELF hi\0"), "7f 45 4c 46 20 68 69 00                           .ELF hi.");
+        assert_eq!(hex_text(&[b'a'; 17]).lines().map(str::len).collect::<Vec<_>>(), [66, 51]);
+        // this test's own executable: ELF, PE or Mach-O
+        let exe = std::fs::read(std::env::current_exe().unwrap()).unwrap();
+        let text = symbol_text(&object::File::parse(&*exe).unwrap());
+        assert!(text.contains("binary_listings") && text.contains("\nSection ") && text.contains("\nSymbol "), "{}", &text[..500]);
+    }
+
+    #[test]
+    fn text_parts() {
+        assert_eq!(whole_lines(b"a\nbb\nccc", None, false), (5, 2));
+        assert_eq!(whole_lines(b"a\nbb\nccc", None, true), (8, 3));
+        assert_eq!(whole_lines(b"a\nbb\nccc", Some(1), false), (2, 1));
+        assert_eq!(whole_lines(b"a\nbb\nccc", Some(5), true), (8, 3));
+        assert_eq!(whole_lines(b"a\nbb\n", Some(0), false), (0, 0));
+        assert_eq!(hunk("@@ -12,0 +13,4 @@ fn x"), Some((12, 0, 13, 4)));
+        assert_eq!(hunk("@@ -7 +7 @@"), Some((7, 1, 7, 1)));
     }
 }

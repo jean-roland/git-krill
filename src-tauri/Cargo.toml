@@ -28,6 +28,7 @@ tokio = { version = "1", features = ["rt-multi-thread"] }
 tauri-plugin-window-state = "2"
 # the askpass key
 getrandom = "0.3"
+object = { version = "0.41.0", default-features = false, features = ["read", "std"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

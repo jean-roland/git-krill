@@ -75,8 +75,14 @@ export const loadMonaco = () =>
 type SubCommit = { hash: string; subject: string };
 type SubmoduleChange = { old: SubCommit | null; new: SubCommit | null; added: SubCommit[]; removed: SubCommit[]; changed: number; untracked: number; initialized: boolean };
 // full: loaded past the size a diff loads unasked; sub: what a submodule went through, shown instead of a text diff; ids: its sides' versions, see versionIds
-// same: no change when opened (an All files entry): shown whole, so that a first edit does not fold the rest away; drawn: shown as images or a page
-export let diffFile: { kind: DiffSource; f: Change; c?: Commit; orig: Blob; mod: Blob; dirty: boolean; full: boolean; same: boolean; drawn?: boolean; sub?: SubmoduleChange; ids?: string } | null = null;
+// same: no change when opened (an All files entry): shown whole, so that a first edit does not fold the rest away; drawn: shown as images or a page;
+// shown: the text in the editor in place of the blobs', a binary's listing or a big file's parts so far; more: how to load its next part
+export let diffFile: { kind: DiffSource; f: Change; c?: Commit; orig: Blob; mod: Blob; dirty: boolean; full: boolean; same: boolean; drawn?: boolean; sub?: SubmoduleChange; ids?: string; listing?: Listing; shown?: [string, string]; more?: More } | null = null;
+// a binary's sides as text: an object file's sections and symbols when asked and one, else hex dumps
+type Listing = { symbols: boolean; object: boolean };
+// what is shown of a file loaded a part at a time, the loader of both sides' next part (or up to a new side's line), and the new side's line where git's next change past them ends
+// back: a side's last bytes to read again with the next part, false when that cannot line them up
+type More = { label: string; load?: (until?: number) => Promise<[string, string]>; change?: number; back?: (side: number, bytes: number) => boolean };
 export let diffEditor: Monaco.editor.IStandaloneDiffEditor | null = null;
 // hunk header bars, as view zone ids per side
 let hunkZones: { mod: string[]; orig: string[]; nodes: HTMLElement[] } = { mod: [], orig: [], nodes: [] };
@@ -146,7 +152,7 @@ export function editor() {
 /** The line-level actions of one side: a +/− on the hovered changed line and the right-click menu. */
 function lineActions(ed: Monaco.editor.ICodeEditor, orig: boolean) {
   const hover = ed.createDecorationsCollection();
-  const staging = () => !!diffFile && diffFile.kind !== "commit";
+  const staging = () => !!diffFile && diffFile.kind !== "commit" && !diffFile.shown;
   const changed = (l: number) => hunks.some((c) => (orig ? c.oe && l >= c.os && l <= c.oe : c.me && l >= c.ms && l <= c.me));
   const act = () => (diffFile?.kind === "staged" ? "unstage" : "stage");
   let at = -1;
@@ -180,8 +186,8 @@ function lineActions(ed: Monaco.editor.ICodeEditor, orig: boolean) {
       ...(diffFile?.kind === "unstaged" && staging()
         ? ([["Discard selected lines", lines("discard")], ["Stage selected lines", lines("stage")]] as MenuItem[])
         : []),
-      ...(diffFile?.kind === "staged" ? ([["Unstage selected lines", lines("unstage")]] as MenuItem[]) : []),
-      ...(diffFile?.kind === "commit" && diffFile.c?.hash !== "WORKTREE" ? ([["Revert selected lines", () => revertLines(selectedLines(), "lines")]] as MenuItem[]) : []),
+      ...(diffFile?.kind === "staged" && staging() ? ([["Unstage selected lines", lines("unstage")]] as MenuItem[]) : []),
+      ...(diffFile?.kind === "commit" && diffFile.c?.hash !== "WORKTREE" && !diffFile.shown ? ([["Revert selected lines", () => revertLines(selectedLines(), "lines")]] as MenuItem[]) : []),
       null,
       ["Copy", () => copy(text)],
     ]);
@@ -234,11 +240,14 @@ export function setMode(m: Mode) {
 /** The view shown: Monaco cannot fold a file loaded on request, so Inline stands in for Hunk there. */
 const viewMode = (): Mode => {
   const m = (store("diff-mode") as Mode) || "hunk";
-  return m === "hunk" && (diffFile?.full || diffFile?.same || diffFile?.drawn) ? "inline" : m;
+  return m === "hunk" && (fullText() || diffFile?.same || diffFile?.drawn) ? "inline" : m;
 };
 
+// a text loaded on request, whole or in parts: a binary's listing stays small
+const fullText = () => !!diffFile && !diffFile.listing && (diffFile.full || !!diffFile.shown);
+
 function applyMode() {
-  const m = viewMode(), full = !!diffFile?.full, none = !!(diffFile?.same || diffFile?.drawn);
+  const m = viewMode(), full = fullText(), none = !!(diffFile?.same || diffFile?.drawn);
   setOptions({ renderSideBySide: m === "split", hideUnchangedRegions: { enabled: m === "hunk" } });
   updateHunkBars();
   document.querySelectorAll<HTMLElement>("[data-mode]").forEach((b) => b.classList.toggle("on", b.dataset.mode === m));
@@ -279,7 +288,7 @@ async function revertLines(pick: Lines, what: string) {
 function updateHunkBars() {
   const ed = editor(), split = viewMode() === "split";
   const acts: [string, string][] =
-    !diffFile ? []
+    !diffFile || diffFile.shown ? []
     : diffFile.kind === "unstaged" ? [["discard", "Discard hunk"], ["stage", "Stage hunk"]]
     : diffFile.kind === "staged" ? [["unstage", "Unstage hunk"]]
     : diffFile.c?.hash !== "WORKTREE" ? [["revert", "Revert hunk"]]
@@ -308,15 +317,24 @@ function updateHunkBars() {
     return h("div", {}, el);
   };
   // a pure insertion or deletion sits after its anchor line, a change replaces lines from its start
+  // a file shown in parts ends on a bar to load the next one
+  const d = diffFile, more = d?.more && h("div", {}, h("div", { className: "hunk-bar more-bar" }, h("span", { textContent: d.more.label }), ...(d.more.load ? [h("button", { textContent: "Load more", onclick: () => loadMore(d) })] : [])));
+  const last = (e: Monaco.editor.ICodeEditor) => e.getModel()?.getLineCount() ?? 0;
+  // Hunk folds the rows after the last change but its 3 lines of context: the bar goes there, at the top with no change
+  const end = viewMode() !== "hunk" ? last(ed.getModifiedEditor()) : hunks.length ? Math.min(last(ed.getModifiedEditor()), Math.max(...hunks.map((c) => c.me || c.ms)) + 3) : 0;
   ed.getModifiedEditor().changeViewZones((z) => {
     hunkZones.mod.forEach((id) => z.removeZone(id));
     hunkZones.nodes = shown.map((c) => bar(c, true));
     hunkZones.mod = shown.map((c, i) => z.addZone({ afterLineNumber: c.me ? c.ms - 1 : c.ms, heightInPx: 30, domNode: hunkZones.nodes[i] }));
+    // tied to its line's start: Monaco hides a zone when the line after it is folded
+    if (more) hunkZones.nodes.push(more), hunkZones.mod.push(z.addZone({ afterLineNumber: end, afterColumn: 1, heightInPx: 40, domNode: more }));
   });
   // the original side gets the same bars in split view, so both sides stay aligned
   ed.getOriginalEditor().changeViewZones((z) => {
     hunkZones.orig.forEach((id) => z.removeZone(id));
     hunkZones.orig = split ? shown.map((c) => z.addZone({ afterLineNumber: c.oe ? c.os - 1 : c.os, heightInPx: 30, domNode: bar(c, false) })) : [];
+    // its label across from it
+    if (split && more) hunkZones.orig.push(z.addZone({ afterLineNumber: last(ed.getOriginalEditor()), afterColumn: 1, heightInPx: 40, domNode: h("div", {}, h("div", { className: "hunk-bar more-bar" }, h("span", { textContent: d!.more!.label }))) }));
   });
   fitHunkBars();
 }
@@ -381,6 +399,7 @@ export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistor
   const gen = ++opening, fresh = $("diff").hidden && !merging;
   const copy = document.querySelector(".still") ?? still(merging ? $("merge") : [$("diff-editor"), $("diff-binary")].find((e) => !$("diff").hidden && !e.hidden));
   await closeMerge(true);
+  dropParked();
   diffFile = { kind, f, c, orig, mod, dirty: false, full: false, same: !sub && orig.exists === mod.exists && orig.text === mod.text, sub, ids };
   if (fresh) $("diff").classList.add("blank");
   $("diff").hidden = false;
@@ -425,15 +444,22 @@ const MAX_ASKED = 200 << 20;
 // a drawn view held over the editor while its text comes back: in place, as a moved frame reloads and a shown image's URL is gone
 let cover: HTMLElement | null = null;
 
-/** The open diff's sides in the editor, or in their place a submodule's card, the images, or why not: binary, not downloaded, too big. */
-function paintSides() {
-  const { kind, f, c, orig, mod, sub } = diffFile!;
+/** The open diff's sides in the editor, or in their place a submodule's card, the images, or why not: not downloaded, an image too big. */
+function paintSides(): Promise<unknown> {
+  const d = diffFile!, { kind, f, c, orig, mod, sub } = d;
   const binary = orig.binary || mod.binary, large = Math.max(orig.large ?? 0, mod.large ?? 0);
   const missing = orig.lfs === "missing" || mod.lfs === "missing", drawable = DRAWN.test(f.path) && !sub && !missing && !large;
   const images = (binary && !missing && (!large || large <= IMAGE_UNASKED) && IMAGE.test(f.path)) || (drawable && store("svg-view") === "image");
+  // any other binary compares as text, read first; a text too big to show at once comes in parts
+  const listed = binary && !missing && !sub && !images && !IMAGE.test(f.path), symbols = store("bin-view") !== "text", parted = !binary && !!large && !sub;
+  // back to a view kept aside: what it had loaded too
+  const back = parked.get(viewKey());
+  if (back) Object.assign(d, back.state);
+  if (listed && d.listing?.symbols !== symbols) return loadListing(d, symbols).then(() => diffFile === d && paintSides());
+  if (parted && !d.shown) return loadParts(d).then(() => diffFile === d && paintSides(), (e) => say(String(e), true));
   // the version a file opens in its app: the new one, the old when the file is gone
   const shown = sideSources(kind, f, c)[mod.exists ? 1 : 0];
-  const pane = binary || !!large || !!sub || images;
+  const pane = !!sub || images || (binary && !listed);
   cover?.removeAttribute("style");
   const b = $("diff-binary"), held = !pane && !b.hidden && b.classList.contains("images");
   cover = held ? b : null;
@@ -444,7 +470,7 @@ function paintSides() {
     b.hidden = !pane;
     b.classList.toggle("images", images);
   }
-  paintSvgView(drawable, images, f.path);
+  paintSvgView(drawable || !!d.listing?.object, images || (!!d.listing?.object && symbols), f.path, listed);
   if (!held) b.replaceChildren(
     ...(sub
       ? submoduleCard(f.path, sub)
@@ -452,11 +478,7 @@ function paintSides() {
         ? [`${basename(f.path)} is stored with Git LFS and this version is not downloaded: whole-file actions only.`, lfsFetchButton()]
         : images
           ? [imageSides()]
-          : binary && large && IMAGE.test(f.path)
-            ? [`${basename(f.path)} is ${megabytes(large)}: too big to show unasked.`, forceLoadButton(large), openButton(...shown)]
-            : binary
-              ? [`Binary or non-UTF-8 file${large ? `, ${megabytes(large)}` : ""}: whole-file actions only.`, openButton(...shown)]
-              : [`${basename(f.path)} is ${megabytes(large)}: too big to show, whole-file actions only.`, forceLoadButton(large), openButton(...shown)]),
+          : [`${basename(f.path)} is ${megabytes(large)}: too big to show unasked.`, forceLoadButton(large), openButton(...shown)]),
   );
   // a drawn SVG or page keeps its text's Save, greyed: the bar does not shift between views
   $("diff-editable").hidden = $("diff-save").hidden = !(drawable && kind === "unstaged" && mod.exists);
@@ -468,11 +490,13 @@ function paintSides() {
   applyMode();
   if (pane) return Promise.resolve(dropModels());
   // Monaco gives up on a diff after 5 s and marks the whole file changed: a file loaded on request gets the time it takes
-  setOptions({ maxComputationTime: diffFile!.full ? 0 : 5000 });
-  setModels(false);
-  // the folds land a moment after the text
+  setOptions({ maxComputationTime: fullText() ? 0 : 5000 });
+  const kept = setModels(false);
+  // the folds land a moment after the text; a kept view's are there
   const mine = cover;
-  return diffDrawn(diffFile!.full ? 300_000 : 500).then(() => {
+  const drawn = kept ? Object.assign(new Promise((r) => requestAnimationFrame(r)), { landed: Promise.resolve() }) : diffDrawn(fullText() ? 300_000 : 500);
+  drawn.landed.then(() => alignTail(d));
+  return drawn.then(() => {
     if (!mine || cover !== mine) return;
     cover = null;
     mine.removeAttribute("style");
@@ -481,6 +505,159 @@ function paintSides() {
     mine.replaceChildren();
   });
 }
+
+// lib.rs HEX_PART: a hex dump comes this much at a time
+const HEX_PART = 64 << 10;
+// past this a hex dump loads no more: rewritten whole, as a rebuilt binary is, each part froze the window longer, 2.7 s at 256 KB (1 MB: over a minute)
+const HEX_MAX = 256 << 10;
+// a text too big to show at once comes in parts of about this size; a jump to a change further down, in steps of this
+const PART = 10 << 20;
+const JUMP = 50 << 20;
+
+/** Binary diff `d`'s sides as text: an object file's sections and symbols if `symbols`, else hex dumps a part at a time. */
+async function loadListing(d: NonNullable<typeof diffFile>, symbols: boolean) {
+  type Text = [boolean, string, boolean];
+  const sides = sideSources(d.kind, d.f, d.c), size = Math.max(d.orig.large ?? 0, d.mod.large ?? 0);
+  // per side: the next byte to read, and whether more follow
+  const next = [0, 0], left = [false, false];
+  // whether an object file, the text, whether more bytes follow
+  const read = () =>
+    Promise.all(
+      sides.map(([at, path], i) =>
+        (at && (i ? d.mod : d.orig).exists ? run<Text>("binary_text", { at, path, symbols, offset: next[i] }).catch((e): Text => [false, String(e), false]) : Promise.resolve<Text>([false, "", false])).then(
+          (t) => ((left[i] = t[2]), (next[i] += HEX_PART), t),
+        ),
+      ),
+    );
+  const [o, m] = await read();
+  const step = (): More | undefined => {
+    if (!left[0] && !left[1]) return undefined;
+    const label = `${bytesText(Math.max(...next))}${size ? ` of ${megabytes(size)}` : ""} shown`;
+    if (Math.max(...next) >= HEX_MAX) return { label: `${label}: the hex view stops here` };
+    return {
+      label,
+      // a dump has no newline after its last row
+      load: async () => {
+        const [o, m] = await read();
+        d.more = step();
+        return [o[1] && `\n${o[1]}`, m[1] && `\n${m[1]}`];
+      },
+      // only mid-file on both sides: whole rows, and the other side's next part may hold their twins
+      back: (side, bytes) => left[0] && left[1] && ((next[side] -= bytes), (d.more = step()), true),
+    };
+  };
+  Object.assign(d, { listing: { symbols, object: o[0] || m[0] }, shown: [o[1], m[1]], more: step(), same: d.orig.exists === d.mod.exists && o[1] === m[1] && !o[2] && !m[2] });
+}
+
+/** A hex dump's last rows on one side only, likely moved by bytes added or removed before them: read again with the next part, where their twins come. */
+async function alignTail(d: NonNullable<typeof diffFile>) {
+  const last = editor().getLineChanges()?.slice(-1)[0];
+  if (diffFile !== d || !d.more?.back || !diffView || !last) return;
+  const models = [diffView.model.original, diffView.model.modified];
+  const [side, from] =
+    !last.modifiedEndLineNumber && last.originalEndLineNumber === models[0].getLineCount() ? [0, last.originalStartLineNumber]
+    : !last.originalEndLineNumber && last.modifiedEndLineNumber === models[1].getLineCount() ? [1, last.modifiedStartLineNumber]
+    : [-1, 0];
+  const m = models[side], rows = m ? m.getLineCount() - from + 1 : 0;
+  if (!m || from < 2 || !d.more.back(side, rows * 16)) return;
+  // with the newline before them
+  const range = new monaco.Range(from - 1, m.getLineMaxColumn(from - 1), m.getLineCount(), m.getLineMaxColumn(m.getLineCount()));
+  const cut = m.getValueInRange(range).length;
+  m.applyEdits([{ range, text: "" }]);
+  d.shown![side] = d.shown![side].slice(0, d.shown![side].length - cut);
+  await diffDrawn();
+}
+
+// git's hunk headers: old start, old count, new start, new count
+type Hunk = [number, number, number, number];
+
+/** Big text diff `d`'s first part, and the loader of the next ones: its sides cut where they line up, by git's own diff of them. */
+async function loadParts(d: NonNullable<typeof diffFile>) {
+  type Part = [string, number, number, boolean];
+  const sides = sideSources(d.kind, d.f, d.c), size = Math.max(d.orig.large ?? 0, d.mod.large ?? 0);
+  // past git's core.bigFileThreshold (512 MB by default) its diff is "Binary files differ": the sides are cut at the same line
+  const hunks = d.orig.exists && d.mod.exists && size <= 512 << 20 ? await run<Hunk[]>("diff_hunks", { sides }).catch((): Hunk[] => []) : [];
+  // per side: lines and bytes taken so far, and whether it ended
+  const lines = [0, 0], bytes = [0, 0], end = [!d.orig.exists, !d.mod.exists];
+  const read = (i: number, count: number | undefined, budget: number) =>
+    end[i] ? Promise.resolve<Part>(["", 0, 0, true]) : run<Part>("text_part", { at: sides[i][0], path: sides[i][1], offset: bytes[i], lines: count ?? null, budget });
+  // the next part, or up to the new side's line `until`
+  const next = async (until?: number): Promise<[string, string]> => {
+    const budget = until ? JUMP : PART;
+    let o = await read(0, until && lineUp(hunks, until, 1) - lines[0], budget);
+    // the new side's lines that go with the old side's part; all that is left once the old side ends
+    const to = end[0] || o[3] ? Infinity : lineUp(hunks, lines[0] + o[2], 0);
+    const m = await read(1, to === Infinity ? undefined : to - lines[1], budget);
+    // the new side's part filled up first: the old side cut back to where they line up
+    if (to !== Infinity && !m[3] && lines[1] + m[2] < to) o = await read(0, lineUp(hunks, lines[1] + m[2], 1) - lines[0], budget);
+    [o, m].forEach(([, n, k, done], i) => ((bytes[i] += n), (lines[i] += k), (end[i] ||= done)));
+    return [o[0], m[0]];
+  };
+  const step = (): More | undefined =>
+    end[0] && end[1]
+      ? undefined
+      : {
+          label: `${megabytes(Math.max(...bytes))} of ${megabytes(size)} shown`,
+          load: async (until) => [await next(until), (d.more = step())][0] as [string, string],
+          // with some lines after it
+          change: hunks.map((h) => h[2] + Math.max(h[3], 1) + 20).find((e) => e - 20 > lines[1]),
+        };
+  Object.assign(d, { shown: await next(), same: false });
+  d.more = step();
+}
+
+/** The lines of the other side that go with the first `n` of side `from` (0 old, 1 new): shifted by the hunks before, in proportion inside one. */
+function lineUp(hunks: Hunk[], n: number, from: 0 | 1) {
+  let shift = 0;
+  for (const h of hunks) {
+    const [start, count, start2, count2] = from ? [h[2], h[3], h[0], h[1]] : h;
+    // 0-based first lines; a side with none sits after its start
+    const [at, at2] = [count ? start - 1 : start, count2 ? start2 - 1 : start2];
+    if (n <= at) break;
+    if (n < at + count) return at2 + Math.floor(((n - at) * count2) / count);
+    shift = at2 + count2 - (at + count);
+  }
+  return n + shift;
+}
+
+/** The open file's next part, added at the end of both sides. */
+async function loadMore(d: NonNullable<typeof diffFile>, until?: number) {
+  const more = d.more;
+  if (!more?.load || loadingMore) return;
+  loadingMore = true;
+  try {
+    const part = await busy(more.load(until));
+    if (diffFile !== d || !diffView) return;
+    d.shown = [d.shown![0] + part[0], d.shown![1] + part[1]];
+    // a cursor at the end would move along with the text added there
+    const eds = [editor().getOriginalEditor(), editor().getModifiedEditor()], at = eds.map((e) => e.getSelections());
+    [diffView.model.original, diffView.model.modified].forEach((m, i) => m.applyEdits([{ range: m.getFullModelRange().collapseToEnd(), text: part[i] }]));
+    eds.forEach((e, i) => at[i] && e.setSelections(at[i]!));
+    fitLineNumbers();
+    const drawn = diffDrawn(fullText() ? 300_000 : 500);
+    drawn.landed.then(() => alignTail(d));
+    await drawn;
+  } catch (e) {
+    say(String(e), true);
+  } finally {
+    loadingMore = false;
+  }
+}
+
+let loadingMore = false;
+
+/** The next change, loading up to the next one git saw when the loaded part has none left below. */
+export async function nextChange() {
+  const d = diffFile;
+  if (!d) return;
+  const at = editor().getModifiedEditor().getPosition()?.lineNumber ?? 0, ahead = () => (editor().getLineChanges() ?? []).some((c) => Math.max(c.modifiedStartLineNumber, 1) > at);
+  const shown = () => (d.shown?.[0].length ?? 0) + (d.shown?.[1].length ?? 0);
+  for (let was = -1; diffFile === d && d.more?.change && !ahead() && was !== shown(); ) (was = shown()), await loadMore(d, d.more.change);
+  editor().goToDiff("next");
+}
+
+// a hex dump's line numbers: its rows' offsets
+const offset = (n: number) => ((n - 1) * 16).toString(16).padStart(8, "0");
 
 /** The commits a submodule moved between, and what changed in its folder. */
 function submoduleCard(path: string, s: SubmoduleChange) {
@@ -514,22 +691,37 @@ const MAX_PIXELS = 100e6;
 
 /** An SVG's diff as its text or as drawn, remembered for the next ones. */
 export async function setSvgView(view: string) {
+  const dirty = !!diffFile?.dirty;
   // the text comes back from the file: edits to it would be lost
   if (!(await confirmDrop())) return;
-  store("svg-view", view);
-  if (diffFile) {
+  // a binary's hex or symbols: a choice of its own
+  const key = binaryView ? "bin-view" : "svg-view";
+  if (diffFile && binaryView) {
+    // another text in the editor: the old one stays on screen until the new one is drawn
+    const copy = still($("diff-editor"));
+    park();
+    store(key, view);
+    await paintSides();
+    requestAnimationFrame(() => copy?.remove());
+  } else if (diffFile) {
     diffFile.dirty = false;
     // the page sides take it as they are made; the text is scrolled before its first frame
-    const spot = (readAt = readingAt()), drawn = paintSides();
+    const spot = (readAt = readingAt());
+    // its dropped edits are not kept
+    if (!dirty) park();
+    store(key, view);
+    const drawn = paintSides();
     readAt = null;
     if (spot && !$("diff-editor").hidden) showLine(spot);
     await drawn;
   }
   // the history's File view: showRev only redraws another row; it takes the spot on its way
   else if (hist) {
+    store(key, view);
     const at = hist.at;
     hist.at = -1;
-    readAt = readingAt();
+    // a hex row and a symbol line are no same place
+    readAt = binaryView ? null : readingAt();
     await showRev(at);
     readAt = null;
   }
@@ -569,16 +761,20 @@ function showSpot(doc: Document, s: Spot) {
   if (page) page.scrollTop = s.frac * (page.scrollHeight - page.clientHeight);
 }
 
-/** The text or drawn switch: shown for an SVG, an HTML page or Markdown, the half of its current view lit. */
-function paintSvgView(shown: boolean, image: boolean, path: string) {
+/** The text or drawn switch: shown for an SVG, an HTML page or Markdown, the half of its current view lit; for an object file, hex or symbols. */
+function paintSvgView(shown: boolean, image: boolean, path: string, binary = false) {
   $("svg-view").hidden = !shown;
-  const [kind, view, label] = MD.test(path) ? ["Markdown", "rendered", "Preview"] : PAGE.test(path) ? ["HTML", "as a page", "Page"] : ["SVG", "as image", "Image"];
+  binaryView = binary;
+  const [kind, view, label] = binary ? ["", "", "Symbols"] : MD.test(path) ? ["Markdown", "rendered", "Preview"] : PAGE.test(path) ? ["HTML", "as a page", "Page"] : ["SVG", "as image", "Image"];
   const [text, drawn] = document.querySelectorAll<HTMLElement>("[data-svg]");
-  text.title = `Display ${kind} as text`;
-  drawn.title = `Display ${kind} ${view}`;
+  text.title = binary ? "Display as a hex dump" : `Display ${kind} as text`;
+  drawn.title = binary ? "Display sections and symbols with their sizes" : `Display ${kind} ${view}`;
+  text.querySelector("span")!.textContent = binary ? "Hex" : "Text";
   drawn.querySelector("span")!.textContent = label;
   document.querySelectorAll<HTMLElement>("[data-svg]").forEach((b) => b.classList.toggle("on", (b.dataset.svg === "image") === image));
 }
+// the switch shown is a binary's
+let binaryView = false;
 const sideName = (at: string) => (at === "WORKTREE" ? "Working tree" : at === "INDEX" ? "Staged" : at === "HEAD" ? "HEAD" : short(at));
 const bytesText = (n: number) => (n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 1024).toFixed(1)} KB` : megabytes(n));
 
@@ -857,7 +1053,7 @@ function lfsFetchButton() {
     const sides = await fetchSides(d.kind, d.f, d.c, d.full).catch((e) => void say(String(e), true));
     if (diffFile !== d || !sides) return;
     const [orig, mod] = sides;
-    Object.assign(d, { orig, mod, same: orig.exists === mod.exists && orig.text === mod.text });
+    Object.assign(d, { orig, mod, same: orig.exists === mod.exists && orig.text === mod.text, listing: undefined, shown: undefined, more: undefined }), dropParked();
     paintSides();
   };
   return h("button", { className: "lfs-fetch", innerHTML: `${svg(ICONS.load)}Download from LFS`, onclick: fetchLfs });
@@ -914,29 +1110,40 @@ export async function warmDiff() {
   if (!diffFile) pane.hidden = true;
 }
 
+/** The open diff's text in the editor, a kept view if it has one; whether it did, its diff done already. */
 function setModels(keepView: boolean) {
-  if (!diffFile) return;
+  if (!diffFile) return false;
   const ed = editor();
   const view = keepView ? ed.saveViewState() : null;
-  const prev = diffView;
-  const modified = newModel(diffFile.mod.text, `b/${diffFile.f.path}`);
+  const prev = diffView, back = parked.get(viewKey());
+  const { listing } = diffFile, [o, m] = diffFile.shown ?? [diffFile.orig.text, diffFile.mod.text];
+  parked.delete(viewKey());
+  const modified = back?.view.model.modified ?? newModel(m, `b/${diffFile.f.path}`);
   // Monaco 0.52 never disposes a view model it makes from bare models, nor the files it holds
-  diffView = ed.createViewModel({ original: newModel(diffFile.orig.text, `a/${diffFile.f.path}`), modified });
+  diffView = back?.view ?? ed.createViewModel({ original: newModel(o, `a/${diffFile.f.path}`), modified });
   ed.setModel(diffView);
-  prev?.dispose();
-  prev?.model.original.dispose();
-  prev?.model.modified.dispose();
-  const editable = diffFile.kind === "unstaged" && diffFile.mod.exists;
+  if (prev) freeView(prev);
+  const editable = diffFile.kind === "unstaged" && diffFile.mod.exists && !diffFile.shown, hex = !!listing && !(listing.symbols && listing.object);
   // greyed until an edit: always there, the bar does not shift
   $("diff-editable").hidden = $("diff-save").hidden = !editable;
   ($("diff-save") as HTMLButtonElement).disabled = !diffFile.dirty;
-  setOptions({ readOnly: !editable, glyphMargin: diffFile.kind !== "commit" });
-  modified.onDidChangeContent(() => {
-    if (!diffFile) return;
-    diffFile.dirty = true;
-    ($("diff-save") as HTMLButtonElement).disabled = false;
-  });
-  if (view) ed.restoreViewState(view);
+  setOptions({ readOnly: !editable, glyphMargin: diffFile.kind !== "commit" && !diffFile.shown, lineNumbers: hex ? offset : "on" });
+  fitLineNumbers();
+  // a read-only side changes only by the parts added to it; a kept model has its listener
+  if (!back)
+    modified.onDidChangeContent(() => {
+      if (!diffFile || !editable) return;
+      diffFile.dirty = true;
+      ($("diff-save") as HTMLButtonElement).disabled = false;
+    });
+  if (view ?? back?.at) ed.restoreViewState(view ?? back!.at);
+  return !!back;
+}
+
+/** Line numbers wide enough for the longest with a space to spare: Inline puts both sides' side by side. */
+function fitLineNumbers() {
+  const m = diffView?.model, digits = m ? String(Math.max(m.original.getLineCount(), m.modified.getLineCount())).length : 0;
+  setOptions({ lineNumbersMinChars: diffFile?.listing && !(diffFile.listing.symbols && diffFile.listing.object) ? 9 : Math.max(5, digits + 1) });
 }
 
 /** The open WIP file's row in its list, for the file after it to take over if it leaves. */
@@ -987,10 +1194,10 @@ export async function reloadDiff(row = -1) {
   d.ids = ids;
   paintOpenEditor();
   // an image has no text to compare: its new version is drawn
-  const same = (a: Blob, b: Blob) => a.text === b.text && a.exists === b.exists && a.binary === b.binary && a.large === b.large && a.lfs === b.lfs && !a.binary;
+  const same = (a: Blob, b: Blob) => a.text === b.text && a.exists === b.exists && a.binary === b.binary && a.large === b.large && a.lfs === b.lfs && !a.binary && !a.large;
   if (same(orig, d.orig) && same(mod, d.mod)) return;
   // once saved with a change, its hunks show again
-  Object.assign(d, { orig, mod, same: orig.exists === mod.exists && orig.text === mod.text });
+  Object.assign(d, { orig, mod, same: orig.exists === mod.exists && orig.text === mod.text, listing: undefined, shown: undefined, more: undefined }), dropParked();
   // no text diff before or now: its pane is painted again
   if ($("diff-editor").hidden || orig.binary || mod.binary || orig.large || mod.large) return paintSides();
   // the old diff stays on screen until the new one is drawn
@@ -1007,14 +1214,40 @@ export async function reloadDiff(row = -1) {
 function dropModels() {
   if (!diffView) return;
   editor().setModel(null);
-  diffView.dispose();
-  diffView.model.original.dispose();
-  diffView.model.modified.dispose();
+  freeView(diffView);
   diffView = null;
+}
+
+function freeView(v: Monaco.editor.IDiffEditorViewModel) {
+  v.dispose();
+  v.model.original.dispose();
+  v.model.modified.dispose();
+}
+
+// the open file's text views left for its other view (hex, symbols, text), each with what it had loaded: back to it, Monaco's diff is not done again
+const parked = new Map<string, { view: Monaco.editor.IDiffEditorViewModel; at: Monaco.editor.IDiffEditorViewState | null; state: { listing?: Listing; shown?: [string, string]; more?: More; same: boolean } }>();
+const viewKey = () => (binaryView ? (store("bin-view") === "text" ? "hex" : "symbols") : "text");
+
+/** The open diff's text view kept aside, the editor emptied. */
+function park() {
+  const d = diffFile;
+  if (!d || !diffView) return;
+  const old = parked.get(viewKey());
+  if (old) freeView(old.view);
+  parked.set(viewKey(), { view: diffView, at: editor().saveViewState(), state: { listing: d.listing, shown: d.shown, more: d.more, same: d.same } });
+  editor().setModel(null);
+  diffView = null;
+}
+
+/** The kept views freed: another file, or this one changed. */
+function dropParked() {
+  parked.forEach((p) => freeView(p.view));
+  parked.clear();
 }
 
 export async function closeDiff(force = false) {
   if (!force && diffFile?.dirty && !(await ask(`Drop unsaved edits to ${diffFile.f.path}?`, "Drop edits"))) return;
+  dropParked();
   diffFile = null;
   $("diff").hidden = true;
   // the history's file view keeps this bar: its versions are not editable
@@ -1418,8 +1651,8 @@ function conflictBanner(f: Change) {
 /* file history */
 
 type Blamed = { hash: string; author: string; time: number; summary: string };
-// the file's commits newest first, each with the file's name there, the one shown and its blame
-export let hist: { path: string; revs: [Commit, Change][]; at: number; blame: Blamed[] } | null = null;
+// the file's commits newest first, each with the file's name there, the one shown, its blame, and whether its text is a hex dump
+export let hist: { path: string; revs: [Commit, Change][]; at: number; blame: Blamed[]; hex?: boolean } | null = null;
 export let histEd: Monaco.editor.IStandaloneCodeEditor | null = null;
 let blameHovers: Monaco.editor.IEditorDecorationsCollection | null = null;
 // the blame text: subject, two spaces, date
@@ -1486,15 +1719,19 @@ export async function showRev(i: number) {
   // the file shows first, its blame (slower) fills the gutter when it comes
   const blame = run<string>("blame", { at: c.hash, path: f.path }).catch(() => "");
   const blob = await run<Blob>("blob", { at: c.hash, path: f.path }).catch((e) => (say(String(e), true), null));
+  // a binary other than an image reads as its hex dump or, an object file, its symbols
+  const symbols = store("bin-view") !== "text", listed = !!blob?.binary && blob.exists && blob.lfs !== "missing" && !IMAGE.test(f.path);
+  const listing = listed ? await run<[boolean, string, boolean]>("binary_text", { at: c.hash, path: f.path, symbols, offset: 0 }).catch((e): [boolean, string, boolean] => [false, String(e), false]) : null;
   if (hist !== m || m.at !== i) return;
   // only now: until then the version shown before stays, not this pane's last text
   await closeDiff(true);
   histPane(true);
   if (!blob) return reveal();
   m.blame = [];
+  m.hex = !!listing && !(symbols && listing[0]);
   // an image, or an SVG or HTML page asked drawn, shows as itself in the diff's binary pane
   const drawable = DRAWN.test(f.path) && blob.exists && !blob.large, image = drawable && store("svg-view") === "image";
-  paintSvgView(drawable, image, f.path);
+  paintSvgView(drawable || !!listing?.[0], image || (!!listing?.[0] && symbols), f.path, listed);
   if (image || (IMAGE.test(f.path) && blob.binary && blob.lfs !== "missing" && (!blob.large || blob.large <= IMAGE_UNASKED))) {
     $("hist-file").hidden = true;
     $("diff-binary").hidden = false;
@@ -1503,7 +1740,7 @@ export async function showRev(i: number) {
     return reveal();
   }
   const ed = historyEditor(), view = ed.saveViewState(), old = ed.getModel();
-  const text = blob.lfs === "missing" ? "Stored with Git LFS, this version is not downloaded" : blob.binary ? "Binary or non-UTF-8 file" : blob.large ? `${megabytes(blob.large)}: too big to show here, the Diff view can load it` : blob.exists ? blob.text : `Deleted in ${short(c.hash)}`;
+  const text = blob.lfs === "missing" ? "Stored with Git LFS, this version is not downloaded" : listing ? listing[1] + (listing[2] ? "\n… the Diff view shows the rest" : "") : blob.large ? `${megabytes(blob.large)}: too big to show here, the Diff view can load it` : blob.binary ? "Binary or non-UTF-8 file" : blob.exists ? blob.text : `Deleted in ${short(c.hash)}`;
   ed.setModel(newModel(text, `h/${f.path}`));
   old?.dispose();
   // from its page: the same place; another version of the same file: around the same lines
@@ -1512,7 +1749,8 @@ export async function showRev(i: number) {
   paintBlame();
   reveal();
   const blamed = parseBlame(await blame) as Blamed[];
-  if (hist !== m || m.at !== i) return;
+  // a binary's lines are no rows of its listing
+  if (hist !== m || m.at !== i || listing) return;
   // git's zero hash for uncommitted lines: the WIP row
   const wip = blamed.find((b) => b && /^0+$/.test(b.hash));
   if (wip) Object.assign(wip, { hash: "WORKTREE", summary: "Uncommitted changes" });
@@ -1570,13 +1808,13 @@ function historyEditor() {
 
 /** An avatar where each commit's lines start, and its subject and date with Blame on. */
 export function paintBlame() {
-  const m = hist!, on = store("hist-blame") === "on", digits = String(histEd!.getModel()!.getLineCount()).length;
+  const m = hist!, on = store("hist-blame") === "on", digits = m.hex ? 8 : String(histEd!.getModel()!.getLineCount()).length;
   // ponytail: Monaco inserts the line number string as HTML, so the gutter is drawn as text; a view zone per line if it starts escaping
   histEd!.updateOptions({
     lineNumbersMinChars: (on ? BLAME_W + 1 : 0) + 4 + digits,
     lineNumbers: (n) => {
       const b = m.blame[n - 1], first = !!b && m.blame[n - 2]?.hash !== b.hash;
-      const num = String(n).padStart(digits);
+      const num = m.hex ? offset(n) : String(n).padStart(digits);
       if (!first) return `<span class="blame-av"></span> ${on ? " ".repeat(BLAME_W + 1) : ""} ${num}`;
       const text = on ? `${b.summary.slice(0, BLAME_SUBJECT).padEnd(BLAME_SUBJECT)}  ${dateText(b.time)} ` : "";
       return `${avatarSvg(b.author, "blame-av")} ${esc(text)} ${num}`;
