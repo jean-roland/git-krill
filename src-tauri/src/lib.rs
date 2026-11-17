@@ -923,31 +923,45 @@ fn remote_tags(repo: String) -> Result<std::collections::HashMap<String, Vec<Str
 #[tauri::command(async)]
 fn gh_verified(host: String, slug: String, hash: String) -> Result<String, String> {
     let path = format!("repos/{}/commits/{}", not_option(&slug)?, not_option(&hash)?);
-    Ok(gh_run(".", &["api", "--hostname", not_option(&host)?, &path, "--jq", r#".commit.verification | "\(.verified) \(.reason)""#])?.trim().to_string())
+    Ok(gh_run(".", &["api", "--hostname", not_option(&host)?, &path, "--jq", r#".commit.verification | "\(.verified) \(.reason)""#], Some(GH_WAIT))?.trim().to_string())
 }
 
 /// \brief gh with `args` in `repo`: what it printed.
 #[tauri::command(async)]
 fn gh(repo: String, args: Vec<String>) -> Result<String, String> {
-    gh_run(&repo, &args.iter().map(String::as_str).collect::<Vec<_>>())
+    gh_run(&repo, &args.iter().map(String::as_str).collect::<Vec<_>>(), Some(GH_WAIT))
 }
 
 /// \brief gh's output in folder `dir`; "gh-missing" or "gh-auth" when it is not installed or signed out, for the window to say what to do.
-fn gh_run(dir: &str, args: &[&str]) -> Result<String, String> {
+fn gh_run(dir: &str, args: &[&str], wait: Option<std::time::Duration>) -> Result<String, String> {
+    let started = std::time::Instant::now();
     let mut gh = command("gh");
-    gh.current_dir(dir).args(args).env("GH_PROMPT_DISABLED", "1").env("GH_NO_UPDATE_NOTIFIER", "1").env("GIT_TERMINAL_PROMPT", "0").stdin(Stdio::null());
+    gh.current_dir(dir).args(args).env("GH_PROMPT_DISABLED", "1").env("GH_NO_UPDATE_NOTIFIER", "1").env("GIT_TERMINAL_PROMPT", "0").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     // the git it runs (pr checkout) asks through krill's dialog, off the terminal
     askpass::env(&mut gh, true);
     #[cfg(unix)]
     unsafe { gh.pre_exec(|| (libc::setsid() >= 0).then_some(()).ok_or_else(std::io::Error::last_os_error)) };
-    // off the async pool while the network answers
-    let out = tokio::task::block_in_place(|| gh.output()).map_err(|e| if e.kind() == std::io::ErrorKind::NotFound { "gh-missing".to_string() } else { e.to_string() })?;
+    let child = gh.spawn().map_err(|e| if e.kind() == std::io::ErrorKind::NotFound { "gh-missing".to_string() } else { e.to_string() })?;
+    let (id, (tx, rx)) = (child.id(), std::sync::mpsc::channel());
+    std::thread::spawn(move || tx.send(child.wait_with_output()));
+    // off the async pool while the network answers; a server that never does is given up on after `wait`
+    let out = tokio::task::block_in_place(|| match wait {
+        Some(w) => rx.recv_timeout(w).map_err(|_| (kill_group(Some(id)), format!("gh gave no answer in {} s", w.as_secs())).1),
+        None => rx.recv().map_err(|e| e.to_string()),
+    });
+    if trace_file().is_some() {
+        trace(&format!("{:>6}ms gh {}", started.elapsed().as_millis(), args.join(" ").chars().take(160).collect::<String>()));
+    }
+    let out = out?.map_err(|e| e.to_string())?;
     if out.status.success() {
         return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
     }
     let err = output_text(&out);
     Err(if err.contains("gh auth login") { "gh-auth".into() } else { err })
 }
+
+// a gh question that is not answered by then never will be: the network or the server is down
+const GH_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// \brief Where pull request `number` starts: the merge base of its `head` commit and its base branch `base` on `remote`, from `base_sha`, where the server last saw that branch, when given: the local one may be behind. Both fetched first when missing.
 #[tauri::command(async)]
@@ -1604,7 +1618,8 @@ fn tool_status() -> Tools {
 fn tool_status_now() -> Tools {
     // out of any repository: only the user's and the system's config count
     let home = home();
-    let run = |cmd: &str, args: &[&str]| command(cmd).args(args).current_dir(&home).stdin(Stdio::null()).output().ok();
+    // gh as everywhere here: no prompt, no update notice
+    let run = |cmd: &str, args: &[&str]| command(cmd).args(args).current_dir(&home).env("GH_PROMPT_DISABLED", "1").env("GH_NO_UPDATE_NOTIFIER", "1").stdin(Stdio::null()).output().ok();
     let first_line = |o: Option<std::process::Output>| o.filter(|o| o.status.success()).map_or(String::new(), |o| String::from_utf8_lossy(&o.stdout).lines().next().unwrap_or("").trim().to_string());
     let lfs = first_line(run("git", &["lfs", "version"]));
     // gh says it on stdout or stderr depending on its version, as "Logged in to <host> account <user>" or "... as <user>"
@@ -2076,7 +2091,8 @@ fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         "stash-undo" => return stash_undo(&repo, &arg, &arg2),
         "stash-pop" => return stash_restore(&repo, "pop", &arg),
         // arg the number, arg2 the repository as host/owner/name
-        "pr-checkout" => return gh_run(&repo, &["pr", "checkout", not_option(&arg)?, "-R", not_option(&arg2)?]),
+        // a big fetch may take long: no limit
+        "pr-checkout" => return gh_run(&repo, &["pr", "checkout", not_option(&arg)?, "-R", not_option(&arg2)?], None),
         // in the background: a key that needs its passphrase fails quietly instead of asking
         "auto-fetch" => return report(git_cmd(&repo, &["fetch", "--all", "--prune"], None, false)?),
         "discard-all" => {
