@@ -2,7 +2,7 @@
 import type * as Monaco from "monaco-editor/esm/vs/editor/edcore.main";
 import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import { applyChanges, allLines, pickLines, parseConflicts, mergeSides, pickedLines, parseBlame, toggleSide, toggleLine, hasSide, pickedOf } from "./core.js";
-import { Blob, Change, Commit, active, fakeCommit, gitOp, headHash, lfsChip, opInfo, recordUndo, refresh, repo, run, selection, status, tabs } from "./repo";
+import { Blob, Change, Commit, active, busy, fakeCommit, gitOp, headHash, lfsChip, opInfo, recordUndo, refresh, repo, run, selection, status, tabs } from "./repo";
 import { $, COLORS, ICONS, MenuItem, ask, avatar, avatarSvg, basename, colorIndex, copy, cssVar, dateText, dateTimeText, esc, h, hideBanner, input, megabytes, plural, popup, say, short, showBanner, store, svg, toast, whileLoading } from "./ui";
 import { fileLists, isConflict, isSubmodule, markOpenFile, wipFiles } from "./panel";
 import { openSubmodule } from "./graph";
@@ -611,6 +611,7 @@ function imageSide(at: string, path: string, cls = "") {
       };
       img.onerror = () => (URL.revokeObjectURL(url), (caption.textContent = `${sideName(at)} · ${size}: cannot be shown`));
       img.src = url;
+      untilLoaded(img, "load", "error");
     },
     (e) => (caption.textContent = String(e)),
   );
@@ -1371,13 +1372,19 @@ const dimDiffOpts = (dim: boolean) =>
 /** Show the history's pane once `drawn` settles, a frame later so it is painted. */
 const reveal = (drawn?: Promise<unknown>) => (drawn ?? Promise.resolve()).then(() => requestAnimationFrame(() => $("hist-main").classList.remove("blank")));
 
-// a diff's hunks and folds land a moment after its text
+// a diff's hunks and folds land a moment after its text; a big file's take long enough to show the busy pointer
 const diffDrawn = (ms = 500) =>
-  new Promise((done) => {
-    // the first update only drops the old diff: wait for one with changes computed, and the frame that draws its deleted lines
-    const d = editor().onDidUpdateDiff(() => editor().getLineChanges() && (d.dispose(), requestAnimationFrame(done)));
-    setTimeout(() => (d.dispose(), done(0)), ms);
-  });
+  busy(
+    new Promise((done) => {
+      // the first update only drops the old diff: wait for one with changes computed, and the frame that draws its deleted lines
+      const d = editor().onDidUpdateDiff(() => editor().getLineChanges() && (d.dispose(), requestAnimationFrame(done)));
+      setTimeout(() => (d.dispose(), done(0)), ms);
+    }),
+  );
+
+/** Busy until `el` fires one of `events`, or 10 s pass: one taken off the page meanwhile never does. */
+const untilLoaded = (el: HTMLElement, ...events: string[]) =>
+  busy(new Promise<void>((done) => (events.forEach((t) => el.addEventListener(t, () => done(), { once: true })), setTimeout(done, 10_000))));
 
 function historyEditor() {
   if (histEd) return histEd;

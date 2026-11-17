@@ -125,13 +125,15 @@ let slow = 0;
 /** Invoke `cmd` on the tab's repo; `quiet` for calls the user did not start or that show their own spinner. */
 export function run<T>(cmd: string, args: Record<string, unknown> = {}, quiet = false) {
   const started = performance.now();
-  // the spinning pointer while calls are out past 300 ms: a quick stage does not flicker it
-  if (!quiet && !pending++) slow = setTimeout(() => document.body.classList.add("slow"), 300);
-  return invoke<T>(cmd, { repo, ...args }).finally(() => {
-    if (tracing) trace(`${ms(started)} call ${cmd}`);
-    // a task later: the refresh an op chains on is out by then, no gap between them
-    if (!quiet) setTimeout(() => --pending || (clearTimeout(slow), document.body.classList.remove("slow")));
-  });
+  const call = invoke<T>(cmd, { repo, ...args }).finally(() => tracing && trace(`${ms(started)} call ${cmd}`));
+  return quiet ? call : busy(call);
+}
+
+/** Work under the spinning pointer and the sweep bar while it runs past 300 ms: a quick stage does not flicker them. */
+export function busy<T>(work: Promise<T>) {
+  if (!pending++) slow = setTimeout(() => document.body.classList.add("slow"), 300);
+  // a task later: the refresh an op chains on is out by then, no gap between them
+  return work.finally(() => setTimeout(() => --pending || (clearTimeout(slow), document.body.classList.remove("slow"))));
 }
 export const DEFAULT_EDITOR = "code -g {file}:{line}";
 /** Open the working tree's `path` at `line` with the Settings tab's editor command. */
