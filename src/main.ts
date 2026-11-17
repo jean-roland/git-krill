@@ -47,12 +47,14 @@ function resizer(grip: HTMLElement, box: HTMLElement, key: string, size: (m: Poi
     // else the drag selects the text it crosses
     e.preventDefault();
     grip.setPointerCapture(e.pointerId);
+    grip.classList.add("drag");
     grip.onpointermove = (m) => {
       box.style.setProperty(prop, `${size(m)}${unit}`);
       relayout();
     };
     grip.onpointerup = () => {
       grip.onpointermove = null;
+      grip.classList.remove("drag");
       store(key, box.style.getPropertyValue(prop));
     };
   };

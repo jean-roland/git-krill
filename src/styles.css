@@ -243,6 +243,11 @@ body.history #sidebar, body.history #details, body.history main > .col-grip { di
 #term-close { padding: 0 6px; border: none; background: none; color: var(--dim); font-size: 16px; }
 #term-close:hover { color: var(--text); background: var(--hover); }
 #term-grip { position: absolute; top: -4px; left: 0; right: 0; height: 8px; z-index: 5; cursor: ns-resize; }
+/* a column or terminal edge lights up under the pointer and while dragged */
+.col-grip::after, #term-grip::after { content: ""; position: absolute; transition: background 0.15s; }
+.col-grip::after { top: 0; bottom: 0; left: 3px; width: 2px; }
+#term-grip::after { left: 0; right: 0; top: 3px; height: 2px; }
+.col-grip:hover::after, #term-grip:hover::after, .col-grip.drag::after, #term-grip.drag::after { background: var(--accent); }
 aside {
   display: flex;
   flex-direction: column;
@@ -582,7 +587,7 @@ textarea.msg-in { height: 104px; resize: vertical; }
 /* grabbed anywhere across, shown as a bar in the middle */
 #commit-grip, #files-grip { position: relative; flex: none; height: 14px; cursor: ns-resize; }
 #commit-grip::after, #files-grip::after { content: ""; position: absolute; left: calc(50% - 45px); width: 90px; top: 5px; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--dim) 55%, transparent); transition: background 0.15s; }
-#commit-grip:hover::after, #files-grip:hover::after { background: var(--accent); }
+#commit-grip:hover::after, #files-grip:hover::after, #commit-grip.drag::after, #files-grip.drag::after { background: var(--accent); }
 #commit-msg .edit { position: absolute; top: 8px; right: 8px; padding: 0 6px; visibility: hidden; }
 #commit-msg:hover .edit { visibility: visible; }
 .edit-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
