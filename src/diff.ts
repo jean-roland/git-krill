@@ -2,7 +2,7 @@
 import type * as Monaco from "monaco-editor/esm/vs/editor/edcore.main";
 import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import { applyChanges, allLines, pickLines, parseConflicts, mergeSides, pickedLines, parseBlame, toggleSide, toggleLine, hasSide, pickedOf } from "./core.js";
-import { Blob, Change, Commit, active, busy, fakeCommit, gitOp, headHash, lfsChip, opInfo, recordUndo, refresh, repo, run, selection, status, tabs } from "./repo";
+import { Blob, Change, Commit, active, busy, fakeCommit, gitOp, headHash, lfsChip, openInEditor, opInfo, recordUndo, refresh, repo, run, selection, status, tabs } from "./repo";
 import { $, COLORS, ICONS, MenuItem, ask, avatar, avatarSvg, basename, colorIndex, copy, cssVar, dateText, dateTimeText, esc, h, hideBanner, input, megabytes, plural, popup, say, short, showBanner, store, svg, toast, whileLoading } from "./ui";
 import { fileLists, isConflict, isSubmodule, markOpenFile, wipFiles } from "./panel";
 import { openSubmodule } from "./graph";
@@ -1061,7 +1061,20 @@ function lfsFetchButton() {
 
 /** Open version `at` of `path` in the desktop's app for its type. */
 function openButton(at: string, path: string) {
-  return h("button", { className: "open-default", innerHTML: `${svg(ICONS.external)}Open in default program`, onclick: () => (say(`Opening ${basename(path)}…`), run("open_version", { at, path }).catch((e) => say(String(e), true))) });
+  return h("button", { className: "open-default", innerHTML: `${svg(ICONS.external)}Open in default program`, onclick: () => openVersion(at, path) });
+}
+
+const openVersion = (at: string, path: string) => (say(`Opening ${basename(path)}…`), run("open_version", { at, path }).catch((e) => say(String(e), true)));
+
+// a binary, pictures too, opens in its own app: no text to edit
+const inApp = (d: NonNullable<typeof diffFile>) => d.orig.binary || d.mod.binary;
+
+/** The diff bar's Open: a binary's version shown, in its default program; else the working tree file in the editor set in Settings, at the cursor's line. */
+export function openDiffFile() {
+  const d = diffFile;
+  if (!d) return;
+  if (inApp(d)) return void openVersion(...sideSources(d.kind, d.f, d.c)[d.mod.exists ? 1 : 0]);
+  openInEditor(d.f.path, editor().getModifiedEditor().getPosition()?.lineNumber ?? 1).catch((e) => say(String(e), true));
 }
 
 function forceLoadButton(bytes: number) {
@@ -1087,6 +1100,11 @@ function paintOpenEditor() {
   const { f } = diffFile;
   // a file from another branch may not be on disk: say so on the button, not as an error
   const ed = $("open-editor");
+  if (inApp(diffFile)) {
+    ed.classList.remove("off");
+    ed.title = `Open this version (${sideName(sideSources(diffFile.kind, f, diffFile.c)[diffFile.mod.exists ? 1 : 0][0])}) in its default program`;
+    return;
+  }
   run<boolean>("on_disk", { path: f.path }).then((ok) => {
     if (diffFile?.f.path !== f.path) return;
     ed.classList.toggle("off", !ok);

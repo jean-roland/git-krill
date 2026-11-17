@@ -1,12 +1,12 @@
 // Entry: wires the buttons and keys to the features, then reopens the tabs.
 import { invoke } from "@tauri-apps/api/core";
 import "@xterm/xterm/css/xterm.css";
-import { Mode, closeDiff, closeHistory, confirmDiscard, closeMerge, diffEditor, diffFile, editor, fitImages, goConflict, hist, histEd, histView, loadMerge, loadMonaco, merging, nextChange, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setMode, setSvgView, showRev, warmDiff } from "./diff";
+import { Mode, closeDiff, closeHistory, confirmDiscard, closeMerge, diffEditor, diffFile, editor, fitImages, goConflict, hist, histEd, histView, loadMerge, loadMonaco, merging, nextChange, openDiffFile, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setMode, setSvgView, showRev, warmDiff } from "./diff";
 import { rebaseKey } from "./rebase";
 import { SORTS, amending, commit, conflictCount, emptyStep, fileLists, filterFiles, foldAll, getMsg, openFile, paintFileOpts, pathArg, pickedFiles, renderCommitBtn, renderPanel, setMsg } from "./panel";
 import { $, ask, closeDialog, dismissToast, hideBanner, input, mod, onCtrlEnter, pickDir, popup, say, store, warnOnce } from "./ui";
 import { closeFind, drawRows, findStep, findTyped, stepBack, openFind, paintSelection, showRow, shown } from "./graph";
-import { Change, active, addTab, autoFetch, cloneDialog, closeTab, fetchMinutes, gitOp, opInfo, newTabMenu, openInEditor, openPicked, openRepo, openSettings, paintPull, pull, pullMenu, push, refresh, renderTabHits, reopenTab, repo, restoreTabs, run, selection, switchTab, tabs, undoMenu, undoRedo } from "./repo";
+import { Change, active, addTab, autoFetch, cloneDialog, closeTab, fetchMinutes, gitOp, opInfo, newTabMenu, openPicked, openRepo, openSettings, paintPull, pull, pullMenu, push, refresh, renderTabHits, reopenTab, repo, restoreTabs, run, selection, switchTab, tabs, undoMenu, undoRedo } from "./repo";
 import { checkTools } from "./settings";
 import { terms, toggleTerm } from "./terminal";
 
@@ -200,11 +200,7 @@ $("hist-blame").onclick = () => {
 };
 $("prev-change").onclick = () => diffFile && editor().goToDiff("previous");
 $("next-change").onclick = nextChange;
-$("open-editor").onclick = () => {
-  if (!diffFile) return;
-  const line = editor().getModifiedEditor().getPosition()?.lineNumber ?? 1;
-  openInEditor(diffFile.f.path, line).catch((e) => say(String(e), true));
-};
+$("open-editor").onclick = openDiffFile;
 $("diff-save").onclick = () => save().then(refresh);
 $("open-repo").onclick = openPicked;
 $("settings-btn").onclick = $("settings-home").onclick = openSettings;
