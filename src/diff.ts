@@ -292,7 +292,9 @@ function updateHunkBars() {
     range: new monaco.Range(Math.max(c.ms, 1), 1, Math.max(c.me, c.ms, 1), 1),
     options: { overviewRuler: { color: colors[color], position } },
   });
-  changeMarks.set(hunks.flatMap((c) => (!c.oe ? [mark(c, "--add", Full)] : !c.me ? [mark(c, "--del", Full)] : [mark(c, "--del", Left), mark(c, "--add", Right)])));
+  // a missing side is one empty line to Monaco, not a change
+  const added = (c: LineChange) => !c.oe || !diffFile?.orig.exists, gone = (c: LineChange) => !c.me || !diffFile?.mod.exists;
+  changeMarks.set(hunks.flatMap((c) => (added(c) ? [mark(c, "--add", Full)] : gone(c) ? [mark(c, "--del", Full)] : [mark(c, "--del", Left), mark(c, "--add", Right)])));
   // bars head the hunks between folds; in the whole file the line numbers say where a change is
   const shown = viewMode() === "hunk" ? hunks : [];
   const bar = (c: LineChange, buttons: boolean) => {
