@@ -1,0 +1,44 @@
+# The end-to-end tests: the debug build driven through WebDriver on a virtual display, its screenshots checked against e2e/golden.
+name: e2e
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      update:
+        description: Make new golden screenshots (taken from the run's files, then committed by hand)
+        type: boolean
+        default: false
+
+jobs:
+  e2e:
+    # the Linux build's: the goldens are drawn with its fonts
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Tauri's system libraries, WebKit's WebDriver, a virtual display
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev webkit2gtk-driver xvfb
+      - run: cargo install tauri-driver --locked
+      - run: npm ci
+      - run: npx tauri build --debug --no-bundle
+      - run: xvfb-run -a -s "-screen 0 1920x1080x24" npm run e2e
+        env:
+          GOLDEN: ${{ inputs.update && 'update' || 'check' }}
+      # what the window looked like, with a diff for each screenshot that changed; the goldens, for an update
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-screenshots
+          path: |
+            e2e/out
+            e2e/golden

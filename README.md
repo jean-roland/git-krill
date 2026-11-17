@@ -77,6 +77,15 @@ npx tauri build --no-bundle  # the bare binary only: src-tauri/target/release/gi
 npm test
 ```
 
+End-to-end tests drive the debug build through WebDriver on Linux, each in a fresh profile on throwaway repositories. They need a display (`xvfb-run` without one), `WebKitWebDriver` and `tauri-driver`:
+
+```sh
+sudo apt install webkit2gtk-driver
+cargo install tauri-driver --locked
+npx tauri build --debug --no-bundle
+npm run e2e                  # screenshots in e2e/out; CI also compares them with e2e/golden
+```
+
 ## Trace mode
 
 When an action is slow or never ends, a trace shows where the time goes. Start Git Krill with `KRILL_TRACE` set to a file, repeat the action, then quit:
