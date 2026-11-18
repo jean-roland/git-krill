@@ -44,6 +44,12 @@ body {
 [hidden] { display: none !important; }
 /* body sets user-select: none, inputs still need text selection */
 input, textarea { -webkit-user-select: text; user-select: text; }
+/* checkboxes drawn by the theme, not by GTK, Windows or macOS */
+input[type="checkbox"] { appearance: none; width: 14px; height: 14px; border: 1.5px solid var(--dim); border-radius: 3px; background: none; vertical-align: -2px; cursor: pointer; }
+input[type="checkbox"]:hover { border-color: var(--accent); }
+input[type="checkbox"]:checked { border-color: var(--accent); background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8.5l2.8 2.8L12 5.5' fill='none' stroke='%23fff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 100% no-repeat, var(--accent); }
+input[type="checkbox"]:disabled { opacity: 0.45; cursor: default; }
+input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 button {
   font: inherit;
@@ -284,8 +290,7 @@ body.home main { grid-template-columns: 1fr; }
 #settings-box h1 + .head { margin-top: 0; padding-top: 6px; border-top: none; }
 #settings-box h1 { display: flex; align-items: baseline; gap: 14px; }
 .set-build { margin-left: auto; font-size: 13px; font-weight: 400; color: var(--dim); }
-#settings-box input[type="checkbox"] { width: 15px; height: 15px; vertical-align: -2px; }
-#settings-box input { font-size: inherit; padding: 4px 8px; }
+#settings-box input:not([type="checkbox"]) { font-size: inherit; padding: 4px 8px; }
 .set-pick { display: inline-flex; align-items: center; gap: 10px; padding: 4px 6px 4px 10px; }
 .set-pick svg { width: 14px; height: 14px; }
 .set-row { display: grid; grid-template-columns: 160px 1fr; gap: 14px; align-items: baseline; padding: 7px 0; }
@@ -331,7 +336,7 @@ body.home main { grid-template-columns: 1fr; }
 #sidebar .item:hover { background-color: var(--hover); }
 #sidebar .item.current { background-color: var(--sel); }
 #sidebar summary .n { float: right; font-weight: 700; color: var(--text); }
-#sidebar summary .spinner { display: inline-block; width: 9px; height: 9px; border-width: 2px; vertical-align: -1px; }
+#sidebar summary .spinner { display: inline-block; width: 12px; height: 12px; border-width: 2px; vertical-align: -2px; }
 .item { display: flex; gap: 7px; align-items: center; padding: 2px 10px 2px 30px; height: 27px; cursor: pointer; white-space: nowrap; }
 .item:hover { background-color: var(--hover); }
 .item .label { flex: 1; overflow: hidden; text-overflow: ellipsis; }
@@ -366,6 +371,18 @@ body.home main { grid-template-columns: 1fr; }
 #sidebar summary:hover > .add { visibility: visible; }
 #sidebar summary .add svg { width: 14px; height: 14px; }
 #sidebar details.hidden-remote > summary, #sidebar .item.hidden-ref { opacity: 0.5; }
+/* a file open: the sidebar folds to its section icons; peeking, it spreads over the diff */
+main.rail { grid-template-columns: 40px 1fr var(--details-w, 400px); }
+main.rail #sidebar-grip { display: none; }
+main.rail #sidebar { position: relative; z-index: 25; width: 40px; overflow-x: hidden; transition: width 0.16s ease-out, box-shadow 0.16s; }
+main.rail #sidebar.open { width: var(--sidebar-w, 240px); box-shadow: 8px 0 24px #0006; }
+/* its rows at their full width while it slides: uncovered, not squeezed */
+main.rail #sidebar.peek > * { min-width: calc(var(--sidebar-w, 240px) - 1px); }
+main.rail #sidebar:not(.peek) > details > :not(summary), main.rail #sidebar:not(.peek) summary > :not(.ico) { display: none; }
+main.rail #sidebar:not(.peek) summary { padding: 9px 0; font-size: 0; text-align: center; list-style: none; }
+main.rail #sidebar:not(.peek) summary::-webkit-details-marker { display: none; }
+main.rail #sidebar:not(.peek) summary .ico { margin: 0; }
+main.rail #sidebar:not(.peek) summary .ico svg { width: 18px; height: 18px; }
 
 /* graph */
 /* label column | graph | message */
@@ -416,7 +433,7 @@ body.home main { grid-template-columns: 1fr; }
 #cols > span { align-self: stretch; line-height: 21px; }
 #cols .icon { flex: none; padding: 0 2px; border: none; background: none; line-height: 0; color: var(--dim); }
 #cols .icon:hover { color: var(--text); }
-#cols .icon svg { width: 14px; height: 14px; stroke-width: 2.6; }
+#cols .icon svg { width: 17px; height: 17px; stroke-width: 2.2; }
 .chunk { position: relative; }
 .load-more { display: block; margin: 12px auto 16px; }
 .lane-box { position: absolute; top: 0; bottom: 0; left: var(--refs-w); width: var(--graph-w); overflow: hidden; pointer-events: none; }
@@ -721,8 +738,19 @@ textarea.msg-in { height: 104px; resize: vertical; }
 .foot small { margin-right: auto; color: var(--dim); font-size: inherit; }
 /* the hint wraps first: a button on two lines reads as two */
 .foot button { flex: none; padding: 6px 18px; white-space: nowrap; }
-.bar .icon { padding: 2px 5px; line-height: 0; }
-.bar .icon svg { width: 15px; height: 15px; }
+/* as tall as the bar's text buttons; a 16 px icon sits on whole pixels in it, a 15 px one blurred */
+.bar .icon { display: inline-flex; align-items: center; height: 26px; padding: 0 5px; }
+.bar .icon svg { width: 16px; height: 16px; }
+/* every bar icon drawn 1.5 px thick on screen whatever its size: thinner, a round one showed its steps */
+.bar svg path { vector-effect: non-scaling-stroke; stroke-width: 1.5px; }
+/* off 100%, the text zoom says how much */
+#zoom-n:not(:empty) { margin-left: 5px; font-size: 12px; font-weight: 600; color: var(--accent); }
+#zoom-pop { position: fixed; z-index: 12; display: flex; align-items: center; gap: 4px; padding: 7px 8px 7px 14px; background: var(--raised); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 6px 24px #0006; }
+#zoom-at { min-width: 46px; margin-right: 6px; font-variant-numeric: tabular-nums; }
+#zoom-pop .icon { padding: 5px; border: none; border-radius: 6px; background: none; line-height: 0; }
+#zoom-pop .icon:hover { background: var(--hover); }
+#zoom-pop .icon svg { width: 16px; height: 16px; }
+#zoom-reset { margin-left: 8px; padding: 4px 14px; border-radius: 15px; }
 #diff-close, #rebase-close { border: none; background: none; }
 .bar {
   display: flex;
@@ -917,8 +945,7 @@ svg.blame-av { cursor: pointer; }
 .m-gap { box-shadow: inset 0 2px 0 var(--dim); }
 .m-side-box { cursor: pointer; }
 /* a side's take-all box, drawn like the conflicts' own */
-.m-head input[type="checkbox"] { appearance: none; flex: none; width: 13px; height: 13px; margin: 0; border: 1.5px solid var(--dim); border-radius: 3px; background: none; cursor: pointer; }
-.m-head input[type="checkbox"]:checked { border-color: var(--accent); background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8.5l2.8 2.8L12 5.5' fill='none' stroke='%23fff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 100% no-repeat, var(--accent); }
+.m-head input[type="checkbox"] { flex: none; width: 13px; height: 13px; margin: 0; }
 .m-side-box::after { content: ""; display: block; box-sizing: border-box; width: 13px; height: 13px; margin: calc((var(--m-lh) - 13px) / 2) 0 0 calc((var(--m-box) - 13px) / 2); border: 1.5px solid var(--dim); border-radius: 3px; }
 /* an even line count puts the middle between two lines */
 .m-side-box.half::after { transform: translateY(calc(var(--m-lh) / 2)); }

@@ -1,10 +1,10 @@
 // Entry: wires the buttons and keys to the features, then reopens the tabs.
 import { invoke } from "@tauri-apps/api/core";
 import "@xterm/xterm/css/xterm.css";
-import { Mode, closeDiff, closeHistory, confirmDiscard, closeMerge, diffEditor, diffFile, editor, fitImages, goConflict, hist, histEd, histView, loadMerge, loadMonaco, merging, nextChange, openDiffFile, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setMode, setSvgView, showRev, warmDiff } from "./diff";
+import { Mode, closeDiff, closeHistory, confirmDiscard, closeMerge, diffEditor, diffFile, editor, fitImages, goConflict, hist, histEd, histView, loadMerge, loadMonaco, merging, nextChange, openDiffFile, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setFontSize, setMode, setSvgView, showRev, warmDiff } from "./diff";
 import { rebaseKey } from "./rebase";
 import { SORTS, amending, commit, conflictCount, emptyStep, fileLists, filterFiles, foldAll, getMsg, openFile, paintFileOpts, pathArg, pickedFiles, renderCommitBtn, renderPanel, setMsg } from "./panel";
-import { $, ask, closeDialog, dismissToast, hideBanner, input, mod, onCtrlEnter, pickDir, popup, say, store, warnOnce } from "./ui";
+import { $, ICONS, ask, closeDialog, dismissToast, hideBanner, input, mod, onCtrlEnter, pickDir, popup, say, store, svg, warnOnce } from "./ui";
 import { closeFind, drawRows, findStep, findTyped, stepBack, laneBarScrolled, openFind, paintSelection, scrollLanes, showRow, shown, wheelLanes } from "./graph";
 import { Change, active, addTab, autoFetch, cloneDialog, closeTab, fetchMinutes, gitOp, opInfo, newTabMenu, openPicked, openRepo, openSettings, paintPull, pull, pullMenu, push, refresh, renderTabHits, reopenTab, repo, restoreTabs, run, selection, switchTab, tabs, undoMenu, undoRedo } from "./repo";
 import { checkTools } from "./settings";
@@ -196,6 +196,57 @@ new ResizeObserver(() => scrollLanes()).observe($("graph-grip").parentElement!);
 $("graph").onwheel = wheelLanes;
 $("lane-bar").onscroll = laneBarScrolled;
 resizer($("sidebar-grip"), main, "sidebar-width", (m) => Math.min(480, Math.max(160, m.clientX)), "--sidebar-w");
+// the folded sidebar slides open over the diff while the pointer rests on it, or at once on a click; its rows stay until it is folded back
+let peeking = 0;
+const peek = (on: boolean) => (clearTimeout(peeking), $("sidebar").classList.toggle("open", on), on && $("sidebar").classList.add("peek"));
+$("sidebar").onmouseenter = () => (peeking = setTimeout(() => peek(true), 250));
+$("sidebar").onmouseleave = () => peek(false);
+$("sidebar").ontransitionend = (e) => e.target === $("sidebar") && e.propertyName === "width" && !$("sidebar").classList.contains("open") && $("sidebar").classList.remove("peek");
+$("sidebar").addEventListener("click", (e) => main.classList.contains("rail") && !$("sidebar").classList.contains("open") && (e.preventDefault(), e.stopPropagation(), peek(true)), true);
+// the text zoomed by steps from the diff's bar, the history's too: off 100% the button says how much, and each step shows it a moment in the bubble under it
+const ZOOMS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
+const zoomShown = () => !!$("zoom").offsetParent;
+let fading = 0;
+function zoom(to: number, pop = true) {
+  const pct = `${Math.round(to * 100)}%`;
+  store("zoom", String(to));
+  setFontSize(13 * to);
+  $("zoom").title = `Text zoom ${pct}`;
+  $("zoom").querySelector("svg")!.outerHTML = svg(to < 1 ? ICONS.zoomOut : ICONS.zoomIn);
+  $("zoom-n").textContent = to === 1 ? "" : pct;
+  $("zoom-at").textContent = pct;
+  if (pop) showZoom(false);
+}
+const zoomBy = (by: number, at = ZOOMS.indexOf(Number(store("zoom") ?? 1))) => zoom(ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, (at < 0 ? 5 : at) + by))]);
+/** The bubble under the button: until a click elsewhere when `stay`, else gone a moment after the last step, once the pointer is off it. */
+function showZoom(stay: boolean) {
+  const p = $("zoom-pop"), at = $("zoom").getBoundingClientRect();
+  if (!zoomShown()) return;
+  clearTimeout(fading);
+  if (stay) p.dataset.stay = "1";
+  p.hidden = false;
+  p.style.left = `${Math.min(at.right, innerWidth - 4) - p.offsetWidth}px`;
+  p.style.top = `${at.bottom + 4}px`;
+  const fade = () => (p.matches(":hover") ? (fading = setTimeout(fade, 400)) : hideZoom());
+  if (!p.dataset.stay) fading = setTimeout(fade, 1500);
+}
+const hideZoom = () => (clearTimeout(fading), ($("zoom-pop").hidden = true), delete $("zoom-pop").dataset.stay);
+zoom(Number(store("zoom") ?? 1) || 1, false);
+$("zoom").onclick = () => ($("zoom-pop").dataset.stay ? hideZoom() : showZoom(true));
+$("zoom-in").onclick = () => zoomBy(1);
+$("zoom-out").onclick = () => zoomBy(-1);
+$("zoom-reset").onclick = () => (zoom(1, false), hideZoom());
+addEventListener("pointerdown", (e) => !(e.target as HTMLElement).closest("#zoom-pop, #zoom") && hideZoom(), true);
+// Ctrl+wheel over the text too, a step a notch: a touchpad's pinch sends many small ones
+let pinched = 0;
+addEventListener("wheel", (e) => {
+  if (!mod(e) || !zoomShown() || !(e.target as HTMLElement).closest?.("#diff-editor, #hist-file")) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (Math.abs((pinched += e.deltaY)) < 50) return;
+  zoomBy(pinched < 0 ? 1 : -1);
+  pinched = 0;
+}, { capture: true, passive: false });
 resizer($("details-grip"), main, "details-width", (m) => Math.min(innerWidth * 0.5, Math.max(300, innerWidth - m.clientX)), "--details-w");
 new ResizeObserver(() => terms.get(tabs[active])?.fit.fit()).observe($("term"));
 $("diff-close").onclick = () => closeDiff();
@@ -242,6 +293,10 @@ addEventListener("keydown", (e) => {
   const key = e.key.toLowerCase(), asking = !$("dialog").hidden;
   if (e.ctrlKey && e.code === "Backquote") (e.preventDefault(), toggleTerm());
   // GTK turns Shift+Tab into ISO_Left_Tab: the physical key is the sure one
+  // by the key's place too: Ctrl+0 is Ctrl+à on AZERTY
+  else if (mod(e) && zoomShown() && (key === "=" || key === "+" || e.code === "NumpadAdd")) (e.preventDefault(), zoomBy(1));
+  else if (mod(e) && zoomShown() && (key === "-" || e.code === "NumpadSubtract")) (e.preventDefault(), zoomBy(-1));
+  else if (mod(e) && zoomShown() && (e.code === "Digit0" || e.code === "Numpad0")) (e.preventDefault(), zoom(1));
   else if (e.ctrlKey && e.code === "Tab") (e.preventDefault(), asking || switchTab((active + (e.shiftKey ? tabs.length - 1 : 1)) % tabs.length));
   // the shell owns every other key
   else if ((e.target as HTMLElement).closest?.("#term")) return;
@@ -263,7 +318,8 @@ addEventListener("keydown", (e) => {
   else if (!mod(e) && !e.altKey && (key === "p" || key === "n") && diffFile && !$("diff").hidden && $("dialog").hidden && !(e.target as HTMLElement).closest?.(`input:not([type=checkbox]), textarea, #merge, #hist-file${diffFile.kind === "unstaged" && diffFile.mod.exists && !diffFile.shown ? ", #diff-editor" : ""}`))
     (e.preventDefault(), $(key === "n" ? "next-change" : "prev-change").click());
   else if (e.key === "Escape") {
-    if (!$("menu").hidden) $("menu").hidden = $("submenu").hidden = true;
+    if (!$("zoom-pop").hidden) hideZoom();
+    else if (!$("menu").hidden) $("menu").hidden = $("submenu").hidden = true;
     else if (!$("banner").hidden) hideBanner();
     else if (!$("dialog").hidden) closeDialog();
     else if (!$("tab-search").hidden) $("tab-search").hidden = true;

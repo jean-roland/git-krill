@@ -575,9 +575,13 @@ async function renderCommitDetails(n: number) {
 /** The file open in the diff or the merge tool. */
 export const openFile = () => diffFile ?? (merging ? { kind: "unstaged" as DiffSource, f: merging.f } : null);
 
+/** A file open and drawn: the sidebar folds to its icons, the width goes to the diff; one still drawing keeps the graph as it was. */
+export const paintRail = () => document.querySelector("main")!.classList.toggle("rail", !!openFile() && !$("diff").classList.contains("blank")) || $("sidebar").classList.remove("open", "peek");
+
 export function markOpenFile() {
   document.querySelectorAll(".file.sel").forEach((r) => r.classList.remove("sel"));
   const open = openFile();
+  paintRail();
   // a diff opened in a list, by click or arrow key, ends its pick
   if (open && open.kind === picked.list) picked.paths = new Set([open.f.path]);
   // the head's buttons act on the pick

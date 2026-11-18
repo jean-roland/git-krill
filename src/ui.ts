@@ -26,7 +26,10 @@ export const ICONS: Record<string, string> = {
   trash: "M4 7h16M10 11v6M14 11v6M5 7l1 13h12l1-13M9 7V4h6v3",
   // two chevrons pressing together
   squash: "m7 20 5-5 5 5M7 4l5 5 5-5",
-  search: "M11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14zm5-2 5 5",
+  search: "M4 6h16M4 12h7M4 18h7M17 18a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zm2.5-1 2.5 2.5",
+  // centred on a half pixel at 16 px: its rim shades evenly
+  zoomIn: "M11.25 18.75a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15zm5.33-2.17L21 21M11.25 8.25v6M8.25 11.25h6",
+  zoomOut: "M11.25 18.75a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15zm5.33-2.17L21 21M8.25 11.25h6",
   commit: "M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM12 2v6M12 16v6",
   file: "M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM14 3v5h5",
   branch: "M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9",

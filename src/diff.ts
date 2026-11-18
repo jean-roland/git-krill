@@ -4,7 +4,7 @@ import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import { applyChanges, allLines, pickLines, parseConflicts, mergeSides, pickedLines, parseBlame, toggleSide, toggleLine, hasSide, pickedOf } from "./core.js";
 import { Blob, Change, Commit, active, busy, fakeCommit, gitOp, headHash, lfsChip, openInEditor, opInfo, recordUndo, refresh, repo, run, selection, status, tabs } from "./repo";
 import { $, COLORS, ICONS, MenuItem, ask, avatar, avatarSvg, basename, colorIndex, copy, cssVar, dateText, dateTimeText, esc, h, hideBanner, input, megabytes, plural, popup, say, short, showBanner, store, svg, toast, whileLoading } from "./ui";
-import { fileLists, isConflict, isSubmodule, markOpenFile, wipFiles } from "./panel";
+import { fileLists, isConflict, isSubmodule, markOpenFile, paintRail, wipFiles } from "./panel";
 import { openSubmodule } from "./graph";
 
 export type DiffSource = "unstaged" | "staged" | "commit";
@@ -102,8 +102,6 @@ export function editor() {
   if (diffEditor) return diffEditor;
   diffEditor = monaco.editor.createDiffEditor($("diff-editor"), {
     ...plainOpts(),
-    // its height lands ~200 ms late, once long lines are measured, and rescales the change markers; Shift+wheel still scrolls sideways
-    scrollbar: { horizontal: "hidden" },
     // whitespace-only changes must show: they get staged too
     ignoreTrimWhitespace: false,
     originalEditable: false,
@@ -420,7 +418,8 @@ export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistor
       () => {},
     );
   // a later file keeps the cover up until its own diff is drawn
-  paintSides().then(() => requestAnimationFrame(() => gen === opening && (copy?.remove(), $("diff").classList.remove("blank"))));
+  // the sidebar folds in the frame the diff shows, its editors laid out to the new width first
+  paintSides().then(() => requestAnimationFrame(() => gen === opening && (copy?.remove(), $("diff").classList.remove("blank"), paintRail(), drawNow())));
 }
 
 let opening = 0;
@@ -1436,7 +1435,10 @@ const plainOpts = (): Monaco.editor.IStandaloneEditorConstructionOptions => ({
   theme: "krill",
   automaticLayout: true,
   fontFamily: cssVar("--mono"),
-  fontSize: 13,
+  fontSize,
+  // a long line's scrollbar, on top of the text: in the height it would land ~200 ms late, once long lines are measured, and move the change marks
+  scrollbar: { horizontal: "visible", ignoreHorizontalScrollbarInContentHeight: true },
+  padding: { bottom: 14 },
   scrollBeyondLastLine: false,
   stickyScroll: { enabled: false },
   contextmenu: false,
@@ -1922,7 +1924,23 @@ export async function closeHistory() {
   $("merge").before($("diff"));
 }
 
+// the text's size, zoomed from the diff's bar
+let fontSize = 13;
+
+/** Every editor's text at `size` px. */
+export function setFontSize(size: number) {
+  fontSize = size;
+  for (const ed of [diffEditor, histEd, mergeEds?.a, mergeEds?.b, mergeEds?.out]) ed?.updateOptions({ fontSize });
+}
+
 /** Lay the shown editors out now: Monaco's own resize handling waits a frame, which flickers while dragging. */
 export function relayout() {
   for (const ed of [diffEditor, histEd, mergeEds?.a, mergeEds?.b, mergeEds?.out]) if (ed?.getContainerDomNode().offsetParent) ed.layout();
+}
+
+/** The diff laid out and drawn in this frame, not the next: its changed lines' colours would stop at the old width for a frame. */
+function drawNow() {
+  relayout();
+  diffEditor?.getOriginalEditor().render(true);
+  diffEditor?.getModifiedEditor().render(true);
 }

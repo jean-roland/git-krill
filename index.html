@@ -94,6 +94,7 @@
             <div class="bar">
               <span id="diff-path"></span>
               <span class="edit-tag" id="diff-editable" title="Type in the working tree file to change it, then Save" hidden><svg data-icon="m"></svg>Editable</span>
+              <button class="icon" id="zoom"><svg data-icon="zoomIn"></svg><span id="zoom-n"></span></button>
               <button id="diff-save" class="primary" title="Write your edits to the working tree file" hidden disabled><svg data-icon="save"></svg>Save</button>
               <button class="icon" id="prev-change" title="Previous change (P)"><svg data-icon="up"></svg></button>
               <button class="icon" id="next-change" title="Next change (N)"><svg data-icon="down"></svg></button>
@@ -191,6 +192,12 @@
     <footer id="status"></footer>
     <div id="menu" class="menu" hidden></div>
     <div id="submenu" class="menu" hidden></div>
+    <div id="zoom-pop" hidden>
+      <span id="zoom-at"></span>
+      <button class="icon" id="zoom-out" title="Zoom out (Ctrl+-)"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+      <button class="icon" id="zoom-in" title="Zoom in (Ctrl+=)"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+      <button id="zoom-reset" title="Back to 100% (Ctrl+0)">Reset</button>
+    </div>
     <div id="banner" hidden></div>
     <div id="dialog" hidden></div>
     <div id="toasts"></div>

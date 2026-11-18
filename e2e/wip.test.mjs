@@ -12,6 +12,8 @@ test("a change opens in Hunk view, then Split", async () => {
   await k.click("#unstaged .file", "src/tide.rs");
   await k.until(() => document.querySelector("#diff-editor .hunk-bar button.hunk-stage"));
   assert.equal(await k.js(() => document.querySelector("[data-mode].on").dataset.mode), "hunk");
+  // the sidebar folded to its icons, for the diff's width
+  await k.until(() => document.querySelector("main").classList.contains("rail"));
   await k.shot("diff-hunk");
   await k.click('[data-mode="split"]');
   await k.until(() => !document.querySelector("#diff-editor .hunk-bar"));
