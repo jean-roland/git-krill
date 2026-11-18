@@ -94,9 +94,9 @@ async function scene() {
   await sleep(300);
   await click("#commit-btn");
   await k.until(() => document.querySelector("#graph .row.row-head")?.textContent.includes("Saint-Malo"));
-  await sleep(400);
-  await click("#diff-close");
-  await sleep(600);
+  // the commit closes the diff
+  await k.until(() => document.getElementById("diff").hidden);
+  await sleep(1000);
   // the new commit and the two before it squashed into the one under them
   await menu("#graph .row", "chore: release 0.2.0");
   await sleep(500);
