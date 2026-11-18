@@ -235,10 +235,10 @@ export function setMode(m: Mode) {
   applyMode();
 }
 
-/** The view shown: Monaco cannot fold a file loaded on request, so Inline stands in for Hunk there. */
+/** The view shown: Monaco cannot fold a file loaded on request, so Inline stands in for Hunk there, and for Split on an unchanged file. */
 const viewMode = (): Mode => {
   const m = (store("diff-mode") as Mode) || "hunk";
-  return m === "hunk" && (fullText() || diffFile?.same || diffFile?.drawn) ? "inline" : m;
+  return (m === "hunk" && (fullText() || diffFile?.drawn)) || diffFile?.same ? "inline" : m;
 };
 
 // a text loaded on request, whole or in parts: a binary's listing stays small
@@ -256,6 +256,9 @@ function applyMode() {
   if (full || none) hunk.classList.add("off");
   // Monaco cannot fold a file that big
   hunk.title = full ? "Can't show hunks for files over 10 MB" : none ? "No hunks to display" : "Changed hunks only";
+  const split = document.querySelector<HTMLElement>('[data-mode="split"]')!;
+  if (diffFile?.same) split.classList.add("off");
+  split.title = diffFile?.same ? "No changes to compare" : "Whole file, side by side";
 }
 
 const lineChanges = (): LineChange[] =>
@@ -1327,7 +1330,8 @@ export async function save() {
     // applyMode only greys: the text diff's buttons are lit again first
     dimDiffOpts(false);
     applyMode();
-    diffDrawn(150).then(() => requestAnimationFrame(() => copy?.remove()));
+    // computed as it was typed: no new diff to wait for, unless the save beat it
+    diffView?.waitForDiff().then(() => requestAnimationFrame(() => copy?.remove()));
   }
 }
 

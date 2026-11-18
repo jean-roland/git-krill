@@ -18,6 +18,13 @@ test("a change opens in Hunk view, then Split", async () => {
   await k.click('[data-mode="split"]');
   await k.until(() => !document.querySelector("#diff-editor .hunk-bar"));
   await k.shot("diff-split");
+  // an unchanged file has nothing to compare: Split greys out, the file shows whole in one column
+  await k.click(".all-files");
+  await k.click("#unstaged .file", "Cargo.toml");
+  await k.until(() => document.querySelector('[data-mode="split"]').classList.contains("off"));
+  assert.equal(await k.js(() => document.querySelector("[data-mode].on").dataset.mode), "inline");
+  await k.click(".all-files");
+  await k.click("#unstaged .file", "src/tide.rs");
   await k.click('[data-mode="hunk"]');
 });
 
