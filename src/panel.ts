@@ -1,7 +1,7 @@
 // The right panel: work in progress or a commit's details, the file lists, the commit box.
 import { Blob, Change, Commit, commits, fakeCommit, gitOp, headHash, isHead, lfsChip, opInfo, openInEditor, refresh, refs, repo, run, runFixed, selection, status } from "./repo";
 import { $, ICONS, MenuItem, ask, avatar, basename, copy, dateTimeText, h, ico, input, mod, onCtrlEnter, label, plural, popup, say, shaLink, short, store, svg, warnOnce } from "./ui";
-import { DiffSource, closeDiff, confirmDiscard, diffFile, merging, openDiff, openHistory } from "./diff";
+import { DiffSource, closeDiff, confirmDiscard, diffFile, hist, merging, openDiff, openHistory } from "./diff";
 import { discardSubmodule, linkRemote, openSubmodule, webUrl } from "./graph";
 import { planOpen } from "./rebase";
 
@@ -645,5 +645,7 @@ export async function commit() {
   if (await gitOp(amend ? "amend" : "commit", getMsg())) {
     $("amend").classList.remove("on");
     setMsg("");
+    // back to the graph, where the commit landed; unsaved edits keep their diff open
+    if (diffFile && !diffFile.dirty && !hist) closeDiff();
   }
 }

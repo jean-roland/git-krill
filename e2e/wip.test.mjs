@@ -28,7 +28,7 @@ test("a change opens in Hunk view, then Split", async () => {
   await k.click('[data-mode="hunk"]');
 });
 
-test("Stage hunk moves the change to the staged list, then a commit takes it", async () => {
+test("Stage hunk moves the change to the staged list, then a commit takes it and closes the diff", async () => {
   await k.click("#diff-editor .hunk-bar button.hunk-stage");
   await k.until(() => document.querySelector('#staged .file[data-path="src/tide.rs"]'));
   // its other hunk stays unstaged
@@ -37,6 +37,7 @@ test("Stage hunk moves the change to the staged list, then a commit takes it", a
   await k.click("#commit-btn");
   await k.until(() => [...document.querySelectorAll("#graph .row")].some((r) => r.textContent.includes("a commit from the e2e run")));
   assert.deepEqual(await listed("staged"), []);
+  await k.until(() => document.getElementById("diff").hidden);
 });
 
 test("Stash puts the rest away, Pop brings it back", async () => {
