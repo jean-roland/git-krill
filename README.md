@@ -64,6 +64,8 @@ Needs `git` (tested with 2.43; before 2.40 a commit's files lack their LFS chip)
 | Arrows | Move through commits and files, open and close diffs |
 | Escape | Close the open view or dialog; on the graph, back from a worktree or a submodule |
 | P, N | Previous, next change in a diff |
+| Ctrl+=, Ctrl+-, Ctrl+0, Ctrl+wheel | Text zoom in a diff or a file's history: in, out, back to 100% |
+| Alt+Z | Word wrap in a diff or a file's history |
 | Space | Fit a zoomed image back (the mouse wheel zooms, a drag pans) |
 | Ctrl+click, Shift+click | Pick several files of a WIP list, to stage, discard, stash or ignore them together, or several rows of an interactive rebase |
 

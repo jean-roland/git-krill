@@ -1,7 +1,7 @@
 // Entry: wires the buttons and keys to the features, then reopens the tabs.
 import { invoke } from "@tauri-apps/api/core";
 import "@xterm/xterm/css/xterm.css";
-import { Mode, closeDiff, closeHistory, confirmDiscard, closeMerge, diffEditor, diffFile, editor, fitImages, goConflict, hist, histEd, histView, loadMerge, loadMonaco, merging, nextChange, openDiffFile, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setFontSize, setMode, setSvgView, showRev, warmDiff } from "./diff";
+import { Mode, closeDiff, closeHistory, confirmDiscard, closeMerge, diffEditor, diffFile, editor, fitImages, goConflict, hist, histEd, histView, loadMerge, loadMonaco, merging, nextChange, openDiffFile, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setFontSize, setMode, setWordWrap, setSvgView, showRev, warmDiff } from "./diff";
 import { rebaseKey } from "./rebase";
 import { SORTS, amending, commit, conflictCount, emptyStep, fileLists, filterFiles, foldAll, getMsg, openFile, paintFileOpts, pathArg, pickedFiles, renderCommitBtn, renderPanel, setMsg } from "./panel";
 import { $, ICONS, ask, closeDialog, dismissToast, hideBanner, input, mod, onCtrlEnter, pickDir, popup, say, store, svg, warnOnce } from "./ui";
@@ -232,6 +232,10 @@ function showZoom(stay: boolean) {
 }
 const hideZoom = () => (clearTimeout(fading), ($("zoom-pop").hidden = true), delete $("zoom-pop").dataset.stay);
 zoom(Number(store("zoom") ?? 1) || 1, false);
+// long lines wrapped in the diff and the history, Alt+Z as in code editors
+const wrap = (on: boolean) => (store("word-wrap", on ? "on" : "off"), $("wrap").classList.toggle("on", on), setWordWrap(on));
+wrap(store("word-wrap") === "on");
+$("wrap").onclick = () => wrap(!$("wrap").classList.contains("on"));
 $("zoom").onclick = () => ($("zoom-pop").dataset.stay ? hideZoom() : showZoom(true));
 $("zoom-in").onclick = () => zoomBy(1);
 $("zoom-out").onclick = () => zoomBy(-1);
@@ -302,6 +306,7 @@ addEventListener("keydown", (e) => {
   else if ((e.target as HTMLElement).closest?.("#term")) return;
   // back from a worktree or a submodule to its repository, from anywhere but the shell
   else if (e.altKey && e.key === "ArrowLeft" && tabs[active].parent && !asking) (e.preventDefault(), stepBack());
+  else if (e.altKey && !mod(e) && key === "z" && $("wrap").offsetParent) (e.preventDefault(), $("wrap").click());
   // the rebase plan's keys, unless a dialog, a menu, a diff over it or a field has them
   else if ($("dialog").hidden && $("menu").hidden && $("diff").hidden && !(e.target as HTMLElement).closest?.("select, input, textarea") && rebaseKey(e)) e.preventDefault();
   else if (e.key === "F5") (e.preventDefault(), refresh());

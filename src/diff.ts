@@ -102,6 +102,7 @@ export function editor() {
   if (diffEditor) return diffEditor;
   diffEditor = monaco.editor.createDiffEditor($("diff-editor"), {
     ...plainOpts(),
+    wordWrap,
     // whitespace-only changes must show: they get staged too
     ignoreTrimWhitespace: false,
     originalEditable: false,
@@ -225,6 +226,8 @@ function removedLineActions(ed: Monaco.editor.ICodeEditor, staging: () => boolea
 
 function setOptions(o: Monaco.editor.IDiffEditorOptions) {
   editor().updateOptions(o);
+  // Monaco never wraps the old side in one column, and forgets to undo it back in Split
+  if (o.renderSideBySide) editor().getOriginalEditor().updateOptions({ wordWrapOverride2: "inherit" });
   // the diff editor forces its sub-editors' minimap off on every update; only Inline has room and use for one
   const minimap = { enabled: viewMode() === "inline", renderCharacters: false, showSlider: "always" as const };
   editor().getModifiedEditor().updateOptions({ minimap });
@@ -1853,7 +1856,7 @@ const untilLoaded = (el: HTMLElement, ...events: string[]) =>
 
 function historyEditor() {
   if (histEd) return histEd;
-  histEd = monaco.editor.create($("hist-file"), { ...plainOpts(), readOnly: true, minimap: { renderCharacters: false, showSlider: "always" } });
+  histEd = monaco.editor.create($("hist-file"), { ...plainOpts(), wordWrap, readOnly: true, minimap: { renderCharacters: false, showSlider: "always" } });
   // a click in the blame gutter shows the line's commit
   histEd.onMouseDown((e) => {
     if (!hist || e.target.type !== monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS) return;
@@ -1934,7 +1937,19 @@ let fontSize = 13;
 /** Every editor's text at `size` px. */
 export function setFontSize(size: number) {
   fontSize = size;
-  for (const ed of [diffEditor, histEd, mergeEds?.a, mergeEds?.b, mergeEds?.out]) ed?.updateOptions({ fontSize });
+  for (const ed of [histEd, mergeEds?.a, mergeEds?.b, mergeEds?.out]) ed?.updateOptions({ fontSize });
+  // through setOptions: Inline's minimap comes back
+  if (diffEditor) setOptions({ fontSize });
+}
+
+// the merge's panes stay unwrapped: they scroll together line for line
+let wordWrap: "on" | "off" = "off";
+
+/** The diff's and the history's long lines wrapped, or not. */
+export function setWordWrap(on: boolean) {
+  wordWrap = on ? "on" : "off";
+  histEd?.updateOptions({ wordWrap });
+  if (diffEditor) setOptions({ wordWrap });
 }
 
 /** Lay the shown editors out now: Monaco's own resize handling waits a frame, which flickers while dragging. */

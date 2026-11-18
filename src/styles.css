@@ -76,8 +76,8 @@ header::after { content: ""; position: absolute; left: 0; bottom: -1px; width: 2
 @keyframes sweep { from { transform: translateX(-100%); opacity: 1; } to { transform: translateX(400%); opacity: 1; } }
 /* over every element's own pointer, the hand of buttons and rows too */
 .slow, .slow * { cursor: progress !important; }
-/* on/off buttons: Amend, All files, Blame, Sync scrolling */
-.toggle.on { background: var(--sel); border-color: var(--accent); }
+/* on/off buttons: Amend, All files, Blame, Sync scrolling, Word wrap */
+.toggle.on, #wrap.on { background: var(--sel); border-color: var(--accent); }
 /* line icons, stroked; no weight, so the rules below can set their stroke */
 :where(svg[viewBox="0 0 24 24"]) { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 /* an icon before a button's text */
