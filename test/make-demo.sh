@@ -109,6 +109,14 @@ as "Ben Okafor" "feat(station): list the stations in stations.toml" "Each statio
 mkdir -p .github/workflows && printf 'on: push\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: cargo test\n' > .github/workflows/ci.yml
 as "Dev Raman" "ci: run the tests on push"
 printf '# tidepool\n\nTide tables in the terminal.\n\n```sh\ntidepool brest\n```\n' > README.md
+mkdir -p docs && cat > docs/logo.svg <<'E'
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <circle cx="32" cy="32" r="30" fill="#7fc8e8"/>
+  <circle cx="44" cy="20" r="8" fill="#f2c94c"/>
+  <path d="M8 42q6-5 12 0t12 0 12 0 12 0" fill="none" stroke="#1d6f8a" stroke-width="4"/>
+  <path d="M8 51q6-5 12 0t12 0 12 0 12 0" fill="none" stroke="#1d6f8a" stroke-width="4"/>
+</svg>
+E
 as "Ana Ferreira" "docs: add a README"
 cat > tests/tide.rs <<'E'
 #[test]
@@ -122,7 +130,7 @@ as "Chloé Martin" "fix(cli): say which station is the default"
 git tag -a v0.1.0 -m v0.1.0
 printf '\nHeights are in metres above chart datum, the lowest astronomical tide.\n' >> README.md
 as "Chloé Martin" "docs: explain chart datum"
-mkdir -p docs && cat > docs/design.md <<'E'
+cat > docs/design.md <<'E'
 # How tidepool computes a day
 
 A station's harmonic constants give its four tides of the day.
@@ -227,9 +235,10 @@ sed -i 's/    for t in tide::today(station) {/    let days: u32 = args.iter().po
 as "Ana Ferreira" "feat(cli): --days to print several days"
 printf 'pub fn search(name: &str) -> Vec<&'"'"'static str> {\n    Vec::new()\n}\n' > src/search.rs
 git stash push -q -u -m "station search"
-# uncommitted work: two hunks in tide.rs, one new file
+# uncommitted work: two hunks in tide.rs, one new file, the logo at night
 sed -i 's/        "dover" => Constants { mean: 3.7, amplitude: 2.9, offset: 5 },/        "dover" => Constants { mean: 3.7, amplitude: 2.9, offset: 5 },\n        "saint-malo" => Constants { mean: 6.8, amplitude: 4.9, offset: 4 },/; s/^\/\/\/ Today'"'"'s high and low waters at `station`./\/\/\/ Today'"'"'s high and low waters at `station`, heights in metres above chart datum./' src/tide.rs
 printf '/// Metres to feet.\npub fn feet(metres: f64) -> f64 {\n    metres / 0.3048\n}\n' > src/units.rs
+sed -i 's/#7fc8e8/#16324f/; s|<circle cx="44" cy="20" r="8" fill="#f2c94c"/>|<path d="M44 11a9 9 0 1 0 9 9 7 7 0 0 1-9-9z" fill="#f4f1de"/>|; s/q6-5/q6-8/g; s/#1d6f8a/#7fc8e8/g' docs/logo.svg
 # the conflict copy: moon-phase merged into a main that changed the same loop
 cd "$D" && mkdir conflict && git clone -q origin.git conflict/tidepool && cd conflict/tidepool
 git config commit.gpgSign false

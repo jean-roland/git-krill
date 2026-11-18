@@ -32,7 +32,7 @@ test("Stage hunk moves the change to the staged list, then a commit takes it", a
   await k.click("#diff-editor .hunk-bar button.hunk-stage");
   await k.until(() => document.querySelector('#staged .file[data-path="src/tide.rs"]'));
   // its other hunk stays unstaged
-  assert.deepEqual(await listed("unstaged"), ["src/tide.rs", "src/units.rs"]);
+  assert.deepEqual(await listed("unstaged"), ["docs/logo.svg", "src/tide.rs", "src/units.rs"]);
   await k.type("#summary", "test: a commit from the e2e run");
   await k.click("#commit-btn");
   await k.until(() => [...document.querySelectorAll("#graph .row")].some((r) => r.textContent.includes("a commit from the e2e run")));

@@ -2,7 +2,7 @@
 
 A lean desktop git client for Linux, Windows and macOS: a commit graph, diffs you can stage from, a merge tool, pull requests, and little else. It runs the `git` you already have, so your config, hooks, keys and credentials apply as usual.
 
-![Staging a hunk, committing, squashing three commits in an interactive rebase, then undoing it all](docs/screenshots/demo.gif)
+![Staging a hunk and an SVG compared as text then as pictures, committing, squashing three commits in an interactive rebase, then undoing it all](docs/screenshots/demo.gif)
 
 ## Features
 
