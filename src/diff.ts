@@ -69,6 +69,8 @@ export const loadMonaco = () =>
       "diffEditor.diagonalFill": "#ffffff0c",
       "diffEditorGutter.insertedLineBackground": `${cssVar("--add")}30`,
       "diffEditorGutter.removedLineBackground": `${cssVar("--del")}30`,
+      "diffEditorOverview.insertedForeground": `${cssVar("--add")}99`,
+      "diffEditorOverview.removedForeground": `${cssVar("--del")}99`,
     },
   });
   }));
@@ -88,7 +90,6 @@ export let diffEditor: Monaco.editor.IStandaloneDiffEditor | null = null;
 let hunkZones: { mod: string[]; orig: string[]; nodes: HTMLElement[] } = { mod: [], orig: [], nodes: [] };
 let hunks: LineChange[] = [];
 // the hunks' marks in the modified side's scrollbar
-let changeMarks: Monaco.editor.IEditorDecorationsCollection;
 let lastSide: "orig" | "mod" = "mod";
 let modelSeq = 0;
 // the diff editor's view model: ours to dispose
@@ -109,15 +110,10 @@ export function editor() {
     renderMarginRevertIcon: false,
     renderGutterMenu: false,
     useInlineViewWhenSpaceIsLimited: false,
-    // its two lanes and viewport box beside the minimap: one lane of marks in the scrollbar instead
-    renderOverviewRuler: false,
-    // halves, for a changed hunk's two colours
-    overviewRulerLanes: 2,
     // the size cap is ours: past it a file loads only when asked
     maxFileSize: 0,
   });
   const me = diffEditor.getModifiedEditor();
-  changeMarks = me.createDecorationsCollection();
   lineActions(me, false);
   lineActions(diffEditor.getOriginalEditor(), true);
   me.onDidFocusEditorText(() => (lastSide = "mod"));
@@ -249,7 +245,9 @@ const fullText = () => !!diffFile && !diffFile.listing && (diffFile.full || !!di
 
 function applyMode() {
   const m = viewMode(), full = fullText(), none = !!(diffFile?.same || diffFile?.drawn);
-  setOptions({ renderSideBySide: m === "split", hideUnchangedRegions: { enabled: m === "hunk" } });
+  // Hunk shows little but changes: no overview of them, its width back to the text; elsewhere the overview's box is the scrollbar
+  const overview = m !== "hunk";
+  setOptions({ renderSideBySide: m === "split", hideUnchangedRegions: { enabled: m === "hunk" }, renderOverviewRuler: overview, scrollbar: { vertical: overview ? "hidden" : "auto", verticalScrollbarSize: overview ? 0 : 28 } });
   updateHunkBars();
   document.querySelectorAll<HTMLElement>("[data-mode]").forEach((b) => b.classList.toggle("on", b.dataset.mode === m));
   // a diff's images: both in Split, else only the new one
@@ -299,16 +297,6 @@ function updateHunkBars() {
     : diffFile.c?.hash !== "WORKTREE" && !selection.pr ? [["revert", "Revert hunk"]]
     : [];
   hunks = diffFile ? lineChanges() : [];
-  // a deletion marks the line it follows; a changed hunk splits the lane, removed left and added right
-  const { Left, Right, Full } = monaco.editor.OverviewRulerLane;
-  const colors: Record<string, string> = { "--add": `${cssVar("--add")}99`, "--del": `${cssVar("--del")}99` };
-  const mark = (c: LineChange, color: string, position: Monaco.editor.OverviewRulerLane) => ({
-    range: new monaco.Range(Math.max(c.ms, 1), 1, Math.max(c.me, c.ms, 1), 1),
-    options: { overviewRuler: { color: colors[color], position } },
-  });
-  // a missing side is one empty line to Monaco, not a change
-  const added = (c: LineChange) => !c.oe || !diffFile?.orig.exists, gone = (c: LineChange) => !c.me || !diffFile?.mod.exists;
-  changeMarks.set(hunks.flatMap((c) => (added(c) ? [mark(c, "--add", Full)] : gone(c) ? [mark(c, "--del", Full)] : [mark(c, "--del", Left), mark(c, "--add", Right)])));
   // bars head the hunks between folds; in the whole file the line numbers say where a change is
   const shown = viewMode() === "hunk" ? hunks : [];
   const bar = (c: LineChange, buttons: boolean) => {
@@ -1449,6 +1437,8 @@ const plainOpts = (): Monaco.editor.IStandaloneEditorConstructionOptions => ({
   scrollBeyondLastLine: false,
   stickyScroll: { enabled: false },
   contextmenu: false,
+  // the cursor's line, a bar across the scrollbar: noise in a diff
+  hideCursorInOverviewRuler: true,
 });
 
 /** The merge tool's three editors, made on first use. */
