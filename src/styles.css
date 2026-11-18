@@ -677,6 +677,7 @@ textarea.msg-in { height: 104px; resize: vertical; }
 #pr-page h1, #pr-page h2 { padding-bottom: 0.3em; border-bottom: 1px solid var(--border); }
 #pr-page a { color: var(--accent); cursor: pointer; }
 #pr-page img { max-width: 100%; }
+#pr-page .alt { padding: 0 6px; border: 1px solid var(--border); border-radius: 9px; color: var(--dim); font-size: 11px; }
 #pr-page code, #pr-page pre { font-family: var(--mono); background: var(--raised); border-radius: 6px; }
 #pr-page code { padding: 0.2em 0.4em; font-size: 85%; }
 #pr-page pre { padding: 16px; overflow: auto; }

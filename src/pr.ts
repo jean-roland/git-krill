@@ -340,8 +340,8 @@ function clean(html: string, base: string, classes: boolean) {
         if (own ? !classes : !ATTRS[tag]?.includes(a.name)) el.removeAttribute(a.name);
       }
   }
-  // only pictures carried in the text: a remote one would tell its server who reads
-  body.querySelectorAll("img").forEach((i) => /^data:image\//.test(i.getAttribute("src") ?? "") || i.removeAttribute("src"));
+  // only pictures carried in the text: a remote one would tell its server who reads, its alt text stands in
+  body.querySelectorAll("img").forEach((i) => /^data:image\//.test(i.getAttribute("src") ?? "") || i.replaceWith(i.alt ? h("span", { className: "alt", textContent: i.alt }) : ""));
   body.querySelectorAll("input").forEach((i) => (i.getAttribute("type") === "checkbox" ? i.setAttribute("disabled", "") : i.remove()));
   body.querySelectorAll("a[href]").forEach((a) => {
     let url = "";

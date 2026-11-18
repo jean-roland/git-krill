@@ -595,7 +595,8 @@ function chip(l: Label, hash: string) {
   const wt = l.local && worktreeOf(l.name);
   if (wt) el.append(ico(ICONS.worktree, `Checked out in the worktree ${wt.path}`));
   const pr = !l.tag && prOf(l.name, hash);
-  if (pr) el.append(prChip(pr));
+  // before the name: the label widens rightwards on hover, it would slide away from the pointer
+  if (pr) el.querySelector(".ref-name")!.before(prChip(pr));
   return el;
 }
 
