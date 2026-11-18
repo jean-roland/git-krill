@@ -376,8 +376,8 @@ main.rail { grid-template-columns: 40px 1fr var(--details-w, 400px); }
 main.rail #sidebar-grip { display: none; }
 main.rail #sidebar { position: relative; z-index: 25; width: 40px; overflow-x: hidden; transition: width 0.16s ease-out, box-shadow 0.16s; }
 main.rail #sidebar.open { width: var(--sidebar-w, 240px); box-shadow: 8px 0 24px #0006; }
-/* its rows at their full width while it slides: uncovered, not squeezed */
-main.rail #sidebar.peek > * { min-width: calc(var(--sidebar-w, 240px) - 1px); }
+/* its rows at their full width while it slides: uncovered, not squeezed; less its border and a scrollbar, else the counters go under it */
+main.rail #sidebar.peek > * { min-width: calc(var(--sidebar-w, 240px) - 15px); }
 main.rail #sidebar:not(.peek) > details > :not(summary), main.rail #sidebar:not(.peek) summary > :not(.ico) { display: none; }
 main.rail #sidebar:not(.peek) summary { padding: 9px 0; font-size: 0; text-align: center; list-style: none; }
 main.rail #sidebar:not(.peek) summary::-webkit-details-marker { display: none; }
