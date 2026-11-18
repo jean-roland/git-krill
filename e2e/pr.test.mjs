@@ -118,6 +118,16 @@ test("a pull request checks out from its page, its button then greyed with why",
   await k.until(() => document.getElementById("pr-checkout").disabled && document.getElementById("pr-checkout").title === "docs/tides is checked out already");
 });
 
+test("a running check's page asks again on its own, its card redrawn unfolded as it was", async () => {
+  await k.click("#pr-page details.checks summary");
+  const prs = JSON.parse(readFileSync(join(gh, "prs.json"), "utf8"));
+  Object.assign(prs.find((p) => p.number === 8).statusCheckRollup[0], { status: "COMPLETED", conclusion: "SUCCESS" });
+  writeFileSync(join(gh, "prs.json"), JSON.stringify(prs));
+  // asked every 30 s
+  await new Promise((r) => setTimeout(r, 20_000));
+  await k.until(() => document.querySelector("#pr-page details.checks summary.pass")?.parentElement.open);
+});
+
 test("a pull request whose branch another worktree has opens that worktree, its page still open", async () => {
   await k.click('#sidebar [data-key="pulls"] .item', "Follow the moon");
   await k.until(() => !!document.querySelector("#pr-page .thread"));

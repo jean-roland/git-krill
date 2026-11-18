@@ -4,7 +4,7 @@ import { openDiff } from "./diff";
 import { jumpTo, openWorktree, webUrl, worktreeOf } from "./graph";
 import { renderPanel } from "./panel";
 import { planOpen } from "./rebase";
-import { Change, commits, fakeCommit, findRef, gitOp, redraw, refs, repo, run, runFixed, selection, status } from "./repo";
+import { Change, busy, commits, fakeCommit, findRef, gitOp, redraw, refs, repo, run, runFixed, selection, status } from "./repo";
 import { $, ICONS, MenuItem, copy, dateTimeText, dialog, esc, h, ico, label, popup, say, svg, toast } from "./ui";
 
 type Check = { name?: string; context?: string; workflowName?: string; status?: string; conclusion?: string; state?: string; detailsUrl?: string; targetUrl?: string };
@@ -64,7 +64,11 @@ export async function loadPrs(fresh = false) {
   // the page on show follows its pull request: a push moved its head
   const open = onShow && now.list.find((x) => x.number === onShow!.number);
   if (open && open.headRefOid !== onShow!.headRefOid) openPr(open, true);
+  else if (open && JSON.stringify(open.statusCheckRollup) !== JSON.stringify(onShow!.statusCheckRollup)) paintChecks(open.statusCheckRollup);
 }
+
+// checks running or not listed yet: asked again while their page shows
+setInterval(() => onShow && !$("pr").hidden && !document.hidden && !["pass", "fail"].includes(checksSum(onShow)[0]) && loadPrs(true), 30_000);
 
 const FAILED = /FAILURE|ERROR|CANCELLED|TIMED_OUT|ACTION_REQUIRED|STARTUP_FAILURE/;
 /** A check's outcome: a status's state, else a run's conclusion once it completed. */
@@ -246,7 +250,7 @@ export async function openPr(pr: Pr, again = false) {
     );
   try {
     // ponytail: the first 100 of each, --paginate's pages would need --slurp, newer than some distributions' gh
-    const [reviews, notes, inline] = await Promise.all([api<Review[]>(`pulls/${pr.number}/reviews`), api<Note[]>(`issues/${pr.number}/comments`), api<Inline[]>(`pulls/${pr.number}/comments`)]);
+    const [reviews, notes, inline] = await busy(Promise.all([api<Review[]>(`pulls/${pr.number}/reviews`), api<Note[]>(`issues/${pr.number}/comments`), api<Inline[]>(`pulls/${pr.number}/comments`)]));
     if (onShow === pr) showPage(pr, await pageOf(pr, reviews, notes, inline));
   } catch (e) {
     if (onShow === pr) showPage(pr, `<p>${esc(HELP[String(e)] ?? String(e))}</p>`);
@@ -306,15 +310,10 @@ async function pageOf(pr: Pr, reviews: Review[], notes: Note[], inline: Inline[]
     ...roots.filter((c) => !reviews.some((rv) => rv.id === c.pull_request_review_id)).map((c): [string, string] => [c.created_at, `<div class="card">${thread(c)}</div>`]),
   ];
   items.sort(([a], [b]) => a.localeCompare(b));
-  const [cls, , sum] = checksSum(pr);
-  const checks = (pr.statusCheckRollup ?? []).map((c) => {
-    const o = outcome(c), name = esc([c.workflowName, c.name ?? c.context].filter(Boolean).join(" / ")), url = c.detailsUrl ?? c.targetUrl;
-    return `<li class="${outcomeClass(o)}"><span class="mark">${MARKS[outcomeClass(o)]}</span>${url ? `<a href="${esc(url)}">${name}</a>` : name} <span class="dim">${esc(o.toLowerCase().replace(/_/g, " "))}</span></li>`;
-  });
   return [
     `<h1>${esc(pr.title)} <span class="dim">#${pr.number}</span></h1>`,
     `<p><span class="state${pr.isDraft ? " draft" : ""}">${pr.isDraft ? "Draft" : "Open"}</span> ${who(pr.author)} wants to merge into <code>${esc(pr.baseRefName)}</code> from <code>${esc(pr.headRefName)}</code></p>`,
-    checks.length ? `<details class="card checks"${cls === "fail" ? " open" : ""}><summary class="who ${cls}">${sum}</summary><ul>${checks.join("")}</ul></details>` : "",
+    checksCard(pr),
     `<div class="card"><div class="who">${who(pr.author)} opened · ${when(pr.createdAt)}</div>${md(pr.body || "*No description provided.*")}</div>`,
     ...items.map(([, x]) => x),
   ].join("");
@@ -356,6 +355,28 @@ function clean(html: string, base: string, classes: boolean) {
 }
 
 /** `html`, the page's own markup around comments cleaned on their own, on the page. */
+/** The card of `pr`'s checks, open when one failed; none without checks. */
+function checksCard(pr: Pr) {
+  const [cls, , sum] = checksSum(pr);
+  const checks = (pr.statusCheckRollup ?? []).map((c) => {
+    const o = outcome(c), name = esc([c.workflowName, c.name ?? c.context].filter(Boolean).join(" / ")), url = c.detailsUrl ?? c.targetUrl;
+    return `<li class="${outcomeClass(o)}"><span class="mark">${MARKS[outcomeClass(o)]}</span>${url ? `<a href="${esc(url)}">${name}</a>` : name} <span class="dim">${esc(o.toLowerCase().replace(/_/g, " "))}</span></li>`;
+  });
+  return checks.length ? `<details class="card checks"${cls === "fail" ? " open" : ""}><summary class="who ${cls}">${sum}</summary><ul>${checks.join("")}</ul></details>` : "";
+}
+
+/** The page's checks card drawn again from `checks`, unfolded if it was; the page loading meanwhile draws them itself. */
+function paintChecks(checks: Check[]) {
+  const pr = onShow!, at = $("pr-page").querySelector(".pr-in > h1 + p"), was = $("pr-page").querySelector<HTMLDetailsElement>("details.checks");
+  // the same object: the page's own answers, still on their way, check it by identity
+  pr.statusCheckRollup = checks;
+  if (!at) return;
+  const card = clean(checksCard(pr), pr.url, true).firstElementChild as HTMLDetailsElement | null;
+  if (card && was?.open) card.open = true;
+  was?.remove();
+  if (card) at.after(card);
+}
+
 function showPage(pr: Pr, html: string) {
   $("pr-page").replaceChildren(h("div", { className: "pr-in" }, ...clean(html, pr.url, true).childNodes));
 }
