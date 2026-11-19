@@ -369,6 +369,9 @@ function submoduleChange(kind: DiffSource, f: Change, c?: Commit) {
 // the latest file asked for: an earlier one still loading gives way
 let openSeq = 0;
 
+/** Whether two versions are known to be one: a binary's or a big file's text is empty, it tells nothing. */
+const alike = (a: Blob, b: Blob) => a.text === b.text && a.exists === b.exists && a.binary === b.binary && a.large === b.large && a.lfs === b.lfs && !a.binary && !a.large;
+
 export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistory = false) {
   const seq = ++openSeq;
   await loadMonaco();
@@ -393,7 +396,7 @@ export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistor
   const copy = document.querySelector(".still") ?? still(merging ? $("merge") : [$("diff-editor"), $("diff-binary")].find((e) => !$("diff").hidden && !e.hidden));
   await closeMerge(true);
   dropParked();
-  diffFile = { kind, f, c, orig, mod, dirty: false, full: false, same: !sub && orig.exists === mod.exists && orig.text === mod.text, sub, ids };
+  diffFile = { kind, f, c, orig, mod, dirty: false, full: false, same: !sub && (!f.code || alike(orig, mod)), sub, ids };
   if (fresh) $("diff").classList.add("blank");
   $("diff").hidden = false;
   const range = c ? `  ·  ${c.parents[0] ? short(c.parents[0]) : "root"}..${short(c.hash)}` : "";
@@ -1079,7 +1082,7 @@ function lfsFetchButton() {
     const sides = await fetchSides(d.kind, d.f, d.c, d.full).catch((e) => void say(String(e), true));
     if (diffFile !== d || !sides) return;
     const [orig, mod] = sides;
-    Object.assign(d, { orig, mod, same: orig.exists === mod.exists && orig.text === mod.text, listing: undefined, shown: undefined, more: undefined }), dropParked();
+    Object.assign(d, { orig, mod, same: alike(orig, mod), listing: undefined, shown: undefined, more: undefined }), dropParked();
     paintSides();
   };
   return h("button", { className: "lfs-fetch", innerHTML: `${svg(ICONS.load)}Download from LFS`, onclick: fetchLfs });
@@ -1239,10 +1242,9 @@ export async function reloadDiff(row = -1) {
   d.ids = ids;
   paintOpenEditor();
   // an image has no text to compare: its new version is drawn
-  const same = (a: Blob, b: Blob) => a.text === b.text && a.exists === b.exists && a.binary === b.binary && a.large === b.large && a.lfs === b.lfs && !a.binary && !a.large;
-  if (same(orig, d.orig) && same(mod, d.mod)) return;
+  if (alike(orig, d.orig) && alike(mod, d.mod)) return;
   // once saved with a change, its hunks show again
-  Object.assign(d, { orig, mod, same: orig.exists === mod.exists && orig.text === mod.text, listing: undefined, shown: undefined, more: undefined }), dropParked();
+  Object.assign(d, { orig, mod, same: alike(orig, mod), listing: undefined, shown: undefined, more: undefined }), dropParked();
   // no text diff before or now: its pane is painted again
   if ($("diff-editor").hidden || orig.binary || mod.binary || orig.large || mod.large) return paintSides();
   // the old diff stays on screen until the new one is drawn
