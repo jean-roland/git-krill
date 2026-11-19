@@ -501,10 +501,58 @@ export async function renderPanel() {
   $("wip").hidden = !wip;
   $("commit").hidden = wip;
   if (wip) return renderWip(n);
+  shrimpWatch(false);
   // an All files entry belongs to the WIP panel: gone with it, unless being edited
   if (diffFile?.kind === "unstaged" && !diffFile.f.code && !diffFile.dirty) closeDiff();
   picked.paths.clear();
   return renderCommitDetails(n);
+}
+
+// a clean WIP list's shrimp: SHRIMP_FIRST into a clean view, SHRIMP_AGAIN at least after its last visit, finished or not
+const SHRIMP_FIRST = 10_000, SHRIMP_AGAIN = 5 * 60_000;
+let shrimpTimer = 0, shrimp: HTMLElement | null = null, shrimpSeen = 0;
+// one function list for every step: a flip passes through the shrimp's edge, not round its middle
+const shrimpAt = (x: number, turn = 0, flip = 1) => ({ transform: `translateX(${x}px) rotate(${turn}deg) scaleX(${flip})` });
+
+/** Keep the shrimp coming while the unstaged list shows `empty`; off it darts the moment it does not. */
+function shrimpWatch(empty: boolean) {
+  if (!empty || matchMedia("(prefers-reduced-motion: reduce)").matches) return void (clearTimeout(shrimpTimer), (shrimpTimer = 0), shrimpAway());
+  if (!shrimpTimer && !shrimp) shrimpTimer = setTimeout(shrimpVisit, Math.max(SHRIMP_FIRST, shrimpSeen + SHRIMP_AGAIN - Date.now()));
+}
+
+/** A peek in from the edge, a look about, back out; then a shy swim across. Over the list: its rows are redrawn on every refresh. */
+async function shrimpVisit() {
+  shrimpTimer = 0;
+  shrimpSeen = Date.now();
+  const list = $("unstaged"), fish = h("span", {}, h("span", { textContent: "🦐" })), sea = h("div", { className: "shrimp-sea" }, fish);
+  Object.assign(sea.style, { top: `${list.offsetTop}px`, height: `${list.offsetHeight}px` });
+  $("wip").append((shrimp = sea));
+  const go = (frames: Keyframe[], ms: number, easing = "ease-in-out") => fish.animate(frames, { duration: ms, easing, fill: "forwards" }).finished;
+  // the peek: half of it in
+  const peek = -fish.offsetWidth / 2;
+  try {
+    await go([shrimpAt(0), shrimpAt(peek)], 900);
+    await go([shrimpAt(peek), shrimpAt(peek, -8), shrimpAt(peek, 6), shrimpAt(peek)], 1200);
+    await go([shrimpAt(peek), shrimpAt(0)], 600);
+    await go([shrimpAt(0), shrimpAt(0)], 1500);
+    await go([shrimpAt(0), shrimpAt(-sea.clientWidth - 40)], 12_000, "linear");
+  } catch {
+    // darted off meanwhile
+    return;
+  }
+  sea.remove();
+  shrimp = null;
+  shrimpWatch(true);
+}
+
+/** A turn about, then off it darts to the edge it came in by. */
+function shrimpAway() {
+  const sea = shrimp, fish = sea?.firstElementChild as HTMLElement | undefined;
+  shrimp = null;
+  if (!sea || !fish) return;
+  const now = getComputedStyle(fish).transform, x = now === "none" ? 0 : new DOMMatrix(now).m41;
+  fish.getAnimations().forEach((a) => a.cancel());
+  fish.animate([shrimpAt(x), { ...shrimpAt(x, 0, -1), offset: 0.4 }, shrimpAt(0, 0, -1)], { duration: 450, easing: "ease-in", fill: "forwards" }).finished.then(() => sea.remove(), () => sea.remove());
 }
 
 async function renderWip(seq: number) {
@@ -533,6 +581,7 @@ async function renderWip(seq: number) {
     ["Stage", (f) => gitOp("stage", f.path), (f) => clean(f) && !!f.code],
   ], wipMenu("unstaged"));
   fileList($("staged"), status.staged, (f, e) => clickFile("staged", f, e), [["Unstage", (f) => gitOp("unstage", f.path)]], wipMenu("staged"));
+  shrimpWatch(!n && !same.length);
   markOpenFile();
 }
 

@@ -524,6 +524,12 @@ main.rail #sidebar:not(.peek) summary .ico svg { width: 18px; height: 18px; }
 /* details panel: the work in progress or a commit */
 #details { font-size: 14px; }
 #wip, #commit { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+/* the shrimp of a clean WIP list, over its unstaged box: in from the right edge */
+#wip { position: relative; }
+.shrimp-sea { position: absolute; left: 0; right: 0; overflow: hidden; pointer-events: none; }
+.shrimp-sea > span { position: absolute; top: 40%; left: 100%; font-size: 20px; }
+.shrimp-sea > span > span { display: inline-block; animation: bob 0.9s ease-in-out infinite alternate; }
+@keyframes bob { from { transform: translateY(-2px); } to { transform: translateY(2px); } }
 .head {
   display: flex;
   align-items: center;
