@@ -347,11 +347,11 @@ async function revertLines(pick: Lines, what: string) {
   refresh();
 }
 
-/** A header bar above each hunk with its stage / unstage / discard / revert buttons. */
 /** The bar ending a file shown in parts: how much is shown, a button for the next part. */
 const moreBar = (d: NonNullable<typeof diffFile>) =>
   d.more && h("div", {}, h("div", { className: "hunk-bar more-bar" }, h("span", { textContent: d.more.label }), ...(d.more.load ? [h("button", { textContent: "Load more", onclick: () => loadMore(d) })] : [])));
 
+/** A header bar above each hunk with its stage / unstage / discard / revert buttons. */
 function updateHunkBars() {
   const ed = editor(), split = viewMode() === "split";
   const acts: [string, string][] =
@@ -723,8 +723,8 @@ async function loadMore(d: NonNullable<typeof diffFile>, until?: number) {
     [diffView.model.original, diffView.model.modified].forEach((m, i) => (i || m !== diffView!.model.modified) && m.applyEdits([{ range: m.getFullModelRange().collapseToEnd(), text: part[i] }]));
     eds.forEach((e, i) => at[i] && e.setSelections(at[i]!));
     fitLineNumbers();
-    // both sides had ended: no diff comes to redraw the bar
-    if (!part[0] && !part[1]) return updateHunkBars();
+    // both sides had ended, or the File view shows no diff: none comes to redraw the bar
+    if (fileView() || (!part[0] && !part[1])) return updateHunkBars();
     const drawn = diffDrawn(fullText() ? 300_000 : 500);
     drawn.landed.then(() => alignTail(d));
     await drawn;
