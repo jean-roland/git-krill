@@ -1576,8 +1576,8 @@ const plainOpts = (): Monaco.editor.IStandaloneEditorConstructionOptions => ({
 /** The merge tool's three editors, made on first use. */
 function mergeEditors() {
   if (mergeEds) return mergeEds;
-  // no folding: its arrows would crowd the line buttons
-  const opts = { ...plainOpts(), minimap: { enabled: false }, glyphMargin: true, folding: false };
+  // no folding: its arrows would crowd the line buttons; no overview ruler: nothing marks it, its blank strip hid the lines' ends
+  const opts = { ...plainOpts(), minimap: { enabled: false }, glyphMargin: true, folding: false, overviewRulerLanes: 0 };
   // the side panes' line buttons sit right of the line numbers
   const a = monaco.editor.create($("m-a"), { ...opts, readOnly: true, lineDecorationsWidth: 22 });
   const b = monaco.editor.create($("m-b"), { ...opts, readOnly: true, lineDecorationsWidth: 22 });
