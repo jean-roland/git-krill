@@ -59,3 +59,19 @@ test("a worktree made from a commit opens on its new branch, then is removed", a
   assert.ok(!existsSync(path));
   assert.equal(await count("worktrees"), "2");
 });
+
+test("a worktree whose folder goes away under its tab steps back to its repository", async () => {
+  await k.menu("#graph .row", "chore: release 0.2.0");
+  await k.click("#menu button", "Create worktree from this commit");
+  await k.type("#dialog input", "gone");
+  await k.click("#dialog button.primary");
+  await k.until(() => document.getElementById("branch").textContent === "gone");
+  const gone = join(dir, "tidepool-gone");
+  execFileSync("git", ["worktree", "remove", "--force", gone], { cwd: join(dir, "tidepool") });
+  // as a refresh caught halfway through the removal says it
+  await k.js((gone) => document.getElementById("toasts").insertAdjacentHTML("beforeend", `<div class="toast err"><b>Error</b><pre>${gone} no longer exists</pre></div>`), gone);
+  await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
+  await k.until(() => document.getElementById("branch").textContent === "main" && document.querySelector("#tabs .tab.on .tab-name")?.textContent === "tidepool");
+  // one notice: the step back's
+  assert.deepEqual(await k.js(() => [...document.querySelectorAll("#toasts .toast.err, #toasts .toast:last-child")].map((t) => t.querySelector("b").textContent)), ["Back to tidepool"]);
+});

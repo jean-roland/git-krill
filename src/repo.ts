@@ -456,13 +456,16 @@ async function reload() {
     trace(`${ms(started)} refresh ${basename(r)}: ${Math.round(loaded - started)}ms for status, log and refs, ${ms(loaded).trim()} for the rest`);
   } catch (e) {
     if (r !== repo) return;
-    // the folder went away under the tab, like a removed worktree: close it rather than fail on every refresh
+    // the folder went away under the tab, like a removed worktree: back to its repository, else closed, rather than fail on every refresh
     if (!(await isRepo(r))) {
+      const parent = tabs[active].parent, back = !!parent && (await isRepo(parent));
       if (r !== repo) return;
-      toast(`Closed ${tabName(tabs[active])}`, `${r} no longer exists. Removed from the recent list.`, "info");
+      // a refresh caught halfway through its removal said so already: one notice for both
+      if (back) document.querySelectorAll("#toasts .toast.err").forEach((t) => t.textContent?.includes(`${r} no longer exists`) && t.remove());
+      toast(back ? `Back to ${repoLabel(parent)}` : `Closed ${tabName(tabs[active])}`, `${r} no longer exists. Removed from the recent list.`, "info");
       forgetRecent(r);
-      // not awaited: closing switches tabs, whose refresh waits for this one to end
-      void closeTab(active);
+      // not awaited: both switch tabs, whose refresh waits for this one to end
+      void (back ? stepBack() : closeTab(active));
       return;
     }
     say(String(e), true);
