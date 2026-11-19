@@ -42,7 +42,8 @@ export async function loadPrs(fresh = false) {
   const m = remote ? (await webUrl(remote).catch(() => "")).match(/^https:\/\/([^/]+)\/(.+)$/) : null;
   if (r !== repo) return;
   const slug = m ? `${m[1]}/${m[2]}` : "";
-  const hit = asked.get(slug), cached = !fresh && !!hit && Date.now() - hit.at < 60_000, ask = (asking.get(slug) ?? 0) + 1;
+  // a sign-in or an install takes effect at the next look, not a minute later
+  const hit = asked.get(slug), cached = !fresh && !!hit && hit.got !== "gh-auth" && hit.got !== "gh-missing" && Date.now() - hit.at < 60_000, ask = (asking.get(slug) ?? 0) + 1;
   if (m && !cached) asking.set(slug, ask);
   const got = !m
     ? remote ? "no-github" : "no-remote"

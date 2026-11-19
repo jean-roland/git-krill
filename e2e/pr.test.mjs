@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { launch, repo } from "./driver.mjs";
@@ -152,4 +152,14 @@ test("a pull request whose branch another worktree has opens that worktree, its 
   // the worktree's list is the repository's, asked a moment ago
   await k.settle();
   assert.equal(lists(), asked);
+});
+
+test("signed out, the section says to sign in; signed in again, the next look lists the pull requests", async () => {
+  writeFileSync(join(gh, "signed-out"), "");
+  await k.click("#pr-refresh");
+  await k.until(() => document.querySelector('#sidebar [data-key="pulls"] .item.off')?.textContent.includes("gh auth login"));
+  rmSync(join(gh, "signed-out"));
+  // back to the window: gh is asked again at once, not a minute later
+  await k.js(() => dispatchEvent(new Event("focus")));
+  await k.until(() => document.querySelectorAll('#sidebar [data-key="pulls"] .item:not(.off)').length === 3);
 });
