@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { demo, launch } from "./driver.mjs";
@@ -67,11 +67,14 @@ test("a worktree whose folder goes away under its tab steps back to its reposito
   await k.click("#dialog button.primary");
   await k.until(() => document.getElementById("branch").textContent === "gone");
   const gone = join(dir, "tidepool-gone");
-  execFileSync("git", ["worktree", "remove", "--force", gone], { cwd: join(dir, "tidepool") });
+  rmSync(gone, { recursive: true, force: true });
   // as a refresh caught halfway through the removal says it
   await k.js((gone) => document.getElementById("toasts").insertAdjacentHTML("beforeend", `<div class="toast err"><b>Error</b><pre>${gone} no longer exists</pre></div>`), gone);
   await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
   await k.until(() => document.getElementById("branch").textContent === "main" && document.querySelector("#tabs .tab.on .tab-name")?.textContent === "tidepool");
   // one notice: the step back's
   assert.deepEqual(await k.js(() => [...document.querySelectorAll("#toasts .toast.err, #toasts .toast:last-child")].map((t) => t.querySelector("b").textContent)), ["Back to tidepool"]);
+  // pruned on the way, out of git's list and the sidebar's
+  await k.until(() => document.querySelector('#sidebar [data-key="worktrees"] .n')?.textContent === "2");
+  assert.ok(!execFileSync("git", ["worktree", "list"], { cwd: join(dir, "tidepool") }).toString().includes("tidepool-gone"));
 });

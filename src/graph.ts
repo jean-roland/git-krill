@@ -127,16 +127,16 @@ export function renderSide() {
     );
   const worktreeRow = (w: Worktree, k: number) => {
     const here = w === thisWorktree();
-    const extra = w.locked && !w.prunable ? "locked" : "";
-    const open = () => (w.prunable ? prune(w) : openWorktree(w.path));
+    const extra = w.locked ? "locked" : "";
     // its eye is its branch's
-    const el = sideItem(w.branch || `detached at ${short(w.head)}`, "worktree", w.head, extra, here ? "current" : "", () => worktreeMenu(w, k === 0), () => here || open(), here || !w.branch ? undefined : `refs/heads/${w.branch}`);
+    const el = sideItem(w.branch || `detached at ${short(w.head)}`, "worktree", w.head, extra, here ? "current" : "", () => worktreeMenu(w, k === 0), () => here || openWorktree(w.path), here || !w.branch ? undefined : `refs/heads/${w.branch}`);
     el.title = w.path;
     // the main checkout: a house, not a word that reads like its branch
     if (!k) el.append(ico(ICONS.home, "Main checkout"));
-    if (w.prunable) el.append(ico(ICONS.folderGone, `${w.path} is gone: double-click to prune it from the list`));
     return el;
   };
+  // a worktree whose folder is gone is being pruned
+  const live = refs.worktrees.filter((w) => !w.prunable);
   // the folder every submodule shares, like submodules/, says nothing on each row
   const dirs = refs.submodules.map((s) => s.path.slice(0, s.path.lastIndexOf("/") + 1));
   const shared = dirs.every((d) => d === dirs[0]) ? (dirs[0] ?? "") : "";
@@ -158,7 +158,7 @@ export function renderSide() {
     section("tags", "Tags", tags.length, () => tags.map(tagRow), false, "tag"),
     section("stashes", "Stashes", refs.stashes.length, () => refs.stashes.map(stashRow), false, "stash"),
     // shown even empty, for their +: folded until opened
-    addButton(section("worktrees", "Worktrees", refs.worktrees.length, () => refs.worktrees.map(worktreeRow), false, "worktree"), "Create a worktree", () => createWorktree("", headHash(), status?.branch ?? "")),
+    addButton(section("worktrees", "Worktrees", live.length, () => live.map(worktreeRow), false, "worktree"), "Create a worktree", () => createWorktree("", headHash(), status?.branch ?? "")),
     addButton(section("submodules", "Submodules", refs.submodules.length, () => refs.submodules.map(submoduleRow), false, "submodule"), "Add a submodule", addSubmodule),
     addButton(section("pulls", "Pull requests", pullsHere()?.list.length ?? null, prRows, true, "pr"), "Create a pull request from the checked out branch", newPr),
   );
@@ -227,19 +227,12 @@ function submoduleMenu(s: Submodule): MenuItem[] {
 /** The worktree other than this one that has `branch` checked out, its folder still there. */
 export const worktreeOf = (branch: string) => refs.worktrees.find((w) => w.branch === branch && w !== thisWorktree() && !w.prunable);
 
-const prune = (w: Worktree) =>
-  ask(`The folder of ${basename(w.path)} is gone. Prune it from the worktree list?`, "Prune").then((ok) => ok && gitOp("worktree-prune"));
-
 function worktreeMenu(w: Worktree, main: boolean): MenuItem[] {
   const here = w.path === repo;
   return [
     { title: w.branch || basename(w.path), icon: ICONS.worktree },
-    ...(here || w.prunable ? [] : ([["Open worktree", () => openWorktree(w.path)]] as MenuItem[])),
-    ...(w.prunable
-      ? ([["Prune: its folder is gone", () => prune(w)]] as MenuItem[])
-      : main || here
-        ? []
-        : ([["Remove worktree", () => removeWorktree(w)]] as MenuItem[])),
+    ...(here ? [] : ([["Open worktree", () => openWorktree(w.path)]] as MenuItem[])),
+    ...(main || here ? [] : ([["Remove worktree", () => removeWorktree(w)]] as MenuItem[])),
     ...(here || !w.branch ? [] : [hideItem(`refs/heads/${w.branch}`)]),
     null,
     ["Copy path", () => copy(w.path)],
