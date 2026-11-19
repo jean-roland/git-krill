@@ -23,11 +23,19 @@ after(() => k?.quit());
 const bar = () => k.js(() => document.querySelector(".more-bar")?.textContent ?? "");
 const line = () => k.js(() => document.querySelector("#diff-editor .editor.modified .line-numbers.active-line-number")?.textContent.trim());
 
-test("a file over 10 MB shows its first part, and N loads up to a change further down", async () => {
+test("a file over 10 MB shows its first part alone, Load more the next; in the Diff view N loads up to a change further down", async () => {
   await k.click("#graph .row", "Change it far down");
   await k.click('#commit-files .file[data-path="big.txt"]');
-  await k.until(() => document.querySelector(".more-bar"));
+  // its diff would take seconds: the File view, whatever was picked last
+  await k.until(() => document.querySelector("#diff-file .more-bar"));
   assert.match(await bar(), /^10\.0 MB of 2\d\.\d MB shown/);
+  // at the end of the text: Ctrl+End there
+  await k.click("#diff-file .view-lines");
+  await k.keys("\uE009", "\uE010");
+  await k.click("#diff-file .more-bar");
+  await k.until(() => /^20\.0 MB of/.test(document.querySelector("#diff-file .more-bar")?.textContent ?? ""));
+  await k.click('[data-dview="diff"]');
+  await k.until(() => document.querySelector("#diff-editor .more-bar"));
   await k.click("#next-change");
   await k.until(async () => document.querySelector("#diff-editor .editor.modified .line-numbers.active-line-number")?.textContent.trim() === "11");
   await k.click("#next-change");

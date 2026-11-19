@@ -271,9 +271,10 @@ function applyMode() {
   diff.title = diffFile?.same ? "No changes to compare" : "Its changes, by hunk, inline or side by side";
 }
 
-/** The open diff as its file alone, or as its changes. */
+/** The open diff as its file alone, or as its changes, remembered for the next ones. */
 export function setFileView(on: boolean) {
   if (!diffFile || (!on && diffFile.same)) return;
+  store("diff-view", on ? "file" : "diff");
   diffFile.file = on;
   layOutView();
 }
@@ -319,6 +320,10 @@ async function revertLines(pick: Lines, what: string) {
 }
 
 /** A header bar above each hunk with its stage / unstage / discard / revert buttons. */
+/** The bar ending a file shown in parts: how much is shown, a button for the next part. */
+const moreBar = (d: NonNullable<typeof diffFile>) =>
+  d.more && h("div", {}, h("div", { className: "hunk-bar more-bar" }, h("span", { textContent: d.more.label }), ...(d.more.load ? [h("button", { textContent: "Load more", onclick: () => loadMore(d) })] : [])));
+
 function updateHunkBars() {
   const ed = editor(), split = viewMode() === "split";
   const acts: [string, string][] =
@@ -343,7 +348,7 @@ function updateHunkBars() {
   };
   // a pure insertion or deletion sits after its anchor line, a change replaces lines from its start
   // a file shown in parts ends on a bar to load the next one
-  const d = diffFile, more = d?.more && h("div", {}, h("div", { className: "hunk-bar more-bar" }, h("span", { textContent: d.more.label }), ...(d.more.load ? [h("button", { textContent: "Load more", onclick: () => loadMore(d) })] : [])));
+  const d = diffFile, more = d && moreBar(d);
   const last = (e: Monaco.editor.ICodeEditor) => e.getModel()?.getLineCount() ?? 0;
   // Hunk folds the rows after the last change but its 3 lines of context: the bar goes there, at the top with no change
   const end = viewMode() !== "hunk" ? last(ed.getModifiedEditor()) : hunks.length ? Math.min(last(ed.getModifiedEditor()), Math.max(...hunks.map((c) => c.me || c.ms)) + 3) : 0;
@@ -353,6 +358,12 @@ function updateHunkBars() {
     hunkZones.mod = shown.map((c, i) => z.addZone({ afterLineNumber: c.me ? c.ms - 1 : c.ms, heightInPx: 30, domNode: hunkZones.nodes[i] }));
     // tied to its line's start: Monaco hides a zone when the line after it is folded
     if (more) hunkZones.nodes.push(more), hunkZones.mod.push(z.addZone({ afterLineNumber: end, afterColumn: 1, heightInPx: 40, domNode: more }));
+  });
+  // the File view ends on its own
+  fileEd?.changeViewZones((z) => {
+    z.removeZone(fileMore);
+    const node = fileView() && d && moreBar(d);
+    fileMore = node ? z.addZone({ afterLineNumber: last(fileEd!), afterColumn: 1, heightInPx: 40, domNode: node }) : "";
   });
   // the original side gets the same bars in split view, so both sides stay aligned
   ed.getOriginalEditor().changeViewZones((z) => {
@@ -494,8 +505,8 @@ function paintSides(): Promise<unknown> {
   // the version a file opens in its app: the new one, the old when the file is gone
   const shown = sideSources(kind, f, c)[mod.exists ? 1 : 0];
   const pane = !!sub || images || (binary && !listed);
-  // a binary's diff tells little but an object file's symbols: its file shows first, as an unchanged one's
-  d.file ??= d.same || images || (binary && !(d.listing?.object && d.listing.symbols));
+  // the view picked last, but the File view where a diff tells little or takes seconds: a binary's but an object file's symbols, a file loaded in parts
+  d.file ??= d.same || images || (binary && !(d.listing?.object && d.listing.symbols)) || !!large || store("diff-view") === "file";
   cover?.removeAttribute("style");
   const b = $("diff-binary"), held = !pane && !b.hidden && b.classList.contains("images");
   cover = held ? b : null;
@@ -1265,7 +1276,11 @@ const isHex = () => !!diffFile?.listing && !(diffFile.listing.symbols && diffFil
 function paintFile() {
   const v = diffView;
   if (!diffFile || !v || !fileView()) return void fileEd?.setModel(null);
-  fileEd ??= monaco.editor.create($("diff-file"), { ...plainOpts(), wordWrap, minimap: { renderCharacters: false, showSlider: "always" } });
+  if (!fileEd) {
+    fileEd = monaco.editor.create($("diff-file"), { ...plainOpts(), wordWrap, minimap: { renderCharacters: false, showSlider: "always" } });
+    // Monaco takes the clicks on its zones: the bar loads the next part from anywhere on it
+    fileEd.onMouseDown((e) => e.target.type === monaco.editor.MouseTargetType.CONTENT_VIEW_ZONE && e.target.detail.viewZoneId === fileMore && diffFile && loadMore(diffFile));
+  }
   fileEd.updateOptions({ readOnly: !isEditable(), lineNumbers: isHex() ? offset : "on", lineNumbersMinChars: isHex() ? 9 : 5 });
   fileEd.setModel(diffFile.mod.exists ? v.model.modified : v.model.original);
 }
@@ -1784,8 +1799,8 @@ type Blamed = { hash: string; author: string; time: number; summary: string };
 // the file's commits newest first, each with the file's name there, the one shown, its blame, and whether its text is a hex dump
 export let hist: { path: string; revs: [Commit, Change][]; at: number; blame: Blamed[]; hex?: boolean } | null = null;
 export let histEd: Monaco.editor.IStandaloneCodeEditor | null = null;
-// the diff's File view
-let fileEd: Monaco.editor.IStandaloneCodeEditor | null = null;
+// the diff's File view, and its bar to load the next part of a file shown in parts
+let fileEd: Monaco.editor.IStandaloneCodeEditor | null = null, fileMore = "";
 let blameHovers: Monaco.editor.IEditorDecorationsCollection | null = null;
 // the blame text: subject, two spaces, date
 const BLAME_SUBJECT = 28, BLAME_W = BLAME_SUBJECT + 12;
