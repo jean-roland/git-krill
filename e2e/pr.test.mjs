@@ -144,6 +144,8 @@ test("a pull request whose branch another worktree has opens that worktree, its 
   await k.click("#menu button", "Checkout branch");
   await k.until(() => document.getElementById("branch").textContent === "feature/moon");
   await k.until(() => !document.getElementById("pr").hidden && document.getElementById("pr-checkout").disabled && document.querySelector("#pr-page h1")?.textContent.includes("#7"));
+  // checked out here, in a worktree: its icon stays
+  assert.ok(await k.js(() => !!document.querySelector("#pr-checkout .ico")));
   // the worktree's list is the repository's, asked a moment ago
   await k.settle();
   assert.equal(lists(), asked);

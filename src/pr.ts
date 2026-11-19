@@ -4,7 +4,7 @@ import { openDiff } from "./diff";
 import { jumpTo, openWorktree, webUrl, worktreeOf } from "./graph";
 import { renderPanel } from "./panel";
 import { planOpen } from "./rebase";
-import { Change, busy, commits, fakeCommit, findRef, gitOp, redraw, refs, repo, run, runFixed, selection, status } from "./repo";
+import { Change, busy, commits, fakeCommit, findRef, gitOp, redraw, refs, repo, run, runFixed, selection, status, thisWorktree } from "./repo";
 import { $, ICONS, MenuItem, copy, dateTimeText, dialog, esc, h, ico, label, popup, say, svg, toast } from "./ui";
 
 type Check = { name?: string; context?: string; workflowName?: string; status?: string; conclusion?: string; state?: string; detailsUrl?: string; targetUrl?: string };
@@ -131,7 +131,8 @@ let carried = false;
 /** Why `pr`'s checkout is greyed, or where it goes: its branch checked out here, in another worktree, or not yet. */
 function checkoutWhy(pr: Pr): [boolean, string, string | undefined] {
   const own = ownBranch(pr), wt = own && worktreeOf(pr.headRefName);
-  if (own && pr.headRefName === status?.branch) return [true, `${pr.headRefName} is checked out already`, undefined];
+  // checked out in a linked worktree: still worth its icon
+  if (own && pr.headRefName === status?.branch) return refs.worktrees.indexOf(thisWorktree()) > 0 ? [true, `${pr.headRefName} is checked out already, in this worktree`, ICONS.worktree] : [true, `${pr.headRefName} is checked out already`, undefined];
   return wt ? [false, `${pr.headRefName} is checked out in the worktree ${wt.path}: this opens it`, ICONS.worktree] : [false, `Check out ${pr.headRefName}`, undefined];
 }
 
@@ -273,7 +274,7 @@ export function paintPrBar() {
   if (!pr || $("pr").hidden) return;
   const [here, why, icon] = checkoutWhy(pr), b = $("pr-checkout") as HTMLButtonElement;
   label(b, ICONS.check, "Checkout");
-  if (icon) b.append(ico(icon));
+  if (icon) b.append(" (", ico(icon), ")");
   Object.assign(b, { disabled: here, title: why });
   // a fork's head may be in no loaded branch
   const shown = commits.some((c) => c.hash === pr.headRefOid);

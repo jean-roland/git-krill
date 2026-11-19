@@ -672,7 +672,7 @@ textarea.msg-in { height: 104px; resize: vertical; }
 #pr { position: absolute; inset: 0; z-index: 10; display: flex; flex-direction: column; background: var(--bg); }
 /* as tall as the labelled buttons beside it */
 #pr-graph { align-self: stretch; }
-#pr-checkout .ico { margin-left: 6px; vertical-align: -2px; }
+#pr-checkout .ico { margin: 0 1px; vertical-align: -2px; }
 #pr-title { flex: 1; display: flex; align-items: center; gap: 6px; font: 12px var(--mono); }
 #pr-page { flex: 1; overflow: auto; padding: 24px 32px; font-size: 15px; line-height: 1.6; overflow-wrap: anywhere; }
 .pr-in { max-width: 860px; margin: 0 auto; }
