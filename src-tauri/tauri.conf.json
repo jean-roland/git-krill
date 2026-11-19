@@ -29,7 +29,7 @@
     "active": true,
     "category": "DeveloperTool",
     "shortDescription": "Lean git client",
-    "longDescription": "A lean desktop git client for Linux, Windows and macOS: a commit graph, diffs you can stage from, a merge tool, and little else.",
+    "longDescription": "A lean desktop git client for Linux, Windows and macOS: a clean interface, power features included, from interactive rebase to pull requests.",
     "homepage": "https://github.com/jean-roland/git-krill",
     "macOS": {
       "signingIdentity": "-"
