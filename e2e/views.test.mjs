@@ -47,8 +47,9 @@ test("Ctrl+= and Ctrl+wheel zoom a diff's text a step each, Reset back to its si
   // the Markdown diff still open, its text shown
   const size = () => document.querySelector("#diff-editor .view-lines").style.fontSize;
   await k.keys("\uE009", "=");
-  // the level in the bubble a moment, and on the button while off 100%
-  await k.until(() => document.getElementById("zoom").title === "Text zoom 110%" && !document.getElementById("zoom-pop").hidden);
+  // the level on the button while off 100%, no bubble
+  await k.until(() => document.getElementById("zoom").title === "Text zoom 110%");
+  assert.ok(await k.js(() => document.getElementById("zoom-pop").hidden));
   assert.equal(await k.js(size), "14.3px");
   assert.equal(await k.js(() => document.getElementById("zoom-n").textContent), "110%");
   await k.js(() => document.querySelector("#diff-editor .view-lines").dispatchEvent(new WheelEvent("wheel", { ctrlKey: true, deltaY: -100, bubbles: true, cancelable: true })));

@@ -203,11 +203,10 @@ $("sidebar").onmouseenter = () => (peeking = setTimeout(() => peek(true), 250));
 $("sidebar").onmouseleave = () => peek(false);
 $("sidebar").ontransitionend = (e) => e.target === $("sidebar") && e.propertyName === "width" && !$("sidebar").classList.contains("open") && $("sidebar").classList.remove("peek");
 $("sidebar").addEventListener("click", (e) => main.classList.contains("rail") && !$("sidebar").classList.contains("open") && (e.preventDefault(), e.stopPropagation(), peek(true)), true);
-// the text zoomed by steps from the diff's bar, the history's too: off 100% the button says how much, and each step shows it a moment in the bubble under it
+// the text zoomed by steps from the diff's bar, the history's too: off 100% the button says how much
 const ZOOMS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
 const zoomShown = () => !!$("zoom").offsetParent;
-let fading = 0;
-function zoom(to: number, pop = true) {
+function zoom(to: number) {
   const pct = `${Math.round(to * 100)}%`;
   store("zoom", String(to));
   setFontSize(13 * to);
@@ -215,31 +214,27 @@ function zoom(to: number, pop = true) {
   $("zoom").querySelector("svg")!.outerHTML = svg(to < 1 ? ICONS.zoomOut : ICONS.zoomIn);
   $("zoom-n").textContent = to === 1 ? "" : pct;
   $("zoom-at").textContent = pct;
-  if (pop) showZoom(false);
+  // the button may have widened: its bubble follows
+  if (!$("zoom-pop").hidden) showZoom();
 }
 const zoomBy = (by: number, at = ZOOMS.indexOf(Number(store("zoom") ?? 1))) => zoom(ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, (at < 0 ? 5 : at) + by))]);
-/** The bubble under the button: until a click elsewhere when `stay`, else gone a moment after the last step, once the pointer is off it. */
-function showZoom(stay: boolean) {
+/** The bubble under the button, until a click elsewhere. */
+function showZoom() {
   const p = $("zoom-pop"), at = $("zoom").getBoundingClientRect();
-  if (!zoomShown()) return;
-  clearTimeout(fading);
-  if (stay) p.dataset.stay = "1";
   p.hidden = false;
   p.style.left = `${Math.min(at.right, innerWidth - 4) - p.offsetWidth}px`;
   p.style.top = `${at.bottom + 4}px`;
-  const fade = () => (p.matches(":hover") ? (fading = setTimeout(fade, 400)) : hideZoom());
-  if (!p.dataset.stay) fading = setTimeout(fade, 1500);
 }
-const hideZoom = () => (clearTimeout(fading), ($("zoom-pop").hidden = true), delete $("zoom-pop").dataset.stay);
-zoom(Number(store("zoom") ?? 1) || 1, false);
+const hideZoom = () => ($("zoom-pop").hidden = true);
+zoom(Number(store("zoom") ?? 1) || 1);
 // long lines wrapped in the diff and the history, Alt+Z as in code editors
 const wrap = (on: boolean) => (store("word-wrap", on ? "on" : "off"), $("wrap").classList.toggle("on", on), setWordWrap(on));
 wrap(store("word-wrap") === "on");
 $("wrap").onclick = () => wrap(!$("wrap").classList.contains("on"));
-$("zoom").onclick = () => ($("zoom-pop").dataset.stay ? hideZoom() : showZoom(true));
+$("zoom").onclick = () => ($("zoom-pop").hidden ? showZoom() : hideZoom());
 $("zoom-in").onclick = () => zoomBy(1);
 $("zoom-out").onclick = () => zoomBy(-1);
-$("zoom-reset").onclick = () => (zoom(1, false), hideZoom());
+$("zoom-reset").onclick = () => (zoom(1), hideZoom());
 addEventListener("pointerdown", (e) => !(e.target as HTMLElement).closest("#zoom-pop, #zoom") && hideZoom(), true);
 // Ctrl+wheel over the text too, a step a notch: a touchpad's pinch sends many small ones
 let pinched = 0;
