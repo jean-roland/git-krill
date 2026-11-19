@@ -128,6 +128,12 @@ test("a running check's page asks again on its own, its card redrawn unfolded as
   await k.until(() => document.querySelector("#pr-page details.checks summary.pass")?.parentElement.open);
 });
 
+test("Refresh asks the page again: a new comment shows", async () => {
+  writeFileSync(join(gh, "issues-8-comments.json"), JSON.stringify([{ id: 9, user: { login: "reef" }, body: "It holds at neap tide.", created_at: "2026-01-05T10:00:00Z" }]));
+  await k.click("#pr-refresh");
+  await k.until(() => document.getElementById("pr-page").textContent.includes("It holds at neap tide."));
+});
+
 test("a pull request whose branch another worktree has opens that worktree, its page still open", async () => {
   await k.click('#sidebar [data-key="pulls"] .item', "Follow the moon");
   await k.until(() => !!document.querySelector("#pr-page .thread"));

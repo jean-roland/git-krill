@@ -225,15 +225,18 @@ export async function openPr(pr: Pr, again = false) {
   if (planOpen()) return say("Close the interactive rebase first", true);
   // its own answers only, wherever the page goes: a worktree's tab takes it along
   onShow = pr;
-  // the last one's files go now, not once this one's come
-  if (selection.pr) (selection.pr = null), renderPanel();
+  // the last one's files go now, not once this one's come; asked again on the same commit, they stay
+  const kept = again && selection.pr?.number === pr.number && selection.pr.hash === pr.headRefOid;
+  if (selection.pr && !kept) (selection.pr = null), renderPanel();
   $("pr").hidden = false;
   $("pr-title").replaceChildren(ico(ICONS.pr), `Pull request #${pr.number}`);
   $("pr-checkout").onclick = () => checkoutPr(pr);
   $("pr-web").onclick = () => openUrl(pr.url);
   $("pr-graph").onclick = () => jumpTo(pr.headRefOid);
+  $("pr-refresh").onclick = () => refreshPr(pr.number);
   paintPrBar();
-  showPage(pr, `<p class="dim">Loading…</p>`);
+  // asked again: the page stays, scrolled where it is, until the new one comes
+  if (!again) showPage(pr, `<p class="dim">Loading…</p>`);
   const slash = p.slug.indexOf("/");
   const api = <T>(path: string) => run<string>("gh", { args: ["api", "--hostname", p.slug.slice(0, slash), `repos/${p.slug.slice(slash + 1)}/${path}?per_page=100`] }, true).then((o) => JSON.parse(o) as T);
   // from where the server last saw its base branch: the local one may be behind
@@ -242,7 +245,7 @@ export async function openPr(pr: Pr, again = false) {
     .then((info) => run<string>("pr_base", { remote: p.remote, number: pr.number, head: pr.headRefOid, base: pr.baseRefName, baseSha: info?.base?.sha ?? null }))
     .then(
       (base) => {
-        if (onShow !== pr) return;
+        if (onShow !== pr || (kept && selection.pr?.base === base)) return;
         selection.pr = { number: pr.number, hash: pr.headRefOid, base, title: pr.title };
         renderPanel();
       },
@@ -255,6 +258,13 @@ export async function openPr(pr: Pr, again = false) {
   } catch (e) {
     if (onShow === pr) showPage(pr, `<p>${esc(HELP[String(e)] ?? String(e))}</p>`);
   }
+}
+
+/** Pull request `n` asked again: the list for its title and checks, then its page. */
+async function refreshPr(n: number) {
+  await loadPrs(true);
+  const pr = pulls.get(repo)?.list.find((x) => x.number === n);
+  if (pr && onShow?.number === n) openPr(pr, true);
 }
 
 /** The page's buttons as the checkout stands: after any refresh, a checkout's own among them. */
