@@ -1,7 +1,7 @@
 // Entry: wires the buttons and keys to the features, then reopens the tabs.
 import { invoke } from "@tauri-apps/api/core";
 import "@xterm/xterm/css/xterm.css";
-import { Mode, closeDiff, closeHistory, confirmDiscard, closeMerge, diffEditor, diffFile, editor, fitImages, goConflict, hist, histEd, histView, loadMerge, loadMonaco, merging, nextChange, openDiffFile, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setFontSize, setMode, setWordWrap, setSvgView, showRev, warmDiff } from "./diff";
+import { Mode, closeDiff, closeHistory, confirmDiscard, closeMerge, diffEditor, diffFile, editor, fitImages, goConflict, hist, histEd, histView, loadMerge, loadMonaco, merging, nextChange, openDiffFile, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setFileView, setFontSize, setMode, setWordWrap, setSvgView, showRev, warmDiff } from "./diff";
 import { rebaseKey } from "./rebase";
 import { SORTS, amending, commit, conflictCount, emptyStep, fileLists, filterFiles, foldAll, getMsg, openFile, paintFileOpts, pathArg, pickedFiles, renderCommitBtn, renderPanel, setMsg } from "./panel";
 import { $, ICONS, ask, closeDialog, dismissToast, hideBanner, input, mod, onCtrlEnter, pickDir, popup, say, store, svg, warnOnce } from "./ui";
@@ -75,6 +75,7 @@ addEventListener("focus", () => (autoFetch(), loadPrs()));
 // every minute, a fetch once the Settings tab's interval has passed
 setInterval(() => autoFetch(fetchMinutes() * 60_000), 60_000);
 document.querySelectorAll<HTMLElement>("[data-mode]").forEach((b) => (b.onclick = () => setMode(b.dataset.mode as Mode)));
+document.querySelectorAll<HTMLElement>("[data-dview]").forEach((b) => (b.onclick = () => setFileView(b.dataset.dview === "file")));
 document.querySelectorAll<HTMLElement>("[data-svg]").forEach((b) => (b.onclick = () => setSvgView(b.dataset.svg!)));
 $("new-tab").onclick = addTab;
 $("new-tab").oncontextmenu = (e) => popup(e, newTabMenu());
@@ -239,7 +240,7 @@ addEventListener("pointerdown", (e) => !(e.target as HTMLElement).closest("#zoom
 // Ctrl+wheel over the text too, a step a notch: a touchpad's pinch sends many small ones
 let pinched = 0;
 addEventListener("wheel", (e) => {
-  if (!mod(e) || !zoomShown() || !(e.target as HTMLElement).closest?.("#diff-editor, #hist-file")) return;
+  if (!mod(e) || !zoomShown() || !(e.target as HTMLElement).closest?.("#diff-editor, #diff-file, #hist-file")) return;
   e.preventDefault();
   e.stopPropagation();
   if (Math.abs((pinched += e.deltaY)) < 50) return;

@@ -77,9 +77,9 @@ export const loadMonaco = () =>
 type SubCommit = { hash: string; subject: string };
 type SubmoduleChange = { old: SubCommit | null; new: SubCommit | null; added: SubCommit[]; removed: SubCommit[]; changed: number; untracked: number; initialized: boolean };
 // full: loaded past the size a diff loads unasked; sub: what a submodule went through, shown instead of a text diff; ids: its sides' versions, see versionIds
-// same: no change when opened (an All files entry): shown whole, so that a first edit does not fold the rest away; drawn: shown as images or a page;
+// same: no change when opened (an All files entry), so no Diff view; file: shown as the file alone (File view); drawn: shown as images or a page;
 // shown: the text in the editor in place of the blobs', a binary's listing or a big file's parts so far; more: how to load its next part
-export let diffFile: { kind: DiffSource; f: Change; c?: Commit; orig: Blob; mod: Blob; dirty: boolean; full: boolean; same: boolean; drawn?: boolean; sub?: SubmoduleChange; ids?: string; listing?: Listing; shown?: [string, string]; more?: More; seq?: number; loading?: boolean } | null = null;
+export let diffFile: { kind: DiffSource; f: Change; c?: Commit; orig: Blob; mod: Blob; dirty: boolean; full: boolean; same: boolean; file?: boolean; drawn?: boolean; sub?: SubmoduleChange; ids?: string; listing?: Listing; shown?: [string, string]; more?: More; seq?: number; loading?: boolean } | null = null;
 // a binary's sides as text: an object file's sections and symbols when asked and one, else hex dumps
 type Listing = { symbols: boolean; object: boolean };
 // what is shown of a file loaded a part at a time, the loader of both sides' next part (or up to a new side's line), and the new side's line where git's next change past them ends
@@ -234,32 +234,60 @@ export function setMode(m: Mode) {
   applyMode();
 }
 
-/** The view shown: Monaco cannot fold a file loaded on request, so Inline stands in for Hunk there, and for Split on an unchanged file. */
+/** The Diff view's layout: Monaco cannot fold a file loaded on request, so Inline stands in for Hunk there. */
 const viewMode = (): Mode => {
   const m = (store("diff-mode") as Mode) || "hunk";
-  return (m === "hunk" && (fullText() || diffFile?.drawn)) || diffFile?.same ? "inline" : m;
+  return m === "hunk" && fullText() ? "inline" : m;
 };
+
+// the File view: an unchanged file has no other; the history has its own
+const fileView = () => !!diffFile && !hist && (diffFile.same || !!diffFile.file);
 
 // a text loaded on request, whole or in parts: a binary's listing stays small
 const fullText = () => !!diffFile && !diffFile.listing && (diffFile.full || !!diffFile.shown);
 
 function applyMode() {
-  const m = viewMode(), full = fullText(), none = !!(diffFile?.same || diffFile?.drawn);
+  const m = viewMode(), full = fullText(), file = fileView();
   // Hunk shows little but changes: no overview of them, its width back to the text; elsewhere the overview's box is the scrollbar
   const overview = m !== "hunk";
   setOptions({ renderSideBySide: m === "split", hideUnchangedRegions: { enabled: m === "hunk" }, renderOverviewRuler: overview, scrollbar: { vertical: overview ? "hidden" : "auto", verticalScrollbarSize: overview ? 0 : 28 } });
   updateHunkBars();
   document.querySelectorAll<HTMLElement>("[data-mode]").forEach((b) => b.classList.toggle("on", b.dataset.mode === m));
-  // a diff's images: both in Split, else only the new one
-  $("diff-binary").classList.toggle("single", m !== "split");
+  // a diff's images: both in the Diff view, the new one alone in the File view
+  $("diff-binary").classList.toggle("single", file);
+  // on top of paintSides' dimming, which clears it for a text diff: no diff to lay out nor change to step to
+  if (file || diffFile?.drawn) [$("prev-change"), $("next-change"), ...document.querySelectorAll<HTMLElement>("[data-mode]")].forEach((b) => b.classList.add("off"));
   const hunk = document.querySelector<HTMLElement>('[data-mode="hunk"]')!;
-  // on top of paintSides' dimming, which clears it for a text diff
-  if (full || none) hunk.classList.add("off");
   // Monaco cannot fold a file that big
-  hunk.title = full ? "Can't show hunks for files over 10 MB" : none ? "No hunks to display" : "Changed hunks only";
-  const split = document.querySelector<HTMLElement>('[data-mode="split"]')!;
-  if (diffFile?.same) split.classList.add("off");
-  split.title = diffFile?.same ? "No changes to compare" : "Whole file, side by side";
+  if (full) hunk.classList.add("off");
+  hunk.title = full ? "Can't show hunks for files over 10 MB" : "Changed hunks only";
+  document.querySelectorAll<HTMLElement>("[data-dview]").forEach((b) => b.classList.toggle("on", (b.dataset.dview === "file") === file));
+  const diff = document.querySelector<HTMLElement>('[data-dview="diff"]')!;
+  if (diffFile?.same) diff.classList.add("off");
+  diff.title = diffFile?.same ? "No changes to compare" : "Its changes, by hunk, inline or side by side";
+}
+
+/** The open diff as its file alone, or as its changes. */
+export function setFileView(on: boolean) {
+  if (!diffFile || (!on && diffFile.same)) return;
+  diffFile.file = on;
+  layOutView();
+}
+
+/** The File or the Diff view in place of the other, the line read still in sight, edits kept: one text under both. */
+function layOutView() {
+  // a card (a submodule, a file not downloaded or too big) has no views
+  if (!$("diff-binary").hidden && !diffFile?.drawn) return;
+  const spot = readingAt();
+  if ($("diff-binary").hidden) {
+    $("diff-editor").hidden = fileView();
+    $("diff-file").hidden = !fileView();
+    paintFile();
+  }
+  dimDiffOpts(false);
+  applyMode();
+  const ed = textEditor();
+  if (spot && ed) showLine(spot, ed);
 }
 
 const lineChanges = (): LineChange[] =>
@@ -462,12 +490,15 @@ function paintSides(): Promise<unknown> {
   // the version a file opens in its app: the new one, the old when the file is gone
   const shown = sideSources(kind, f, c)[mod.exists ? 1 : 0];
   const pane = !!sub || images || (binary && !listed);
+  // a binary's diff tells little but an object file's symbols: its file shows first, as an unchanged one's
+  d.file ??= d.same || images || (binary && !(d.listing?.object && d.listing.symbols));
   cover?.removeAttribute("style");
   const b = $("diff-binary"), held = !pane && !b.hidden && b.classList.contains("images");
   cover = held ? b : null;
   // opaque: its padding would show the editor drawing underneath; under the view switch (15), which stays
   if (held) Object.assign(b.style, { position: "absolute", zIndex: "14", background: "var(--bg)", left: `${b.offsetLeft}px`, top: `${b.offsetTop}px`, width: `${b.offsetWidth}px`, height: `${b.offsetHeight}px` });
-  $("diff-editor").hidden = pane;
+  $("diff-editor").hidden = pane || fileView();
+  $("diff-file").hidden = pane || !fileView();
   if (!held) {
     b.hidden = !pane;
     b.classList.toggle("images", images);
@@ -487,7 +518,6 @@ function paintSides(): Promise<unknown> {
   ($("diff-save") as HTMLButtonElement).disabled = true;
   // no text diff: its view and change buttons have nothing to act on, but images still lay out by view
   dimDiffOpts(pane && !images);
-  if (images) [$("prev-change"), $("next-change")].forEach((b) => b.classList.add("off"));
   diffFile!.drawn = images;
   applyMode();
   if (pane) return Promise.resolve(dropModels());
@@ -749,7 +779,7 @@ type Spot = { line: number; frac: number };
 let readAt: Spot | null = null;
 
 /** The text in sight: the history's File view, else the diff's new side. */
-const textEditor = () => (hist && !$("hist-file").hidden ? histEd : $("diff-editor").hidden ? null : editor().getModifiedEditor());
+const textEditor = () => (hist && !$("hist-file").hidden ? histEd : !$("diff-file").hidden ? fileEd : $("diff-editor").hidden ? null : editor().getModifiedEditor());
 
 /** Where the open file is read: the page's first block in sight, else the editor's top line. */
 function readingAt(): Spot | null {
@@ -1190,19 +1220,20 @@ function setModels(keepView: boolean) {
   const ed = editor();
   const view = keepView ? ed.saveViewState() : null;
   const prev = diffView, back = parked.get(viewKey());
-  const { listing } = diffFile, [o, m] = diffFile.shown ?? [diffFile.orig.text, diffFile.mod.text];
+  const [o, m] = diffFile.shown ?? [diffFile.orig.text, diffFile.mod.text];
   parked.delete(viewKey());
   const modified = back?.view.model.modified ?? newModel(m, `b/${diffFile.f.path}`);
   // Monaco 0.52 never disposes a view model it makes from bare models, nor the files it holds
   diffView = back?.view ?? ed.createViewModel({ original: newModel(o, `a/${diffFile.f.path}`), modified });
   ed.setModel(diffView);
   if (prev) freeView(prev);
-  const editable = diffFile.kind === "unstaged" && diffFile.mod.exists && !diffFile.shown, hex = !!listing && !(listing.symbols && listing.object);
+  const editable = isEditable(), hex = isHex();
   // greyed until an edit: always there, the bar does not shift
   $("diff-editable").hidden = $("diff-save").hidden = !editable;
   ($("diff-save") as HTMLButtonElement).disabled = !diffFile.dirty;
   setOptions({ readOnly: !editable, glyphMargin: diffFile.kind !== "commit" && !diffFile.shown, lineNumbers: hex ? offset : "on" });
   fitLineNumbers();
+  paintFile();
   // a read-only side changes only by the parts added to it; a kept model has its listener
   const d = diffFile;
   if (!back)
@@ -1218,7 +1249,21 @@ function setModels(keepView: boolean) {
 /** Line numbers wide enough for the longest with a space to spare: Inline puts both sides' side by side. */
 function fitLineNumbers() {
   const m = diffView?.model, digits = m ? String(Math.max(m.original.getLineCount(), m.modified.getLineCount())).length : 0;
-  setOptions({ lineNumbersMinChars: diffFile?.listing && !(diffFile.listing.symbols && diffFile.listing.object) ? 9 : Math.max(5, digits + 1) });
+  setOptions({ lineNumbersMinChars: isHex() ? 9 : Math.max(5, digits + 1) });
+}
+
+// the working tree file as it is: typed in, then saved
+const isEditable = () => !!diffFile && diffFile.kind === "unstaged" && diffFile.mod.exists && !diffFile.shown;
+// a binary's hex dumps: its lines numbered by offset
+const isHex = () => !!diffFile?.listing && !(diffFile.listing.symbols && diffFile.listing.object);
+
+/** The File view's editor on the open diff's own text, edits and all: its new side, the old one when gone. */
+function paintFile() {
+  const v = diffView;
+  if (!diffFile || !v || !fileView()) return void fileEd?.setModel(null);
+  fileEd ??= monaco.editor.create($("diff-file"), { ...plainOpts(), wordWrap, minimap: { renderCharacters: false, showSlider: "always" } });
+  fileEd.updateOptions({ readOnly: !isEditable(), lineNumbers: isHex() ? offset : "on", lineNumbersMinChars: isHex() ? 9 : 5 });
+  fileEd.setModel(diffFile.mod.exists ? v.model.modified : v.model.original);
 }
 
 /** The open WIP file's row in its list, for the file after it to take over if it leaves. */
@@ -1343,13 +1388,11 @@ export async function save() {
   diffFile.dirty = false;
   ($("diff-save") as HTMLButtonElement).disabled = true;
   say(`saved ${diffFile.f.path}`);
-  // a file opened unchanged gets its hunks once saved with a change, and loses them once saved back: folded under a still copy, in one step
+  // saved with a change, a file opened unchanged gets its Diff view; saved back, it shows alone: under a still copy, in one step
   if (diffFile.same !== (text === diffFile.orig.text && diffFile.orig.exists)) {
     diffFile.same = !diffFile.same;
     const copy = still($("diff-editor"));
-    // applyMode only greys: the text diff's buttons are lit again first
-    dimDiffOpts(false);
-    applyMode();
+    layOutView();
     // computed as it was typed: no new diff to wait for, unless the save beat it
     diffView?.waitForDiff().then(() => requestAnimationFrame(() => copy?.remove()));
   }
@@ -1735,6 +1778,8 @@ type Blamed = { hash: string; author: string; time: number; summary: string };
 // the file's commits newest first, each with the file's name there, the one shown, its blame, and whether its text is a hex dump
 export let hist: { path: string; revs: [Commit, Change][]; at: number; blame: Blamed[]; hex?: boolean } | null = null;
 export let histEd: Monaco.editor.IStandaloneCodeEditor | null = null;
+// the diff's File view
+let fileEd: Monaco.editor.IStandaloneCodeEditor | null = null;
 let blameHovers: Monaco.editor.IEditorDecorationsCollection | null = null;
 // the blame text: subject, two spaces, date
 const BLAME_SUBJECT = 28, BLAME_W = BLAME_SUBJECT + 12;
@@ -1790,8 +1835,8 @@ export async function showRev(i: number) {
     // openDiff closes a diff opened again
     const opening = diffFile?.c?.hash !== c.hash;
     if (opening) await openDiff("commit", f, c, true);
-    // back on the shown commit: a diff still loading for another gives way
-    else openSeq++;
+    // back on the shown commit: a diff still loading for another gives way; one open in its File view shows its changes
+    else (openSeq++, layOutView());
     if (hist !== m || m.at !== i) return;
     histPane(false);
     return reveal(opening ? diffDrawn() : undefined);
@@ -1844,13 +1889,13 @@ function histPane(file: boolean) {
   $("diff").hidden = false;
   $("hist-file").hidden = !file;
   if (!file) return;
-  $("diff-editor").hidden = $("diff-binary").hidden = $("svg-view").hidden = true;
+  $("diff-editor").hidden = $("diff-file").hidden = $("diff-binary").hidden = $("svg-view").hidden = true;
   // the diff's own state undims them
   dimDiffOpts(true);
 }
 
 const dimDiffOpts = (dim: boolean) =>
-  [$("prev-change"), $("next-change"), ...document.querySelectorAll<HTMLElement>("[data-mode]")].forEach((b) => b.classList.toggle("off", dim));
+  [$("prev-change"), $("next-change"), ...document.querySelectorAll<HTMLElement>("[data-mode], [data-dview]")].forEach((b) => b.classList.toggle("off", dim));
 
 /** Show the history's pane once `drawn` settles, a frame later so it is painted. */
 const reveal = (drawn?: Promise<unknown>) => (drawn ?? Promise.resolve()).then(() => requestAnimationFrame(() => $("hist-main").classList.remove("blank")));
@@ -1956,7 +2001,7 @@ let fontSize = 13;
 /** Every editor's text at `size` px. */
 export function setFontSize(size: number) {
   fontSize = size;
-  for (const ed of [histEd, mergeEds?.a, mergeEds?.b, mergeEds?.out]) ed?.updateOptions({ fontSize });
+  for (const ed of [histEd, fileEd, mergeEds?.a, mergeEds?.b, mergeEds?.out]) ed?.updateOptions({ fontSize });
   // through setOptions: Inline's minimap comes back
   if (diffEditor) setOptions({ fontSize });
 }
@@ -1967,7 +2012,7 @@ let wordWrap: "on" | "off" = "off";
 /** The diff's and the history's long lines wrapped, or not. */
 export function setWordWrap(on: boolean) {
   wordWrap = on ? "on" : "off";
-  histEd?.updateOptions({ wordWrap });
+  for (const ed of [histEd, fileEd]) ed?.updateOptions({ wordWrap });
   if (diffEditor) setOptions({ wordWrap });
 }
 

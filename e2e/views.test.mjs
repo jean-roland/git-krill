@@ -66,7 +66,7 @@ test("Ctrl+= and Ctrl+wheel zoom a diff's text a step each, Reset back to its si
   await k.until(() => !document.getElementById("zoom").offsetParent);
 });
 
-test("a PDF's versions show in the window's own viewer, side by side in Split", async () => {
+test("a PDF shows in the window's own viewer, alone in the File view, beside its old version in the Diff view", async () => {
   const path = join(repository, "docs", "preview.pdf");
   writeFileSync(path, pdfFixture("Initial PDF"));
   execFileSync("git", ["add", "--", "docs/preview.pdf"], { cwd: repository });
@@ -74,7 +74,10 @@ test("a PDF's versions show in the window's own viewer, side by side in Split", 
   await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
   await k.click("#graph .row", "// WIP");
   await k.click('#unstaged .file[data-path="docs/preview.pdf"]');
-  await k.click('[data-mode="split"]');
+  const shown = () => [...document.querySelectorAll("#diff-binary .img-side")].filter((s) => s.offsetParent).map((s) => s.textContent.split(" · ")[0]);
+  await k.until(() => document.querySelectorAll("#diff-binary iframe").length === 2);
+  assert.deepEqual(await k.js(shown), ["Working tree"]);
+  await k.click('[data-dview="diff"]');
   const sides = await k.until(() => {
     const all = [...document.querySelectorAll("#diff-binary .img-side")];
     return all.length === 2 && all.every((s) => s.offsetParent && s.querySelector("iframe").src.startsWith("blob:") && / · \d+ B$/.test(s.textContent)) && all.map((s) => s.textContent.split(" · ")[0]);
