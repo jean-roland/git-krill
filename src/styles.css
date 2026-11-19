@@ -104,7 +104,7 @@ header {
 #repo-name .back { cursor: pointer; }
 #repo-name .back:hover { text-decoration: underline; }
 #repo-name .sub-close { margin-left: 4px; padding: 1px 3px; border: none; background: none; color: var(--dim); line-height: 0; vertical-align: -2px; }
-#repo-name .sub-close:hover { color: var(--text); }
+#repo-name .sub-close:hover { color: var(--accent); }
 #repo-name .sub-close svg { width: 13px; height: 13px; }
 .top-side .ico svg { width: 15px; height: 15px; }
 #repo-ico { margin-right: -2px; color: var(--dim); }
@@ -190,7 +190,7 @@ header {
 .tab.on { background: var(--panel); color: var(--text); box-shadow: inset 0 2px var(--accent); }
 .tab .x { border: none; background: none; padding: 0 5px; color: var(--dim); visibility: hidden; }
 .tab:hover .x, .tab.on .x { visibility: visible; }
-.tab .x:hover { color: var(--text); background: var(--hover); }
+.tab .x:hover { color: var(--accent); }
 .tab-alias { width: 140px; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--accent); border-radius: 4px; padding: 0 4px; }
 /* both in the middle of the tabs' height */
 #new-tab, #tab-find { align-self: stretch; display: flex; align-items: center; border: none; border-radius: 6px 6px 0 0; background: none; color: color-mix(in srgb, var(--text) 75%, transparent); line-height: 0; }
@@ -249,7 +249,7 @@ body.history #diff-view { display: none; }
 #term .term { flex: 1; min-height: 0; padding: 4px 0 0 10px; }
 .term-bar { display: flex; align-items: center; justify-content: space-between; padding: 2px 8px 2px 10px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--dim); }
 #term-close { padding: 0 6px; border: none; background: none; color: var(--dim); font-size: 16px; }
-#term-close:hover { color: var(--text); background: var(--hover); }
+#term-close:hover { color: var(--accent); }
 #term-grip { position: absolute; top: -4px; left: 0; right: 0; height: 8px; z-index: 5; cursor: ns-resize; }
 /* a column or terminal edge lights up under the pointer and while dragged */
 .col-grip::after, #term-grip::after { content: ""; position: absolute; transition: background 0.15s; }
@@ -754,7 +754,10 @@ textarea.msg-in { height: 104px; resize: vertical; }
 #zoom-pop .icon:hover { background: var(--hover); }
 #zoom-pop .icon svg { width: 16px; height: 16px; }
 #zoom-reset { margin-left: 8px; padding: 4px 14px; border-radius: 15px; }
-#diff-close, #rebase-close { border: none; background: none; }
+#diff-close, #rebase-close, #pr-close, #hist-close, #m-close { border: none; background: none; }
+/* a borderless button lights its icon under the pointer, as a separator does */
+#diff-close:hover, #rebase-close:hover, #pr-close:hover, #hist-close:hover, #m-close:hover, #find button:hover, .tab-hit button:hover, .recent button:hover, .dlg-head .x:hover, .toast .x:hover { color: var(--accent); }
+.m-nav .icon:hover { color: var(--text); }
 .bar {
   display: flex;
   align-items: center;
