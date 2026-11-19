@@ -2252,6 +2252,20 @@ pub fn run() {
             }
             #[cfg(target_os = "macos")]
             app.set_menu(mac_menu(app.handle())?)?;
+            // WebKitGTK checks spelling only when asked, in languages given: the desktop's, and English for commit messages
+            #[cfg(target_os = "linux")]
+            if let Some(w) = tauri::Manager::get_webview_window(app, "main") {
+                w.with_webview(|w| {
+                    use webkit2gtk::{WebContextExt, WebViewExt};
+                    let Some(c) = w.inner().context() else { return };
+                    let mut langs: Vec<String> = webkit2gtk::glib::language_names().iter().map(|l| l.to_string()).collect();
+                    if !langs.iter().any(|l| l == "en_US") {
+                        langs.push("en_US".into());
+                    }
+                    c.set_spell_checking_languages(&langs.iter().map(String::as_str).collect::<Vec<_>>());
+                    c.set_spell_checking_enabled(true);
+                })?;
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

@@ -284,7 +284,7 @@ export function dialog(
   more: [string, (values: string[]) => unknown][] = [],
   cancel?: () => unknown,
 ) {
-  const inputs = fields.map(([, value, type = "text"]) => (type === "textarea" ? h("textarea", { value, spellcheck: false }) : h("input", { value, type, spellcheck: false })));
+  const inputs = fields.map(([, value, type = "text"]) => (type === "textarea" ? h("textarea", { value }) : h("input", { value, type, spellcheck: false })));
   const values = () => inputs.map((i) => (i.type === "password" ? i.value : i.value.trim()));
   const submit = () => {
     hideDialog();

@@ -463,8 +463,8 @@ function editMessage(c: Commit, msg: string) {
   rewording = c.hash;
   $("commit-msg").ondblclick = null;
   const [s, d] = splitMsg(msg);
-  const summary = h("input", { className: "msg-in", value: s, spellcheck: false });
-  const desc = h("textarea", { className: "msg-in", value: d, spellcheck: false, placeholder: "Description" });
+  const summary = h("input", { className: "msg-in", value: s, spellcheck: true });
+  const desc = h("textarea", { className: "msg-in", value: d, spellcheck: true, placeholder: "Description" });
   const left = h("small");
   const cancel = () => ((rewording = ""), renderPanel());
   const update = async () => {

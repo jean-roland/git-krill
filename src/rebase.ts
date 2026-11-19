@@ -219,8 +219,8 @@ function setAction(i: number, action: Action) {
   }
   // reword asks the new message first; cancelling keeps the old action
   const [s, d] = splitMsg(r.action === "reword" && r.message ? r.message : finalMessage(i));
-  const summary = h("input", { className: "msg-in", value: s, spellcheck: false });
-  const desc = h("textarea", { className: "msg-in", value: d, spellcheck: false, placeholder: "Description" });
+  const summary = h("input", { className: "msg-in", value: s, spellcheck: true });
+  const desc = h("textarea", { className: "msg-in", value: d, spellcheck: true, placeholder: "Description" });
   const left = h("small");
   const update = () => {
     const m = joinMsg(summary.value, desc.value);

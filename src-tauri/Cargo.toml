@@ -33,6 +33,10 @@ object = { version = "0.41.0", default-features = false, features = ["read", "st
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+# spell checking, which WebKitGTK leaves off
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = "2.0"
+
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
