@@ -7,13 +7,13 @@ A lean desktop git client for Linux, Windows and macOS: a commit graph, diffs yo
 ## Features
 
 - **Git Workflow**: explore the commit graph, manage branches, stashes and rebases in a click. Stage down to a single line.
-- **Diffs**: inspect changes by hunk, inline or side by side, and edit uncommitted ones in place.
+- **Diffs**: inspect changes by hunk, inline or side by side, or the whole file alone, and edit uncommitted ones in place.
 - **Tabs**: work across multiple repositories in dedicated tabs, each paired with a built-in terminal.
 - **Conflicts**: resolve tricky merges in a three-pane editor, picking changes by the hunk or down to the individual line.
 - **History**: step through past revisions of a file with inline blame so you know who changed what and why.
 - **Rebase**: clean up commit history visually by reordering, rewording, squashing or dropping commits, individually or in bulk.
 - **Pull requests**, powered by the GitHub CLI: check CI statuses, read review threads or open new PRs without leaving the app.
-- **Previews**: render Markdown, HTML and SVG. Inspect images and binaries or open any file in its default app.
+- **Previews**: render Markdown, HTML and SVG. View PDFs, inspect images and binaries or open any file in its default app.
 - **Advanced Git**: manage worktrees, submodules and LFS files right from the interface.
 
 ## Screenshots
