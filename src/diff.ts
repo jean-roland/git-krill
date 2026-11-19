@@ -71,6 +71,10 @@ export const loadMonaco = () =>
       "diffEditorGutter.removedLineBackground": `${cssVar("--del")}30`,
       "diffEditorOverview.insertedForeground": `${cssVar("--add")}99`,
       "diffEditorOverview.removedForeground": `${cssVar("--del")}99`,
+      // the bracket pair guides in their brackets' colours (the dark theme's), half strength: Monaco's 30 % is too faint
+      "editorBracketPairGuide.background1": "#FFD70080",
+      "editorBracketPairGuide.background2": "#DA70D680",
+      "editorBracketPairGuide.background3": "#179FFF80",
     },
   });
   }));
@@ -1511,6 +1515,8 @@ const plainOpts = (): Monaco.editor.IStandaloneEditorConstructionOptions => ({
   contextmenu: false,
   // the cursor's line, a bar across the scrollbar: noise in a diff
   hideCursorInOverviewRuler: true,
+  // each bracket pair's span, a line in its bracket's colour
+  guides: { bracketPairs: true },
 });
 
 /** The merge tool's three editors, made on first use. */
