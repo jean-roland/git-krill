@@ -32,6 +32,11 @@ test("a file over 10 MB shows its first part alone, Load more the next; in the D
   // at the end of the text: Ctrl+End there
   await k.click("#diff-file .view-lines");
   await k.keys("\uE009", "\uE010");
+  // the bar whole under the last line
+  await k.until(() => {
+    const b = document.querySelector("#diff-file .more-bar")?.getBoundingClientRect();
+    return b?.height && b.bottom <= document.getElementById("diff-file").getBoundingClientRect().bottom;
+  });
   await k.click("#diff-file .more-bar");
   await k.until(() => /^20\.0 MB of/.test(document.querySelector("#diff-file .more-bar")?.textContent ?? ""));
   await k.click('[data-dview="diff"]');

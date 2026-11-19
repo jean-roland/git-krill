@@ -120,6 +120,7 @@ export function editor() {
   const me = diffEditor.getModifiedEditor();
   lineActions(me, false);
   lineActions(diffEditor.getOriginalEditor(), true);
+  revealMoreBar(me);
   me.onDidFocusEditorText(() => (lastSide = "mod"));
   diffEditor.getOriginalEditor().onDidFocusEditorText(() => (lastSide = "orig"));
   diffEditor.onDidUpdateDiff(updateHunkBars);
@@ -350,6 +351,9 @@ async function revertLines(pick: Lines, what: string) {
 /** The bar ending a file shown in parts: how much is shown, a button for the next part. */
 const moreBar = (d: NonNullable<typeof diffFile>) =>
   d.more && h("div", {}, h("div", { className: "hunk-bar more-bar" }, h("span", { textContent: d.more.label }), ...(d.more.load ? [h("button", { textContent: "Load more", onclick: () => loadMore(d) })] : [])));
+// Monaco reveals the last line only: the bar under it would show by half
+const revealMoreBar = (ed: Monaco.editor.ICodeEditor) =>
+  ed.onDidChangeCursorPosition((e) => e.reason === monaco.editor.CursorChangeReason.Explicit && diffFile?.more && e.position.lineNumber === ed.getModel()?.getLineCount() && ed.setScrollTop(ed.getScrollHeight()));
 
 /** A header bar above each hunk with its stage / unstage / discard / revert buttons. */
 function updateHunkBars() {
@@ -1314,6 +1318,7 @@ function paintFile() {
     fileEd = monaco.editor.create($("diff-file"), { ...plainOpts(), wordWrap, minimap: { renderCharacters: false, showSlider: "always" } });
     // Monaco takes the clicks on its zones: the bar loads the next part from anywhere on it
     fileEd.onMouseDown((e) => e.target.type === monaco.editor.MouseTargetType.CONTENT_VIEW_ZONE && e.target.detail.viewZoneId === fileMore && diffFile && loadMore(diffFile));
+    revealMoreBar(fileEd);
   }
   fileEd.updateOptions({ readOnly: !isEditable(), lineNumbers: isHex() ? offset : "on", lineNumbersMinChars: isHex() ? 9 : 5 });
   fileEd.setModel(diffFile.mod.exists ? v.model.modified : v.model.original);
