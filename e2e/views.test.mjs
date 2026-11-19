@@ -77,6 +77,8 @@ test("a PDF shows in the window's own viewer, alone in the File view, beside its
   const shown = () => [...document.querySelectorAll("#diff-binary .img-side")].filter((s) => s.offsetParent).map((s) => s.textContent.split(" · ")[0]);
   await k.until(() => document.querySelectorAll("#diff-binary iframe").length === 2);
   assert.deepEqual(await k.js(shown), ["Working tree"]);
+  // no text to zoom
+  assert.ok(await k.js(() => document.getElementById("zoom").classList.contains("off")));
   await k.click('[data-dview="diff"]');
   const sides = await k.until(() => {
     const all = [...document.querySelectorAll("#diff-binary .img-side")];

@@ -533,6 +533,8 @@ function paintSides(): Promise<unknown> {
   ($("diff-save") as HTMLButtonElement).disabled = true;
   // no text diff: its view and change buttons have nothing to act on, but images still lay out by view
   dimDiffOpts(pane && !images);
+  // no text to zoom: images, a page, a card
+  $("zoom").classList.toggle("off", pane);
   diffFile!.drawn = images;
   applyMode();
   if (pane) return Promise.resolve(dropModels());
@@ -1883,6 +1885,7 @@ export async function showRev(i: number) {
     $("hist-file").hidden = true;
     $("diff-binary").hidden = false;
     $("diff-binary").classList.add("images");
+    $("zoom").classList.add("off");
     $("diff-binary").replaceChildren(zoomable(h("div", { className: "img-sides" }, (PDF.test(f.path) ? pdfSide : PAGE.test(f.path) ? pageSide : imageSide)(c.hash, f.path))));
     return reveal();
   }
@@ -1911,6 +1914,7 @@ function histPane(file: boolean) {
   $("hist-file").hidden = !file;
   if (!file) return;
   $("diff-editor").hidden = $("diff-file").hidden = $("diff-binary").hidden = $("svg-view").hidden = true;
+  $("zoom").classList.remove("off");
   // the diff's own state undims them
   dimDiffOpts(true);
 }

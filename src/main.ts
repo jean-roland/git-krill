@@ -206,7 +206,8 @@ $("sidebar").ontransitionend = (e) => e.target === $("sidebar") && e.propertyNam
 $("sidebar").addEventListener("click", (e) => main.classList.contains("rail") && !$("sidebar").classList.contains("open") && (e.preventDefault(), e.stopPropagation(), peek(true)), true);
 // the text zoomed by steps from the diff's bar, the history's too: off 100% the button says how much
 const ZOOMS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
-const zoomShown = () => !!$("zoom").offsetParent;
+// greyed: a preview shows, no text
+const zoomShown = () => !!$("zoom").offsetParent && !$("zoom").classList.contains("off");
 function zoom(to: number) {
   const pct = `${Math.round(to * 100)}%`;
   store("zoom", String(to));
@@ -232,7 +233,7 @@ zoom(Number(store("zoom") ?? 1) || 1);
 const wrap = (on: boolean) => (store("word-wrap", on ? "on" : "off"), $("wrap").classList.toggle("on", on), setWordWrap(on));
 wrap(store("word-wrap") === "on");
 $("wrap").onclick = () => wrap(!$("wrap").classList.contains("on"));
-$("zoom").onclick = () => ($("zoom-pop").hidden ? showZoom() : hideZoom());
+$("zoom").onclick = () => zoomShown() && ($("zoom-pop").hidden ? showZoom() : hideZoom());
 $("zoom-in").onclick = () => zoomBy(1);
 $("zoom-out").onclick = () => zoomBy(-1);
 $("zoom-reset").onclick = () => (zoom(1), hideZoom());
