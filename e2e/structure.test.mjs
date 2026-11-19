@@ -21,7 +21,10 @@ test("a picture stored with LFS shows its badge, and both versions side by side"
   await k.click("#graph .row", "docs: chart Dover beside Brest");
   await k.until(() => document.querySelector('#commit-files .file[data-path="docs/chart.png"] .lfs'));
   await k.click('#commit-files .file[data-path="docs/chart.png"]');
-  await k.until(() => [...document.querySelectorAll("#diff-binary img")].filter((i) => i.complete && i.naturalWidth).length === 2);
+  // the File view first, its version alone; the Diff view adds the old one
+  await k.until(() => [...document.querySelectorAll("#diff-binary img")].filter((i) => i.complete && i.naturalWidth).length === 1);
+  await k.click('[data-dview="diff"]');
+  await k.until(() => [...document.querySelectorAll("#diff-binary img")].filter((i) => i.complete && i.naturalWidth).length === 2 && document.querySelector('[data-mode="split"]').classList.contains("on"));
   await k.keys("\uE00C");
 });
 

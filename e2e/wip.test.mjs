@@ -18,11 +18,15 @@ test("a change opens in Hunk view, then Split", async () => {
   await k.click('[data-mode="split"]');
   await k.until(() => !document.querySelector("#diff-editor .hunk-bar"));
   await k.shot("diff-split");
-  // the File view picked: the next change opens in it too
+  // the File view picked: the next change opens in it too, the Diff view's buttons greyed, saying so
   await k.click('[data-dview="file"]');
-  await k.click("#unstaged .file", "src/units.rs");
+  await k.click("#unstaged .file", "docs/logo.svg");
   await k.until(() => !document.getElementById("diff-file").hidden && document.querySelector('[data-dview="file"]').classList.contains("on"));
+  assert.equal(await k.js(() => document.getElementById("next-change").title), "Next change (N) (Diff mode only)");
   await k.click('[data-dview="diff"]');
+  // a new file shows alone first, its Diff view still there to pick its lines
+  await k.click("#unstaged .file", "src/units.rs");
+  await k.until(() => !document.getElementById("diff-file").hidden && !document.querySelector('[data-dview="diff"]').classList.contains("off"));
   // an unchanged file has nothing to compare: it shows alone, Diff greyed
   await k.click(".all-files");
   await k.click("#unstaged .file", "Cargo.toml");

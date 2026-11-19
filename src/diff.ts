@@ -238,20 +238,24 @@ export function setMode(m: Mode) {
   applyMode();
 }
 
-/** The Diff view's layout: Monaco cannot fold a file loaded on request, so Inline stands in for Hunk there. */
+/** The Diff view's layout: images side by side; Monaco cannot fold a file loaded on request, so Inline stands in for Hunk there. */
 const viewMode = (): Mode => {
   const m = (store("diff-mode") as Mode) || "hunk";
-  return m === "hunk" && fullText() ? "inline" : m;
+  return diffFile?.drawn ? "split" : m === "hunk" && fullText() ? "inline" : m;
 };
 
-// the File view: an unchanged file has no other; the history has its own
-const fileView = () => !!diffFile && !hist && (diffFile.same || !!diffFile.file);
+// nothing to compare: no change, a deleted file, a new one but for its lines to pick, which a drawn file, a listing or parts lack
+const noDiff = () => !!diffFile && (diffFile.same || !diffFile.mod.exists || (!diffFile.orig.exists && (!!diffFile.drawn || !!diffFile.shown)));
+// the File view: a file with nothing to compare has no other; the history has its own
+const fileView = () => !!diffFile && !hist && (noDiff() || !!diffFile.file);
+// the File view of a file still there: one text on both sides, Monaco has nothing to compute
+const collapsed = () => fileView() && !!diffFile?.mod.exists;
 
 // a text loaded on request, whole or in parts: a binary's listing stays small
 const fullText = () => !!diffFile && !diffFile.listing && (diffFile.full || !!diffFile.shown);
 
 function applyMode() {
-  const m = viewMode(), full = fullText(), file = fileView();
+  const m = viewMode(), full = fullText(), file = fileView(), d = diffFile;
   // Hunk shows little but changes: no overview of them, its width back to the text; elsewhere the overview's box is the scrollbar
   const overview = m !== "hunk";
   setOptions({ renderSideBySide: m === "split", hideUnchangedRegions: { enabled: m === "hunk" }, renderOverviewRuler: overview, scrollbar: { vertical: overview ? "hidden" : "auto", verticalScrollbarSize: overview ? 0 : 28 } });
@@ -259,21 +263,38 @@ function applyMode() {
   document.querySelectorAll<HTMLElement>("[data-mode]").forEach((b) => b.classList.toggle("on", b.dataset.mode === m));
   // a diff's images: both in the Diff view, the new one alone in the File view
   $("diff-binary").classList.toggle("single", file);
-  // on top of paintSides' dimming, which clears it for a text diff: no diff to lay out nor change to step to
-  if (file || diffFile?.drawn) [$("prev-change"), $("next-change"), ...document.querySelectorAll<HTMLElement>("[data-mode]")].forEach((b) => b.classList.add("off"));
-  const hunk = document.querySelector<HTMLElement>('[data-mode="hunk"]')!;
-  // Monaco cannot fold a file that big
-  if (full) hunk.classList.add("off");
-  hunk.title = full ? "Can't show hunks for files over 10 MB" : "Changed hunks only";
+  const [prev, next, hunk, inline, split] = diffButtons();
+  // on top of paintSides' dimming, which clears it for a text diff: no diff to lay out in the File view; images, only side by side and no change to step to; Monaco cannot fold a file that big
+  (file ? [prev, next, hunk, inline, split] : d?.drawn ? [prev, next, hunk, inline] : full ? [hunk] : []).forEach((b) => b.classList.add("off"));
+  hunk.dataset.tip = full ? "Can't show hunks for files over 10 MB" : "Changed hunks only";
+  tipDiffOnly(file);
   document.querySelectorAll<HTMLElement>("[data-dview]").forEach((b) => b.classList.toggle("on", (b.dataset.dview === "file") === file));
   const diff = document.querySelector<HTMLElement>('[data-dview="diff"]')!;
-  if (diffFile?.same) diff.classList.add("off");
-  diff.title = diffFile?.same ? "No changes to compare" : "Its changes, by hunk, inline or side by side";
+  if (noDiff()) diff.classList.add("off");
+  diff.title = !d || !noDiff() ? "Its changes, by hunk, inline or side by side" : d.same ? "No changes to compare" : d.mod.exists ? "A new file: nothing to compare" : "A deleted file: nothing to compare";
+}
+
+// the Diff view's own buttons: the change arrows and the layouts
+const diffButtons = () => [$("prev-change"), $("next-change"), ...document.querySelectorAll<HTMLElement>("[data-mode]")];
+/** The Diff view's buttons' tips, saying so where a File view greys them. */
+const tipDiffOnly = (on: boolean) => diffButtons().forEach((b) => (b.title = (b.dataset.tip ??= b.title) + (on ? " (Diff mode only)" : "")));
+
+/** The diff's old side as its view needs it: the new side itself in the File view, its own text, to compare, in the Diff view; whether it changed. */
+function fitOriginal() {
+  const d = diffFile, v = diffView;
+  if (!d || !v || (v.model.original === v.model.modified) === collapsed()) return false;
+  const ed = editor(), at = ed.saveViewState(), modified = v.model.modified;
+  diffView = ed.createViewModel({ original: collapsed() ? modified : newModel(d.shown?.[0] ?? d.orig.text, `a/${d.f.path}`), modified });
+  ed.setModel(diffView);
+  v.dispose();
+  if (v.model.original !== modified) v.model.original.dispose();
+  if (at) ed.restoreViewState(at);
+  return true;
 }
 
 /** The open diff as its file alone, or as its changes, remembered for the next ones. */
 export function setFileView(on: boolean) {
-  if (!diffFile || (!on && diffFile.same)) return;
+  if (!diffFile || (!on && noDiff())) return;
   store("diff-view", on ? "file" : "diff");
   diffFile.file = on;
   layOutView();
@@ -285,9 +306,16 @@ function layOutView() {
   if (!$("diff-binary").hidden && !diffFile?.drawn) return;
   const spot = readingAt();
   if ($("diff-binary").hidden) {
+    // a diff to compute now, maybe for seconds (a binary's hex dumps): the pointer says so until it lands
+    if (fitOriginal() && !fileView()) diffDrawn(fullText() ? 300_000 : 500);
     $("diff-editor").hidden = fileView();
     $("diff-file").hidden = !fileView();
     paintFile();
+  } else {
+    // the File view draws its version alone: the other one comes now, scrolled where this one is
+    readAt = spot;
+    $("diff-binary").replaceChildren(imageSides());
+    readAt = null;
   }
   dimDiffOpts(false);
   applyMode();
@@ -506,7 +534,7 @@ function paintSides(): Promise<unknown> {
   const shown = sideSources(kind, f, c)[mod.exists ? 1 : 0];
   const pane = !!sub || images || (binary && !listed);
   // the view picked last, but the File view where a diff tells little or takes seconds: a binary's but an object file's symbols, a file loaded in parts
-  d.file ??= d.same || images || (binary && !(d.listing?.object && d.listing.symbols)) || !!large || store("diff-view") === "file";
+  d.file ??= d.same || !orig.exists || images || (binary && !(d.listing?.object && d.listing.symbols)) || !!large || store("diff-view") === "file";
   cover?.removeAttribute("style");
   const b = $("diff-binary"), held = !pane && !b.hidden && b.classList.contains("images");
   cover = held ? b : null;
@@ -691,7 +719,8 @@ async function loadMore(d: NonNullable<typeof diffFile>, until?: number) {
     d.shown = [d.shown![0] + part[0], d.shown![1] + part[1]];
     // a cursor at the end would move along with the text added there
     const eds = [editor().getOriginalEditor(), editor().getModifiedEditor()], at = eds.map((e) => e.getSelections());
-    [diffView.model.original, diffView.model.modified].forEach((m, i) => m.applyEdits([{ range: m.getFullModelRange().collapseToEnd(), text: part[i] }]));
+    // the File view's one text takes the new side's part; the old one's waits in shown
+    [diffView.model.original, diffView.model.modified].forEach((m, i) => (i || m !== diffView!.model.modified) && m.applyEdits([{ range: m.getFullModelRange().collapseToEnd(), text: part[i] }]));
     eds.forEach((e, i) => at[i] && e.setSelections(at[i]!));
     fitLineNumbers();
     // both sides had ended: no diff comes to redraw the bar
@@ -709,8 +738,8 @@ async function loadMore(d: NonNullable<typeof diffFile>, until?: number) {
 /** The next change, loading up to the next one git saw when the loaded part has none left below. */
 export async function nextChange() {
   const d = diffFile;
-  // a load under way already goes somewhere
-  if (!d || d.loading) return;
+  // a load under way already goes somewhere; the File view has no changes to step to
+  if (!d || d.loading || fileView()) return;
   // the loaded part's own changes first: none are known before its diff
   if (!editor().getLineChanges()) await diffView?.waitForDiff();
   const at = editor().getModifiedEditor().getPosition()?.lineNumber ?? 0, ahead = () => (editor().getLineChanges() ?? []).some((c) => Math.max(c.modifiedStartLineNumber, 1) > at);
@@ -846,7 +875,8 @@ const bytesText = (n: number) => (n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 10
 function imageSides() {
   const { kind, f, c, orig, mod } = diffFile!;
   const side = PDF.test(f.path) ? pdfSide : PAGE.test(f.path) ? pageSide : imageSide;
-  const sides = sideSources(kind, f, c).flatMap(([at, path], i) => ((i ? mod : orig).exists ? [side(at, path, i ? "add" : "del")] : []));
+  // the File view's shown version alone: the old one only for a deleted file
+  const sides = sideSources(kind, f, c).flatMap(([at, path], i) => ((i ? mod : orig).exists && (i || !mod.exists || !fileView()) ? [side(at, path, i ? "add" : "del")] : []));
   const box = zoomable(h("div", { className: "img-sides" }, ...sides));
   syncPages([...box.querySelectorAll("iframe")]);
   return box;
@@ -1241,9 +1271,11 @@ function setModels(keepView: boolean) {
   parked.delete(viewKey());
   const modified = back?.view.model.modified ?? newModel(m, `b/${diffFile.f.path}`);
   // Monaco 0.52 never disposes a view model it makes from bare models, nor the files it holds
-  diffView = back?.view ?? ed.createViewModel({ original: newModel(o, `a/${diffFile.f.path}`), modified });
+  diffView = back?.view ?? ed.createViewModel({ original: collapsed() ? modified : newModel(o, `a/${diffFile.f.path}`), modified });
   ed.setModel(diffView);
   if (prev) freeView(prev);
+  // a view kept aside from the other one
+  fitOriginal();
   const editable = isEditable(), hex = isHex();
   // greyed until an edit: always there, the bar does not shift
   $("diff-editable").hidden = $("diff-save").hidden = !editable;
@@ -1360,7 +1392,7 @@ function dropModels() {
 
 function freeView(v: Monaco.editor.IDiffEditorViewModel) {
   v.dispose();
-  v.model.original.dispose();
+  if (v.model.original !== v.model.modified) v.model.original.dispose();
   v.model.modified.dispose();
 }
 
@@ -1917,6 +1949,7 @@ function histPane(file: boolean) {
   $("zoom").classList.remove("off");
   // the diff's own state undims them
   dimDiffOpts(true);
+  tipDiffOnly(true);
 }
 
 const dimDiffOpts = (dim: boolean) =>
