@@ -116,8 +116,11 @@ header {
 @keyframes krill { 0% { transform: none; } 15%, to { transform: rotate(360deg); } }
 /* a whale branch: the logo shakes in fear, in bursts */
 #branch-ico img.fear { animation: fear 3s linear infinite; }
+/* a shrimp branch: it turns about, back and forth */
+#branch-ico .shrimp { display: inline-block; font-size: 14px; line-height: 16px; animation: shrimp 6s ease-in-out infinite; }
+@keyframes shrimp { 0%, 45% { transform: none; } 50%, 95% { transform: scaleX(-1); } }
 @keyframes fear { 0%, 20%, to { transform: none; } 2%, 6%, 10%, 14%, 18% { transform: translateX(-1.5px) rotate(-8deg); } 4%, 8%, 12%, 16% { transform: translateX(1.5px) rotate(8deg); } }
-@media (prefers-reduced-motion: reduce) { #branch-ico img, #branch-ico img.fear { animation: none; } }
+@media (prefers-reduced-motion: reduce) { #branch-ico img, #branch-ico img.fear, #branch-ico .shrimp { animation: none; } }
 #branch { min-width: 0; max-width: 340px; overflow: hidden; text-overflow: ellipsis; font-weight: 600; font-size: 14px; color: var(--accent); }
 #opstate { color: var(--mod); cursor: pointer; font-size: 15px; }
 #opstate.bad { color: var(--del); }

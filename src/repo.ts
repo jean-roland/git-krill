@@ -483,7 +483,7 @@ const pruning = new Set<string>();
 // without git it cannot tell: the folder is taken as still there
 export const isRepo = (path: string) => invoke("repo_root", { path }).then(() => true, (e) => noGit(String(e)));
 
-const KRILL = /krill/i, WHALE = /whale/i;
+const KRILL = /krill/i, WHALE = /whale/i, SHRIMP = /shrimp/i;
 // branch names git or the eye reads as something else, and krill ones
 const ODD: [(b: string) => boolean, string][] = [
   [(b) => /^\(?detached([ _-]?head)?\)?$/i.test(b), "...but HEAD is still firmly attached."],
@@ -497,6 +497,8 @@ const ODD: [(b: string) => boolean, string][] = [
   [(b) => /^v?\d+\.\d+\.\d+$/.test(b), "That's a tag wearing a branch costume."],
   // whales eat krill: checked first
   [(b) => WHALE.test(b), "Krill is very much NOT thrilled."],
+  // and taken for shrimp: before krill too
+  [(b) => SHRIMP.test(b), "Krill is not a shrimp, and it is mildly offended."],
   [(b) => KRILL.test(b), "Krill is thrilled."],
 ];
 
@@ -509,7 +511,7 @@ function renderToolbar() {
   if (odd) warnOnce(`odd\0${repo}\0${b}`, `A branch named ${b}`, odd, "egg");
   $("repo-ico").innerHTML = svg(refs.superproject ? ICONS.submodule : tabs[active].worktree ? ICONS.worktree : ICONS.repo);
   // a whale about: the krill shakes instead
-  const ico = WHALE.test(b) ? `<img class="fear" src="${krill}" alt="">` : KRILL.test(b) ? `<img src="${krill}" alt="">` : svg(ICONS.branch);
+  const ico = WHALE.test(b) ? `<img class="fear" src="${krill}" alt="">` : SHRIMP.test(b) ? `<span class="shrimp">🦐</span>` : KRILL.test(b) ? `<img src="${krill}" alt="">` : svg(ICONS.branch);
   // set on a change only: a refresh would restart the logo's turn
   if ($("branch-ico").dataset.ico !== ico) $("branch-ico").innerHTML = $("branch-ico").dataset.ico = ico;
   $("behind").textContent = status.behind ? String(status.behind) : "";
