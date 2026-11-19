@@ -448,7 +448,8 @@ function paintSides(): Promise<unknown> {
   d.seq = (d.seq ?? 0) + 1;
   const binary = orig.binary || mod.binary, large = Math.max(orig.large ?? 0, mod.large ?? 0);
   const missing = orig.lfs === "missing" || mod.lfs === "missing", drawable = DRAWN.test(f.path) && !sub && !missing && !large;
-  const images = (binary && !missing && (!large || large <= IMAGE_UNASKED) && IMAGE.test(f.path)) || (drawable && store("svg-view") === "image");
+  // a PDF without a binary byte is still one
+  const images = ((binary || PDF.test(f.path)) && !missing && (!large || large <= IMAGE_UNASKED) && IMAGE.test(f.path)) || (drawable && store("svg-view") === "image");
   // any other binary compares as text, read first; a text too big to show at once comes in parts
   const listed = binary && !missing && !sub && !images && !IMAGE.test(f.path), symbols = store("bin-view") !== "text", parted = !binary && !!large && !sub;
   // back to a view kept aside: what it had loaded too
@@ -691,12 +692,13 @@ function submoduleCard(path: string, s: SubmoduleChange) {
 }
 
 // shown in krill; other binary files open in their own app
-const IMAGE = /\.(png|jpe?g|gif|webp|bmp|ico|avif)$/i;
+const IMAGE = /\.(png|jpe?g|gif|webp|bmp|ico|avif|pdf)$/i;
 // text, also shown drawn when asked
 const SVG = /\.svg$/i;
 // drawn as a page: HTML as it is, Markdown rendered first
 const PAGE = /\.(html?|mdx?)$/i;
 const MD = /\.mdx?$/i;
+const PDF = /\.pdf$/i;
 // text files the switch can also draw: SVG as an image, HTML and Markdown as a page
 const DRAWN = /\.(svg|html?|mdx?)$/i;
 // raw bytes the window decodes itself, far cheaper than text in the editor: shown unasked up to this
@@ -796,7 +798,7 @@ const bytesText = (n: number) => (n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 10
 /** The open image's old and new versions, side by side. */
 function imageSides() {
   const { kind, f, c, orig, mod } = diffFile!;
-  const side = PAGE.test(f.path) ? pageSide : imageSide;
+  const side = PDF.test(f.path) ? pdfSide : PAGE.test(f.path) ? pageSide : imageSide;
   const sides = sideSources(kind, f, c).flatMap(([at, path], i) => ((i ? mod : orig).exists ? [side(at, path, i ? "add" : "del")] : []));
   const box = zoomable(h("div", { className: "img-sides" }, ...sides));
   syncPages([...box.querySelectorAll("iframe")]);
@@ -874,6 +876,31 @@ function imageSide(at: string, path: string, cls = "") {
     (e) => (caption.textContent = String(e)),
   );
   return h("figure", { className: `img-side ${cls}` }, frame, caption);
+}
+
+/** One PDF version, in the WebView's own viewer. */
+function pdfSide(at: string, path: string, cls = "") {
+  // no sandbox: it stops the viewer's own scripts; the PDF's never run in the window's origin
+  const frame = h("iframe") as HTMLIFrameElement, caption = h("small", { textContent: sideName(at) });
+  run<ArrayBuffer>("file_bytes", { at, path }).then(
+    (bytes) => {
+      const url = URL.createObjectURL(new globalThis.Blob([bytes], { type: "application/pdf" }));
+      frame.src = url;
+      // WebKitGTK's viewer never fires load: its page holds the viewer's own frame once the PDF is in
+      const page = () => frame.contentDocument?.URL.startsWith("blob:") && frame.contentDocument.querySelector("iframe");
+      busy(new Promise<void>((done) => {
+        frame.addEventListener("load", () => done(), { once: true });
+        const look = () => (page() || !frame.isConnected ? done() : requestAnimationFrame(look));
+        requestAnimationFrame(look);
+        setTimeout(done, 10_000);
+      }));
+      // ponytail: freed once the frame is gone, checked every few seconds; the viewer may read it until then
+      const gone = setInterval(() => frame.isConnected || (clearInterval(gone), URL.revokeObjectURL(url)), 3000);
+      caption.textContent = `${sideName(at)} · ${bytesText(bytes.byteLength)}`;
+    },
+    (e) => (caption.textContent = String(e)),
+  );
+  return h("figure", { className: `img-side ${cls}` }, h("div", { className: "frame page" }, frame), caption);
 }
 
 /** Two pages side by side scroll together, as a text diff's sides do. Checked each frame: scripts never run in them, so no scroll event reaches the window either. */
@@ -1786,11 +1813,11 @@ export async function showRev(i: number) {
   // an image, or an SVG or HTML page asked drawn, shows as itself in the diff's binary pane
   const drawable = DRAWN.test(f.path) && blob.exists && !blob.large, image = drawable && store("svg-view") === "image";
   paintSvgView(drawable || !!listing?.[0], image || (!!listing?.[0] && symbols), f.path, listed);
-  if (image || (IMAGE.test(f.path) && blob.binary && blob.lfs !== "missing" && (!blob.large || blob.large <= IMAGE_UNASKED))) {
+  if (image || (IMAGE.test(f.path) && (blob.binary || PDF.test(f.path)) && blob.lfs !== "missing" && (!blob.large || blob.large <= IMAGE_UNASKED))) {
     $("hist-file").hidden = true;
     $("diff-binary").hidden = false;
     $("diff-binary").classList.add("images");
-    $("diff-binary").replaceChildren(zoomable(h("div", { className: "img-sides" }, (PAGE.test(f.path) ? pageSide : imageSide)(c.hash, f.path))));
+    $("diff-binary").replaceChildren(zoomable(h("div", { className: "img-sides" }, (PDF.test(f.path) ? pdfSide : PAGE.test(f.path) ? pageSide : imageSide)(c.hash, f.path))));
     return reveal();
   }
   const ed = historyEditor(), view = ed.saveViewState(), old = ed.getModel();

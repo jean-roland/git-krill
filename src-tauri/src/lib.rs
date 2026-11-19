@@ -2200,6 +2200,16 @@ fn open_url(url: String) -> Result<(), String> {
     Ok(())
 }
 
+/// \brief Whether the window may go to `url`: a web link, from a PDF's viewer say, goes to the browser instead of replacing the app.
+fn stays_in_app(url: &tauri::Url) -> bool {
+    // Windows serves the app from http://tauri.localhost, `tauri dev` from localhost
+    let web = matches!(url.scheme(), "http" | "https") && !matches!(url.host_str(), Some("tauri.localhost" | "localhost"));
+    if web {
+        let _ = open_url(url.to_string());
+    }
+    !web
+}
+
 /// \brief The login shell's PATH: started from the Finder, an app gets launchd's bare one, without Homebrew's git-lfs and gh.
 #[cfg(target_os = "macos")]
 fn login_path() {
@@ -2233,6 +2243,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri::plugin::Builder::<tauri::Wry>::new("links").on_navigation(|_, url| stays_in_app(url)).build())
         .manage(pty::Ptys::default())
         .manage(askpass::Askpass::default())
         .setup(|app| {
