@@ -823,8 +823,7 @@ textarea.msg-in { height: 104px; resize: vertical; }
 #svg-view button:last-child { border-radius: 0 999px 999px 0; }
 /* the labels open outwards, as wide as each other: the pair grows evenly about its centre and the icons stay put */
 #svg-view svg { margin: 0; transition: margin 0.15s; }
-#svg-view span { display: inline-block; width: 0; overflow: hidden; white-space: nowrap; vertical-align: bottom; transition: width 0.15s; }
-#svg-view button:first-child span { text-align: right; }
+#svg-view span { display: inline-block; width: 0; overflow: hidden; white-space: nowrap; vertical-align: bottom; text-align: center; transition: width 0.15s; }
 #svg-view:hover button:first-child svg { margin-left: 5px; }
 #svg-view:hover button:last-child svg { margin-right: 5px; }
 #svg-view:hover span { width: 54px; }
