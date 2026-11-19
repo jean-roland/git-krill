@@ -14,7 +14,7 @@ export type Pr = {
 };
 type User = { login: string } | null;
 // the REST answers: their ids tie review comments to their review
-type Review = { id: number; user: User; body: string; state: string; submitted_at: string };
+type Review = { id: number; user: User; body: string; state: string; submitted_at?: string };
 type Note = { id: number; user: User; body: string; created_at: string };
 type Inline = Note & { in_reply_to_id?: number; pull_request_review_id: number; path: string; line: number | null; original_line: number | null; diff_hunk: string };
 
@@ -290,7 +290,7 @@ export function closePr(paint = true) {
   if (paint) renderPanel();
 }
 
-const VERBS: Record<string, [string, string]> = { APPROVED: ["approved", "good"], CHANGES_REQUESTED: ["requested changes", "bad"], DISMISSED: ["reviewed (dismissed)", ""] };
+const VERBS: Record<string, [string, string]> = { APPROVED: ["approved", "good"], CHANGES_REQUESTED: ["requested changes", "bad"], DISMISSED: ["reviewed (dismissed)", ""], PENDING: ["started a review, not submitted yet", ""] };
 const MARKS: Record<string, string> = { pass: "✓", fail: "✗", wait: "●", skip: "–" };
 
 /** The page of `pr`: its checks, description, then its comments and reviews by time, each review with its threads on the code. */
@@ -315,7 +315,8 @@ async function pageOf(pr: Pr, reviews: Review[], notes: Note[], inline: Inline[]
       // a reply's own review: the reply shows in its thread
       if (!rv.body && !threads.length && rv.state === "COMMENTED") return [];
       const [verb, cls] = VERBS[rv.state] ?? ["reviewed", ""];
-      return [[rv.submitted_at, `<div class="card"><div class="who">${who(rv.user)} <span class="${cls}">${verb}</span> · ${when(rv.submitted_at)}</div>${rv.body ? md(rv.body) : ""}${threads.map(thread).join("")}</div>`]];
+      // one's own pending review has no date yet: last
+      return [[rv.submitted_at ?? "~", `<div class="card"><div class="who">${who(rv.user)} <span class="${cls}">${verb}</span>${rv.submitted_at ? ` · ${when(rv.submitted_at)}` : ""}</div>${rv.body ? md(rv.body) : ""}${threads.map(thread).join("")}</div>`]];
     }),
     // threads whose review is not listed
     ...roots.filter((c) => !reviews.some((rv) => rv.id === c.pull_request_review_id)).map((c): [string, string] => [c.created_at, `<div class="card">${thread(c)}</div>`]),

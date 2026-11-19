@@ -51,6 +51,8 @@ before(async () => {
       { id: 20, user: user("reef"), body: "", state: "COMMENTED", submitted_at: at(3, 11) },
       { id: 21, user: user("octo"), body: "", state: "COMMENTED", submitted_at: at(3, 12) },
       { id: 22, user: user("reef"), body: "Ship it.", state: "APPROVED", submitted_at: at(4, 9) },
+      // one's own draft: no date yet
+      { id: 23, user: user("tester"), body: "", state: "PENDING" },
     ]));
     const hunk = "@@ -1,3 +1,4 @@\n fn tide() -> u32 {\n-    12\n+    // a lunar day\n+    12 * 2 + 1";
     writeFileSync(join(gh, "pulls-7-comments.json"), JSON.stringify([
@@ -73,7 +75,8 @@ test("a pull request shows its checks, description, review thread and files", as
   await k.until(() => !!document.querySelector("#pr-page .thread .reply + .reply"));
   await k.until(() => document.querySelectorAll("#commit-files .file").length === 2);
   const text = await k.js(() => document.getElementById("pr-page").textContent);
-  for (const t of ["1 of 2 checks failed", "The tide follows the moon", "Does it hold at neap tide?", "Why plus one?", "The moon rises later each day.", "approved"]) assert.ok(text.includes(t), t);
+  for (const t of ["1 of 2 checks failed", "The tide follows the moon", "Does it hold at neap tide?", "Why plus one?", "The moon rises later each day.", "approved", "started a review, not submitted yet"]) assert.ok(text.includes(t), t);
+  assert.ok(!text.includes("NaN"));
   await k.shot("pull-request");
 });
 
