@@ -142,6 +142,8 @@ class Krill {
       css,
       text,
     );
+    // Monaco takes a scroll into its own position on the next frame: a click before it lands as if unscrolled
+    await this.js(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     const actions = [{ type: "pointerMove", origin: el, x: 0, y: 0 }, { type: "pointerDown", button: 0 }, { type: "pointerUp", button: 0 }];
     await this.cmd("POST", "actions", { actions: [{ type: "pointer", id: "mouse", parameters: { pointerType: "mouse" }, actions }] }).catch((e) => {
       throw new Error(`${css} "${text}": ${e.message}`);
