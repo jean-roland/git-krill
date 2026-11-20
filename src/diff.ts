@@ -410,8 +410,9 @@ function updateHunkBars() {
 
 /** Hunk bars as wide as the visible text area, not the longest line, so the buttons stay in view. */
 function fitHunkBars() {
-  const lay = editor().getModifiedEditor().getLayoutInfo();
-  editor().getContainerDomNode().querySelectorAll<HTMLElement>(".hunk-bar").forEach((b) => (b.style.width = `${lay.contentWidth - lay.verticalScrollbarWidth}px`));
+  const fit = (box: HTMLElement, lay: Monaco.editor.EditorLayoutInfo) => box.querySelectorAll<HTMLElement>(".hunk-bar").forEach((b) => (b.style.width = `${lay.contentWidth - lay.verticalScrollbarWidth}px`));
+  fit(editor().getContainerDomNode(), editor().getModifiedEditor().getLayoutInfo());
+  if (fileEd) fit(fileEd.getContainerDomNode(), fileEd.getLayoutInfo());
 }
 
 /** Where a diff's old and new sides are read: [at, path], at empty for a root commit's old side. */
@@ -539,7 +540,9 @@ function paintSides(): Promise<unknown> {
   const shown = sideSources(kind, f, c)[mod.exists ? 1 : 0];
   const pane = !!sub || images || (binary && !listed);
   // the view picked last, but the File view where a diff tells little or takes seconds: a binary's but an object file's symbols, a file loaded in parts
-  d.file ??= d.same || !orig.exists || images || (binary && !(d.listing?.object && d.listing.symbols)) || !!large || store("diff-view") === "file";
+  d.file ??= d.same || !orig.exists || (images && !drawable) || (binary && !(d.listing?.object && d.listing.symbols)) || !!large || store("diff-view") === "file";
+  // before the panes are picked: a drawn file has nothing to compare, the text it goes back to may
+  d.drawn = images;
   cover?.removeAttribute("style");
   const b = $("diff-binary"), held = !pane && !b.hidden && b.classList.contains("images");
   cover = held ? b : null;
@@ -568,7 +571,6 @@ function paintSides(): Promise<unknown> {
   dimDiffOpts(pane && !images);
   // no text to zoom: images, a page, a card
   $("zoom").classList.toggle("off", pane);
-  diffFile!.drawn = images;
   applyMode();
   if (pane) return Promise.resolve(dropModels());
   // Monaco gives up on a diff after 5 s and marks the whole file changed: a file loaded on request gets the time it takes
@@ -810,7 +812,8 @@ export async function setSvgView(view: string) {
     store(key, view);
     const drawn = paintSides();
     readAt = null;
-    if (spot && !$("diff-editor").hidden) showLine(spot);
+    const ed = textEditor();
+    if (spot && ed) showLine(spot, ed);
     await drawn;
   }
   // the history's File view: showRev only redraws another row; it takes the spot on its way
@@ -1215,7 +1218,7 @@ export function openDiffFile() {
   const d = diffFile;
   if (!d) return;
   if (inApp(d)) return void openVersion(...sideSources(d.kind, d.f, d.c)[d.mod.exists ? 1 : 0]);
-  openInEditor(d.f.path, editor().getModifiedEditor().getPosition()?.lineNumber ?? 1).catch((e) => say(String(e), true));
+  openInEditor(d.f.path, (textEditor() ?? editor().getModifiedEditor()).getPosition()?.lineNumber ?? 1).catch((e) => say(String(e), true));
 }
 
 function forceLoadButton(bytes: number) {
@@ -1273,7 +1276,7 @@ export async function warmDiff() {
 function setModels(keepView: boolean) {
   if (!diffFile) return false;
   const ed = editor();
-  const view = keepView ? ed.saveViewState() : null;
+  const view = keepView ? ed.saveViewState() : null, fileAt = keepView ? fileEd?.saveViewState() : null;
   const prev = diffView, back = parked.get(viewKey());
   const [o, m] = diffFile.shown ?? [diffFile.orig.text, diffFile.mod.text];
   parked.delete(viewKey());
@@ -1291,6 +1294,7 @@ function setModels(keepView: boolean) {
   setOptions({ readOnly: !editable, glyphMargin: diffFile.kind !== "commit" && !diffFile.shown, lineNumbers: hex ? offset : "on" });
   fitLineNumbers();
   paintFile();
+  if (fileAt) fileEd?.restoreViewState(fileAt);
   // a read-only side changes only by the parts added to it; a kept model has its listener
   const d = diffFile;
   if (!back)
@@ -1323,6 +1327,7 @@ function paintFile() {
     // Monaco takes the clicks on its zones: the bar loads the next part from anywhere on it
     fileEd.onMouseDown((e) => e.target.type === monaco.editor.MouseTargetType.CONTENT_VIEW_ZONE && e.target.detail.viewZoneId === fileMore && diffFile && loadMore(diffFile));
     revealMoreBar(fileEd);
+    fileEd.onDidLayoutChange(fitHunkBars);
   }
   fileEd.updateOptions({ readOnly: !isEditable(), lineNumbers: isHex() ? offset : "on", lineNumbersMinChars: isHex() ? 9 : 5 });
   fileEd.setModel(diffFile.mod.exists ? v.model.modified : v.model.original);
@@ -1379,13 +1384,16 @@ export async function reloadDiff(row = -1) {
   if (alike(orig, d.orig) && alike(mod, d.mod)) return;
   // once saved with a change, its hunks show again
   Object.assign(d, { orig, mod, same: alike(orig, mod), listing: undefined, shown: undefined, more: undefined }), dropParked();
-  // no text diff before or now: its pane is painted again
-  if ($("diff-editor").hidden || orig.binary || mod.binary || orig.large || mod.large) return paintSides();
-  // the old diff stays on screen until the new one is drawn
-  const gen = opening, copy = still($("diff-editor"));
+  // no text before or now: its pane is painted again
+  if (($("diff-editor").hidden && $("diff-file").hidden) || orig.binary || mod.binary || orig.large || mod.large) return paintSides();
+  // the old text stays on screen until the new one is drawn
+  const gen = opening, copy = still($(fileView() ? "diff-file" : "diff-editor"));
   dimDiffOpts(false);
   applyMode();
   setModels(true);
+  // changed back to as it was: nothing left to compare, the File view
+  $("diff-editor").hidden = fileView();
+  $("diff-file").hidden = !fileView();
   await diffDrawn();
   // a file opened meanwhile took the copy over
   requestAnimationFrame(() => gen === opening && copy?.remove());
@@ -2085,7 +2093,7 @@ export function setWordWrap(on: boolean) {
 
 /** Lay the shown editors out now: Monaco's own resize handling waits a frame, which flickers while dragging. */
 export function relayout() {
-  for (const ed of [diffEditor, histEd, mergeEds?.a, mergeEds?.b, mergeEds?.out]) if (ed?.getContainerDomNode().offsetParent) ed.layout();
+  for (const ed of [diffEditor, fileEd, histEd, mergeEds?.a, mergeEds?.b, mergeEds?.out]) if (ed?.getContainerDomNode().offsetParent) ed.layout();
 }
 
 /** The diff laid out and drawn in this frame, not the next: its changed lines' colours would stop at the old width for a frame. */
