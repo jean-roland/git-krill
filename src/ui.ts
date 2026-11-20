@@ -349,7 +349,8 @@ function fillMenu(m: HTMLElement, items: MenuItem[]) {
       if (!Array.isArray(it)) return h("div", { className: "menu-title", title: it.title }, ico(it.icon), h("span", { textContent: it.title }));
       const [label, act, why = "", icon] = it;
       // a very long name (a branch, a remote) is cut in its middle: the action around it stays readable
-      const b = h("button", { disabled: !act, title: why }, ...(icon ? [ico(icon)] : []), label.replace(/\S{33,}/g, (w) => `${w.slice(0, 16)}…${w.slice(-12)}`));
+      // greyed by a class, as below: a disabled button shows no tooltip, and the why is the point
+      const b = h("button", { className: act ? "" : "off", title: why }, ...(icon ? [ico(icon)] : []), label.replace(/\S{33,}/g, (w) => `${w.slice(0, 16)}…${w.slice(-12)}`));
       if (!act) return b;
       if (typeof act === "function") {
         b.onclick = act;

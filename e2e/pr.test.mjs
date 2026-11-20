@@ -95,7 +95,7 @@ test("a thread's file opens in the diff, without reverting; Esc steps back out",
 
 test("a fork's pull request from a branch named like one here still checks out", async () => {
   await k.menu('#sidebar [data-key="pulls"] .item', "From a fork");
-  assert.equal(await k.js(() => [...document.querySelectorAll("#menu button")].find((b) => b.textContent === "Checkout branch").disabled), false);
+  assert.equal(await k.js(() => [...document.querySelectorAll("#menu button")].find((b) => b.textContent === "Checkout branch").classList.contains("off")), false);
   await k.keys("\uE00C");
 });
 
