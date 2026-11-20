@@ -977,7 +977,8 @@ svg.blame-av { cursor: pointer; }
 /* menus, the banner, dialogs, toasts */
 .menu {
   position: fixed;
-  z-index: 10;
+  /* over the column grips (20), the rail sidebar and banner (25), a dialog (26) */
+  z-index: 27;
   display: flex;
   flex-direction: column;
   min-width: 220px;
@@ -1001,7 +1002,7 @@ svg.blame-av { cursor: pointer; }
 .menu-title .ico { color: var(--dim); }
 .menu-title .ico svg { width: 15px; height: 15px; }
 .menu button.sub::after { content: "›"; float: right; margin-left: 24px; color: var(--dim); }
-#submenu { z-index: 11; }
+#submenu { z-index: 28; }
 /* the bar that asks before an action: first push, a file the merge tool cannot take */
 #banner {
   position: fixed;

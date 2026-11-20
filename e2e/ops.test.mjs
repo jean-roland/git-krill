@@ -24,6 +24,20 @@ test("the find bar marks matching commits and steps through them", async () => {
   await k.until(() => document.getElementById("find").hidden);
 });
 
+test("a branch's menu shows over the column grips", async () => {
+  await k.menu('#sidebar [data-key="local"] .item', "feature/json-output");
+  // where it covers the sidebar's grip, the menu is on top: a lit grip drew through it
+  const top = await k.js(() => {
+    const m = document.querySelector(".menu:not([hidden])").getBoundingClientRect();
+    const g = [...document.querySelectorAll(".col-grip")].map((e) => e.getBoundingClientRect()).find((g) => g.left > m.left && g.left < m.right);
+    return !!g && !!document.elementFromPoint(g.left + 4, m.top + m.height / 2)?.closest(".menu");
+  });
+  assert.ok(top);
+  await k.shot("menu-branch");
+  await k.keys("\uE00C");
+  await k.until(() => !document.querySelector(".menu:not([hidden])"));
+});
+
 test("a tag made on a commit is pushed to the remote, then deleted here", async () => {
   await k.menu("#graph .row", "chore: move to the 2024 edition");
   await k.click("#menu button", "Create tag here");
