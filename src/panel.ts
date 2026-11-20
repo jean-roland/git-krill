@@ -56,9 +56,15 @@ function fileMenu(f: Change, kind: DiffSource, c?: Commit): MenuItem[] {
       ? ([
           ["Stage", () => gitOp("stage", f.path)],
           ["Discard changes", () => (isSubmodule(f.path) ? discardSubmodule(f.path) : confirmDiscard([f]))],
+          ["Stash file", () => gitOp("stash-files", f.path)],
         ] as MenuItem[])
       : []),
-    ...(kind === "staged" ? ([["Unstage", () => gitOp("unstage", f.path)]] as MenuItem[]) : []),
+    ...(kind === "staged"
+      ? ([
+          ["Unstage", () => gitOp("unstage", f.path)],
+          ["Stash file", () => gitOp("stash-files", f.path)],
+        ] as MenuItem[])
+      : []),
     null,
     ...((f.sub ?? isSubmodule(f.path)) ? ([["Open submodule", () => openSubmodule(f.path)]] as MenuItem[]) : []),
     ["File history", () => openHistory(f.path, c)],

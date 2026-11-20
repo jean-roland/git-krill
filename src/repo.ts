@@ -162,6 +162,8 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
   document.body.classList.add("busy");
   // picked before the op: its refresh lands there in one go
   if (TO_WIP.has(name)) pickWip();
+  // run from WIP (stash, discard): it stays, emptied or not, until HEAD moves (a commit)
+  else if (selection.hashes[0] === "WIP" && !selection.stash && !selection.pr) selection.held = true;
   // the index a stash applies over: undoing a conflicted apply puts it back
   const stash = record && (name === "stash-apply" || name === "stash-pop") ? refs.stashes.find((s) => s.name === (arg1 || "stash@{0}")) : undefined;
   const tree = stash ? await run<string>("index_tree").catch(() => "") : "";
