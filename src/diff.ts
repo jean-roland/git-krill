@@ -971,10 +971,13 @@ function pdfSide(at: string, path: string, cls = "") {
       // WebKitGTK's viewer never fires load: its page holds the viewer's own frame once the PDF is in
       const page = () => frame.contentDocument?.URL.startsWith("blob:") && frame.contentDocument.querySelector("iframe");
       busy(new Promise<void>((done) => {
-        frame.addEventListener("load", () => done(), { once: true });
-        const look = () => (page() || !frame.isConnected ? done() : requestAnimationFrame(look));
+        // the look stops with the wait, whatever ended it: other viewers have no inner frame
+        let over = false;
+        const end = () => ((over = true), done());
+        frame.addEventListener("load", end, { once: true });
+        const look = () => over || (page() || !frame.isConnected ? end() : requestAnimationFrame(look));
         requestAnimationFrame(look);
-        setTimeout(done, 10_000);
+        setTimeout(end, 10_000);
       }));
       // ponytail: freed once the frame is gone, checked every few seconds; the viewer may read it until then
       const gone = setInterval(() => frame.isConnected || (clearInterval(gone), URL.revokeObjectURL(url)), 3000);
