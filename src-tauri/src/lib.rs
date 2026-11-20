@@ -2202,8 +2202,13 @@ fn open_url(url: String) -> Result<(), String> {
 
 /// \brief Whether the window may go to `url`: a web link, from a PDF's viewer say, goes to the browser instead of replacing the app.
 fn stays_in_app(url: &tauri::Url) -> bool {
-    // Windows serves the app from http://tauri.localhost, `tauri dev` from localhost
-    let web = matches!(url.scheme(), "http" | "https") && !matches!(url.host_str(), Some("tauri.localhost" | "localhost"));
+    // Windows serves the app from http://tauri.localhost, `tauri dev` from localhost: any other local server is the browser's
+    let app = match url.host_str() {
+        Some("tauri.localhost") => true,
+        Some("localhost") => cfg!(debug_assertions),
+        _ => false,
+    };
+    let web = matches!(url.scheme(), "http" | "https") && !app;
     if web {
         let _ = open_url(url.to_string());
     }
