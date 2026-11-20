@@ -77,7 +77,7 @@ test("a worktree whose folder goes away under its tab steps back to its reposito
   await k.until(() => document.getElementById("branch").textContent === "main" && document.querySelector("#tabs .tab.on .tab-name")?.textContent === "tidepool");
   // one notice: the step back's
   assert.deepEqual(await k.js(() => [...document.querySelectorAll("#toasts .toast.err, #toasts .toast:last-child")].map((t) => t.querySelector("b").textContent)), ["Back to tidepool"]);
-  // pruned on the way, out of git's list and the sidebar's
+  // out of the sidebar's list, not pruned: a folder on an unplugged drive comes back; git's gc prunes it in time
   await k.until(() => document.querySelector('#sidebar [data-key="worktrees"] .n')?.textContent === "2");
-  assert.ok(!execFileSync("git", ["worktree", "list"], { cwd: join(dir, "tidepool") }).toString().includes("tidepool-gone"));
+  assert.match(execFileSync("git", ["worktree", "list", "--porcelain"], { cwd: join(dir, "tidepool") }).toString(), /tidepool-gone\n(.+\n)*prunable/);
 });

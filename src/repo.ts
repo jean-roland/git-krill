@@ -394,11 +394,6 @@ async function reload() {
     if (r !== repo) return;
     status = s;
     refs = rf;
-    // a worktree whose folder went: out of git's list too, nothing here could bring it back (git keeps a locked one)
-    if (rf.worktrees.some((w) => w.prunable) && !pruning.has(r)) {
-      pruning.add(r);
-      run("git_op", { op: "worktree-prune", arg: "" }, true).then(() => void (pruning.delete(r), r === repo && refresh()), () => {});
-    }
     if (rf.lfs && rf.lfsProblem) warnOnce(`lfs:${r}`, `${basename(r)} uses Git LFS`, LFS_PROBLEMS[rf.lfsProblem], "err");
     opInfo = info;
     const landed = landing;
@@ -476,9 +471,6 @@ async function reload() {
     say(String(e), true);
   }
 }
-
-// the repositories whose gone worktrees are being pruned; one that failed stays, not tried on every refresh
-const pruning = new Set<string>();
 
 // without git it cannot tell: the folder is taken as still there
 export const isRepo = (path: string) => invoke("repo_root", { path }).then(() => true, (e) => noGit(String(e)));
