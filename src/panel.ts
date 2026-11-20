@@ -56,13 +56,13 @@ function fileMenu(f: Change, kind: DiffSource, c?: Commit): MenuItem[] {
       ? ([
           ["Stage", () => gitOp("stage", f.path)],
           ["Discard changes", () => (isSubmodule(f.path) ? discardSubmodule(f.path) : confirmDiscard([f]))],
-          ["Stash file", () => gitOp("stash-files", f.path)],
+          stashItem([f], "Stash file"),
         ] as MenuItem[])
       : []),
     ...(kind === "staged"
       ? ([
           ["Unstage", () => gitOp("unstage", f.path)],
-          ["Stash file", () => gitOp("stash-files", f.path)],
+          stashItem([f], "Stash file"),
         ] as MenuItem[])
       : []),
     null,
@@ -194,6 +194,11 @@ function clickFile(list: WipList, f: Change, e: MouseEvent) {
 
 /** What two or more picked files can do together. */
 // git refuses a whole checkout over one conflict; a submodule has a discard of its own
+// git stash takes no staged rename by path (the old one matches nothing), nor a submodule's checkout
+const stashItem = (files: Change[], label: string): MenuItem => {
+  const why = files.some((f) => f.old || isSubmodule(f.path)) ? "Renamed files and submodules stash with Stash, all at once" : "";
+  return [label, why ? null : () => gitOp("stash-files", pathArg(files)), why];
+};
 export const cannotDiscard = (files: Change[]) => (files.some((f) => isConflict(f) || isSubmodule(f.path)) ? "Conflicted files and submodules are discarded one at a time" : "");
 
 function pickedMenu(list: WipList, files: Change[]): MenuItem[] {
@@ -209,7 +214,7 @@ function pickedMenu(list: WipList, files: Change[]): MenuItem[] {
           [`Unstage ${n}`, () => gitOp("unstage", paths)],
           [`Discard ${n}`, why ? null : () => confirmDiscard(files, true), why],
         ]) as MenuItem[]),
-    [`Stash ${n}`, () => gitOp("stash-files", paths)],
+    stashItem(files, `Stash ${n}`),
     [`Ignore ${n}`, () => ignore(files.map((f) => anchored(f.path)), files)],
   ];
 }
