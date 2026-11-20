@@ -555,6 +555,8 @@ async function shrimpVisit() {
   $("wip").append((shrimp = sea));
   const go = (frames: Keyframe[], ms: number, easing = "ease-in-out") => fish.animate(frames, { duration: ms, easing, fill: "forwards" }).finished;
   const w = sea.clientWidth, half = fish.offsetWidth / 2, mid = w / 2;
+  // its list hidden meanwhile (another tab, Settings): back on it, renderWip asks again
+  if (!w) return void (sea.remove(), (shrimp = null));
   // a little sway, level at the middle; the 8 stands up, its loops the list's height allows
   const sway = (x: number) => 3 * Math.sin((x - mid) / 13), a = Math.min(w * 0.12, 40), b = Math.min(sea.clientHeight * 0.32, 65);
   const p: [number, number][] = [];
