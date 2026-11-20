@@ -511,8 +511,8 @@ export async function renderPanel() {
 // a clean WIP list's shrimp: SHRIMP_FIRST into a clean view, SHRIMP_AGAIN at least after its last visit, finished or not
 const SHRIMP_FIRST = 10_000, SHRIMP_AGAIN = 5 * 60_000;
 let shrimpTimer = 0, shrimp: HTMLElement | null = null, shrimpSeen = 0;
-// one function list for every step: a flip passes through the shrimp's edge, not round its middle
-const shrimpAt = (x: number, turn = 0, flip = 1) => ({ transform: `translateX(${x}px) rotate(${turn}deg) scaleX(${flip})` });
+// one function list for every step: a flip passes through the shrimp's edge, not round its middle; it faces left at turn 0
+const shrimpAt = (x: number, y = 0, turn = 0, flip = 1) => ({ transform: `translate(${x}px, ${y}px) rotate(${turn}deg) scaleX(${flip})` });
 
 /** Keep the shrimp coming while the unstaged list shows `empty`; off it darts the moment it does not. */
 function shrimpWatch(empty: boolean) {
@@ -520,22 +520,46 @@ function shrimpWatch(empty: boolean) {
   if (!shrimpTimer && !shrimp) shrimpTimer = setTimeout(shrimpVisit, Math.max(SHRIMP_FIRST, shrimpSeen + SHRIMP_AGAIN - Date.now()));
 }
 
-/** A peek in from the edge, a look about, back out; then a shy swim across. Over the list: its rows are redrawn on every refresh. */
+/** The swim through points `p` (the shrimp's middle, `half` its half width) at an even speed, head first. */
+function swimFrames(p: [number, number][], half: number) {
+  const len = [0];
+  for (let i = 1; i < p.length; i++) len.push(len[i - 1] + Math.hypot(p[i][0] - p[i - 1][0], p[i][1] - p[i - 1][1]));
+  let turn = 0;
+  const frames = p.map(([x, y], i) => {
+    const [ax, ay] = p[Math.max(i - 1, 0)], [bx, by] = p[Math.min(i + 1, p.length - 1)];
+    // the heading's angle from facing left, kept continuous round the loops
+    const d = (Math.atan2(ay - by, ax - bx) * 180) / Math.PI - turn;
+    turn += d - 360 * Math.round(d / 360);
+    return { ...shrimpAt(x - half, y, turn), offset: len[i] / len[len.length - 1] };
+  });
+  return { frames, length: len[len.length - 1] };
+}
+
+/** A peek in from the edge, a look about, back out; then a shy swim: to the middle, an 8 there, on out. Over the list: its rows are redrawn on every refresh. */
 async function shrimpVisit() {
   shrimpTimer = 0;
   shrimpSeen = Date.now();
-  const list = $("unstaged"), fish = h("span", {}, h("span", { textContent: "🦐" })), sea = h("div", { className: "shrimp-sea" }, fish);
+  const list = $("unstaged"), fish = h("span", { textContent: "🦐" }), sea = h("div", { className: "shrimp-sea" }, fish);
   Object.assign(sea.style, { top: `${list.offsetTop}px`, height: `${list.offsetHeight}px` });
   $("wip").append((shrimp = sea));
   const go = (frames: Keyframe[], ms: number, easing = "ease-in-out") => fish.animate(frames, { duration: ms, easing, fill: "forwards" }).finished;
-  // the peek: half of it in
-  const peek = -fish.offsetWidth / 2;
+  const w = sea.clientWidth, half = fish.offsetWidth / 2, mid = w / 2;
+  // a little sway, level at the middle; the 8 stands up, its loops the list's height allows
+  const sway = (x: number) => 3 * Math.sin((x - mid) / 13), a = Math.min(w * 0.12, 40), b = Math.min(sea.clientHeight * 0.32, 65);
+  const p: [number, number][] = [];
+  for (let x = w + half; x > mid; x -= 4) p.push([x, sway(x)]);
+  // up and left into the loop above, across its top, down through the middle into the one below
+  for (let t = 0; t <= 2 * Math.PI; t += Math.PI / 60) p.push([mid - a * Math.sin(2 * t), -b * Math.sin(t)]);
+  for (let x = mid - 4; x > -half - 4; x -= 4) p.push([x, sway(x)]);
+  const swim = swimFrames(p, half);
   try {
-    await go([shrimpAt(0), shrimpAt(peek)], 900);
-    await go([shrimpAt(peek), shrimpAt(peek, -8), shrimpAt(peek, 6), shrimpAt(peek)], 1200);
-    await go([shrimpAt(peek), shrimpAt(0)], 600);
-    await go([shrimpAt(0), shrimpAt(0)], 1500);
-    await go([shrimpAt(0), shrimpAt(-sea.clientWidth - 40)], 12_000, "linear");
+    // the peek: half of it in
+    await go([shrimpAt(w), shrimpAt(w - half)], 900);
+    await go([shrimpAt(w - half), shrimpAt(w - half, 0, -8), shrimpAt(w - half, 0, 6), shrimpAt(w - half)], 1200);
+    await go([shrimpAt(w - half), shrimpAt(w)], 600);
+    await go([shrimpAt(w), shrimpAt(w)], 1500);
+    // 40 px a second
+    await go(swim.frames, swim.length * 25, "linear");
   } catch {
     // darted off meanwhile
     return;
@@ -545,14 +569,16 @@ async function shrimpVisit() {
   shrimpWatch(true);
 }
 
-/** A turn about, then off it darts to the edge it came in by. */
+/** A turn toward the nearer side, then off it darts that way. */
 function shrimpAway() {
   const sea = shrimp, fish = sea?.firstElementChild as HTMLElement | undefined;
   shrimp = null;
   if (!sea || !fish) return;
-  const now = getComputedStyle(fish).transform, x = now === "none" ? 0 : new DOMMatrix(now).m41;
+  const now = getComputedStyle(fish).transform, m = now === "none" ? new DOMMatrix() : new DOMMatrix(now);
   fish.getAnimations().forEach((a) => a.cancel());
-  fish.animate([shrimpAt(x), { ...shrimpAt(x, 0, -1), offset: 0.4 }, shrimpAt(0, 0, -1)], { duration: 450, easing: "ease-in", fill: "forwards" }).finished.then(() => sea.remove(), () => sea.remove());
+  const turn = (Math.atan2(m.m12, m.m11) * 180) / Math.PI, left = m.m41 + fish.offsetWidth / 2 < sea.clientWidth / 2;
+  const to = left ? -fish.offsetWidth - 4 : sea.clientWidth + 4, flip = left ? 1 : -1;
+  fish.animate([shrimpAt(m.m41, m.m42, turn), { ...shrimpAt(m.m41, m.m42, 0, flip), offset: 0.4 }, shrimpAt(to, m.m42, 0, flip)], { duration: 450, easing: "ease-in", fill: "forwards" }).finished.then(() => sea.remove(), () => sea.remove());
 }
 
 async function renderWip(seq: number) {

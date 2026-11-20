@@ -124,7 +124,8 @@ class Krill {
       () =>
         !document.body.classList.contains("slow") &&
         !document.querySelector("#diff.blank, #hist-main.blank, .still") &&
-        document.getAnimations().every((a) => a.playState !== "running" || a.effect?.getTiming().iterations === Infinity),
+        // the clean WIP list's shrimp swims for half a minute: nothing waits on it
+        document.getAnimations().every((a) => a.playState !== "running" || a.effect?.getTiming().iterations === Infinity || a.effect?.target?.closest?.(".shrimp-sea")),
     );
     await this.js(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
   }
