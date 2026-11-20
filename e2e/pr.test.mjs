@@ -77,6 +77,8 @@ test("a pull request shows its checks, description, review thread and files", as
   const text = await k.js(() => document.getElementById("pr-page").textContent);
   for (const t of ["1 of 2 checks failed", "The tide follows the moon", "Does it hold at neap tide?", "Why plus one?", "The moon rises later each day.", "approved", "started a review, not submitted yet"]) assert.ok(text.includes(t), t);
   assert.ok(!text.includes("NaN"));
+  // undated, it comes last in any locale
+  assert.match(await k.js(() => [...document.querySelectorAll("#pr-page .card")].pop().textContent), /started a review/);
   await k.shot("pull-request");
 });
 

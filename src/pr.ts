@@ -247,7 +247,7 @@ export async function openPr(pr: Pr, again = false) {
     .then((info) => run<string>("pr_base", { remote: p.remote, number: pr.number, head: pr.headRefOid, base: pr.baseRefName, baseSha: info?.base?.sha ?? null }))
     .then(
       (base) => {
-        if (onShow !== pr || (kept && selection.pr?.base === base)) return;
+        if (onShow !== pr || (kept && selection.pr?.base === base && selection.pr.title === pr.title)) return;
         selection.pr = { number: pr.number, hash: pr.headRefOid, base, title: pr.title };
         renderPanel();
       },
@@ -264,9 +264,11 @@ export async function openPr(pr: Pr, again = false) {
 
 /** Pull request `n` asked again: the list for its title and checks, then its page. */
 async function refreshPr(n: number) {
+  const was = onShow;
   await loadPrs(true);
   const pr = pulls.get(repo)?.list.find((x) => x.number === n);
-  if (pr && onShow?.number === n) openPr(pr, true);
+  // a moved head reopened it already
+  if (pr && onShow === was && onShow?.number === n) openPr(pr, true);
 }
 
 /** The page's buttons as the checkout stands: after any refresh, a checkout's own among them. */
@@ -322,7 +324,8 @@ async function pageOf(pr: Pr, reviews: Review[], notes: Note[], inline: Inline[]
     // threads whose review is not listed
     ...roots.filter((c) => !reviews.some((rv) => rv.id === c.pull_request_review_id)).map((c): [string, string] => [c.created_at, `<div class="card">${thread(c)}</div>`]),
   ];
-  items.sort(([a], [b]) => a.localeCompare(b));
+  // by code unit: ISO times in order, the undated "~" after them, whatever the locale's collation
+  items.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   return [
     `<h1>${esc(pr.title)} <span class="dim">#${pr.number}</span></h1>`,
     `<p><span class="state${pr.isDraft ? " draft" : ""}">${pr.isDraft ? "Draft" : "Open"}</span> ${who(pr.author)} wants to merge into <code>${esc(pr.baseRefName)}</code> from <code>${esc(pr.headRefName)}</code></p>`,
