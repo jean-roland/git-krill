@@ -268,7 +268,7 @@ function applyMode() {
   const [prev, next, hunk, inline, split] = diffButtons();
   // on top of paintSides' dimming, which clears it for a text diff: no diff to lay out in the File view; images, only side by side and no change to step to; Monaco cannot fold a file that big
   (file ? [prev, next, hunk, inline, split] : d?.drawn ? [prev, next, hunk, inline] : full ? [hunk] : []).forEach((b) => b.classList.add("off"));
-  hunk.dataset.tip = full ? "Can't show hunks for files over 10 MB" : "Changed hunks only";
+  hunk.dataset.title = full ? "Can't show hunks for files over 10 MB" : "Changed hunks only";
   tipDiffOnly(file);
   document.querySelectorAll<HTMLElement>("[data-dview]").forEach((b) => b.classList.toggle("on", (b.dataset.dview === "file") === file));
   const diff = document.querySelector<HTMLElement>('[data-dview="diff"]')!;
@@ -278,8 +278,8 @@ function applyMode() {
 
 // the Diff view's own buttons: the change arrows and the layouts
 const diffButtons = () => [$("prev-change"), $("next-change"), ...document.querySelectorAll<HTMLElement>("[data-mode]")];
-/** The Diff view's buttons' tips, saying so where a File view greys them. */
-const tipDiffOnly = (on: boolean) => diffButtons().forEach((b) => (b.title = (b.dataset.tip ??= b.title) + (on ? " (Diff mode only)" : "")));
+/** The Diff view's buttons' tips, saying so where a File view greys them (their own in data-title: data-tip pops a tooltip). */
+const tipDiffOnly = (on: boolean) => diffButtons().forEach((b) => (b.title = (b.dataset.title ??= b.title) + (on ? " (Diff mode only)" : "")));
 
 /** The diff's old side as its view needs it: the new side itself in the File view, its own text, to compare, in the Diff view; whether it changed. */
 function fitOriginal() {

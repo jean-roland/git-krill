@@ -23,6 +23,8 @@ test("a change opens in Hunk view, then Split", async () => {
   await k.click("#unstaged .file", "docs/logo.svg");
   await k.until(() => !document.getElementById("diff-file").hidden && document.querySelector('[data-dview="file"]').classList.contains("on"));
   assert.equal(await k.js(() => document.getElementById("next-change").title), "Next change (N) (Diff mode only)");
+  // the native tip alone: a data-tip would pop a second one at once
+  assert.equal(await k.js(() => document.querySelectorAll("#prev-change[data-tip], #next-change[data-tip], [data-mode][data-tip]").length), 0);
   await k.click('[data-dview="diff"]');
   // a new file shows alone first, its Diff view still there to pick its lines
   await k.click("#unstaged .file", "src/units.rs");
