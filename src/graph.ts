@@ -784,8 +784,8 @@ function branchMenu(name: string, remote: boolean): MenuItem[] {
     ...(remote
       ? []
       : ([current ? ["Delete local", null, "Can't delete the checked out branch: check out another one first"] : ["Delete local", () => deleteBranch(name, findRef(`refs/remotes/${up}`) ? up : "")]] as MenuItem[])),
-    // a local branch's upstream too: one menu for both; none of it on the checked out branch
-    ...(onRemote && !current
+    // a local branch's upstream too, one menu for both: git deletes it even with the local one checked out
+    ...(onRemote
       ? ([[`Delete on ${rem}`, () => ask(`Delete branch ${remBranch} on ${rem}? This pushes the deletion.`, "Delete").then((ok) => ok && gitOp("push-delete", [rem, `refs/heads/${remBranch}`]))]] as MenuItem[])
       : []),
     ...(current || !ref ? [] : [hideItem(ref.name)]),
