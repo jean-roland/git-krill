@@ -285,23 +285,24 @@ export async function stepBack() {
 }
 
 /** `git worktree remove`, forced after a warning when it has changes; its branch can go too. */
-async function removeWorktree(w: Worktree) {
+async function removeWorktree(w: Worktree, branchToo = false) {
   const [s, merged] = await Promise.all([invoke<Status>("status", { repo: w.path }).catch(() => null), !w.branch || run<boolean>("is_merged", { branch: w.branch }).catch(() => false)]);
   const dirty = !!s && s.staged.length + s.unstaged.length > 0;
   // this one question covers the branch too: unmerged commits are named in it
-  const unmerged = merged ? "" : ` ${w.branch} is not merged into ${findRef(`refs/heads/${w.branch}`)?.upstream || status?.branch || "HEAD"}.`;
+  const unmerged = merged ? "" : ` (not merged into ${findRef(`refs/heads/${w.branch}`)?.upstream || status?.branch || "HEAD"})`;
   const r = repo;
   const remove = (andBranch: boolean) => async () => {
     // still in the tab it was asked from
-    if ((await gitOp(dirty ? "worktree-force-remove" : "worktree-remove", w.path)) && andBranch && repo === r) gitOp(merged ? "branch-delete" : "branch-force-delete", w.branch);
+    // one toast for both, the branch's: git's line there has its last commit
+    if ((await gitOp(dirty ? "worktree-force-remove" : "worktree-remove", w.path, true, andBranch ? "" : undefined)) && andBranch && repo === r)
+      gitOp(merged ? "branch-delete" : "branch-force-delete", w.branch, true, `Removed worktree ${basename(w.path)} and deleted branch ${w.branch}`);
   };
-  dialog(
-    (dirty ? `${basename(w.path)} has uncommitted changes. Remove it and lose them?` : `Remove worktree ${basename(w.path)}? Its folder is deleted, its branch stays.`) + unmerged,
-    [],
-    dirty ? "Force remove" : "Remove",
-    remove(false),
-    w.branch ? [[`Remove and ${merged ? "delete" : "force delete"} ${w.branch}`, remove(true)]] : [],
-  );
+  const branch = `${merged ? "delete" : "force delete"} branch`;
+  // the question bold, what goes with it under it
+  const question = `Remove worktree ${basename(w.path)}${dirty ? " and lose its uncommitted changes" : ""}?\n`;
+  // asked from the branch: git deletes none a worktree has checked out
+  if (branchToo) return dialog(`${question}${w.branch} is checked out there: its folder is deleted, the branch with it${unmerged}.`, [], `Remove and ${branch}`, remove(true));
+  dialog(`${question}Its folder is deleted${w.branch ? `, its branch ${w.branch} stays${unmerged}` : ""}.`, [], dirty ? "Force remove" : "Remove", remove(false), w.branch ? [[`Remove and ${branch}`, remove(true)]] : []);
 }
 
 /** Eye toggle and menu on a remote's folder in the sidebar. */
@@ -791,6 +792,9 @@ function branchMenu(name: string, remote: boolean): MenuItem[] {
 
 /** `git branch -d`, or `-D` after saying what is lost when the branch is merged nowhere. */
 async function deleteBranch(name: string, upstream: string) {
+  // the main folder's stays: it cannot be removed
+  const wt = worktreeOf(name);
+  if (wt && wt !== refs.worktrees[0]) return removeWorktree(wt, true);
   const merged = await run<boolean>("is_merged", { branch: name }).catch(() => false);
   if (merged) return (await ask(`Delete branch ${name}?`, "Delete")) && gitOp("branch-delete", name);
   // a squash-merged pull request leaves its branch unmerged here

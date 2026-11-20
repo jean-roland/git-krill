@@ -1033,6 +1033,8 @@ svg.blame-av { cursor: pointer; }
 /* the buttons size the dialog, the question wraps to them */
 .dlg-head b { flex: 1; width: 0; }
 .dlg-head .x { padding: 0 6px; border: none; background: none; color: var(--dim); font-size: 20px; }
+/* wraps to the buttons too: min-width 100% adds nothing to the dialog's own width */
+.dlg-note { margin: -6px 0 0; width: 0; min-width: 100%; color: var(--dim); white-space: pre-line; }
 .dlg label { margin-top: 8px; color: var(--dim); font-size: 12px; }
 .dlg input { font: 13px var(--mono); color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px; }
 .dlg input:focus, .dlg textarea:focus { outline: 1px solid var(--accent); }

@@ -154,8 +154,8 @@ export function runFixed<T>(cmd: string, args: Record<string, unknown>) {
   return data;
 }
 
-/** Run git op `name`; a pair passes a second argument (new name, start point, remote branch). */
-export async function gitOp(name: string, arg: string | [string, string] = "", record = true) {
+/** Run git op `name`; a pair passes a second argument (new name, start point, remote branch); `done` replaces its toast, "" for none. */
+export async function gitOp(name: string, arg: string | [string, string] = "", record = true, done?: string) {
   const [arg1, arg2] = Array.isArray(arg) ? arg : [arg, ""];
   const tab = tabs[active], branch = status?.branch ?? "", head = headHash(), started = performance.now();
   say(`${name}…`);
@@ -177,7 +177,7 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
     // what the server says on push (pull request links, warnings) deserves more than the status bar
     const remote = out.split("\n").flatMap((l) => (l.startsWith("remote:") && l.slice(7).trim() ? [l.slice(7).trim()] : []));
     const upstream = findRef(`refs/heads/${branch}`)?.upstream ?? "";
-    const done = DONE[name]?.(arg1, arg2, branch, upstream);
+    done ??= DONE[name]?.(arg1, arg2, branch, upstream);
     // git said nothing: the title is all there is
     if (done) toast(done, remote.length ? remote.join("\n") : out.trim() ? last : "", "info");
     else if (remote.length) toast("Message from the remote", remote.join("\n"), "info");

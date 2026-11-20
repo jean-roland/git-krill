@@ -98,3 +98,17 @@ test("a worktree whose folder goes away under its tab steps back to its reposito
   await k.until(() => document.querySelector('#sidebar [data-key="worktrees"] .n')?.textContent === "2");
   assert.match(execFileSync("git", ["worktree", "list", "--porcelain"], { cwd: join(dir, "tidepool") }).toString(), /tidepool-gone\n(.+\n)*prunable/);
 });
+
+test("a branch another worktree has deletes with that worktree, in one question", async () => {
+  await k.menu("#graph .ref", "feature/moon-phase");
+  await k.click("#menu button", "Delete local");
+  await k.until(() => document.querySelector("#dialog .dlg-note")?.textContent.startsWith("feature/moon-phase is checked out there"));
+  await k.click("#dialog button.primary");
+  await k.until(() => document.querySelector('#sidebar [data-key="worktrees"] .n')?.textContent === "1");
+  // one toast for the one action
+  const toasts = () => k.js(() => [...document.querySelectorAll("#toasts .toast b")].map((b) => b.textContent).filter((t) => t.includes("tidepool-moon")));
+  await k.until(() => [...document.querySelectorAll("#toasts .toast b")].some((b) => b.textContent.includes("deleted branch feature/moon-phase")));
+  assert.deepEqual(await toasts(), ["Removed worktree tidepool-moon and deleted branch feature/moon-phase"]);
+  assert.ok(!existsSync(join(dir, "tidepool-moon")));
+  assert.equal(execFileSync("git", ["branch", "--list", "feature/moon-phase"], { cwd: join(dir, "tidepool") }).toString(), "");
+});

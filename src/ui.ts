@@ -250,13 +250,16 @@ const dialogsUnder: { nodes: Element[]; cancel: (() => unknown) | null }[] = [];
 
 /** Show a dialog, over any open one: `title` with a ×, `body`, then Cancel and the `actions`. */
 export function showDialog(title: string, body: Node[], actions: Node[], cancel: (() => unknown) | null, cls = "") {
+  // past a line break: details, dimmed under the question
+  const [question, ...note] = title.split("\n");
   if (!$("dialog").hidden) dialogsUnder.push({ nodes: [...$("dialog").children], cancel: dialogCancel });
   dialogCancel = cancel;
   $("dialog").replaceChildren(
     h(
       "div",
       { className: `dlg ${cls}`.trim() },
-      h("div", { className: "dlg-head" }, h("b", { textContent: title }), h("button", { className: "x", textContent: "×", title: "Close (Esc)", onclick: closeDialog })),
+      h("div", { className: "dlg-head" }, h("b", { textContent: question }), h("button", { className: "x", textContent: "×", title: "Close (Esc)", onclick: closeDialog })),
+      ...(note.length ? [h("p", { className: "dlg-note", textContent: note.join("\n") })] : []),
       ...body,
       h("div", { className: "dlg-actions" }, h("button", { textContent: "Cancel", onclick: closeDialog }), ...actions),
     ),
