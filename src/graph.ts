@@ -662,8 +662,8 @@ const labelRef = (l: Label) => (l.local ? l.name : `${l.remotes[0]}/${l.name}`);
 /** Check out `name`; a remote branch whose local one is elsewhere catches it up when only behind, else asks: reset the local one to it, or take it as it is. */
 function checkoutBranch(name: string, remote: boolean) {
   const local = remote ? name.slice(name.indexOf("/") + 1) : name;
-  // git refuses a branch another worktree has: open that worktree instead
-  const wt = !remote && worktreeOf(local);
+  // git refuses a branch another worktree has (but 2.43's checkout -B takes it, leaving its files behind): open that worktree instead
+  const wt = worktreeOf(local);
   if (wt) return openWorktree(wt.path);
   // a worktree whose folder is gone still holds its branch until pruned
   const stale = !remote && refs.worktrees.find((w) => w.branch === local && w.prunable);

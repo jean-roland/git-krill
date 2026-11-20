@@ -63,6 +63,23 @@ test("a worktree made from a commit opens on its new branch, then is removed", a
   assert.equal(await count("worktrees"), "2");
 });
 
+test("a remote branch double-clicked in a worktree opens the worktree its local branch is in, behind or not", async () => {
+  const git = (...args) => execFileSync("git", ["-c", "user.name=Krill Test", "-c", "user.email=test@example.com", ...args], { cwd: join(dir, "tidepool") }).toString().trim();
+  // main a commit behind origin's, pushed there: the fetch on opening keeps it
+  const was = git("rev-parse", "origin/main");
+  git("push", "-q", "origin", `${git("commit-tree", "--no-gpg-sign", "main^{tree}", "-p", "main", "-m", "ahead")}:refs/heads/main`);
+  git("fetch", "-q", "origin");
+  await k.menu('#sidebar [data-key="worktrees"] .item', "feature/moon-phase");
+  await k.click("#menu button", "Open worktree");
+  await k.until(() => document.getElementById("repo-name").textContent.includes("moon"));
+  await k.settle();
+  await k.js(() => [...document.querySelectorAll("#graph .row")].find((r) => r.textContent.includes("ahead")).querySelector(".ref").dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+  await k.until(() => !document.getElementById("repo-name").textContent.includes("moon") && document.getElementById("branch").textContent === "main");
+  assert.match(git("worktree", "list", "--porcelain"), /tidepool-moon\nHEAD \w+\nbranch refs\/heads\/feature\/moon-phase/);
+  git("push", "-qf", "origin", `${was}:refs/heads/main`);
+  git("fetch", "-q", "origin");
+});
+
 test("a worktree whose folder goes away under its tab steps back to its repository", async () => {
   await k.menu("#graph .row", "chore: release 0.2.0");
   await k.click("#menu button", "Create worktree from this commit");
