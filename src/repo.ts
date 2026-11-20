@@ -158,7 +158,7 @@ export function runFixed<T>(cmd: string, args: Record<string, unknown>) {
 export async function gitOp(name: string, arg: string | [string, string] = "", record = true, done?: string) {
   const [arg1, arg2] = Array.isArray(arg) ? arg : [arg, ""];
   const tab = tabs[active], branch = status?.branch ?? "", head = headHash(), started = performance.now();
-  say(`${name}…`);
+  say(`${name}…`, false, true);
   document.body.classList.add("busy");
   // picked before the op: its refresh lands there in one go
   if (TO_WIP.has(name)) pickWip();

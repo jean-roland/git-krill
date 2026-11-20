@@ -163,16 +163,16 @@ export const noGit = (msg: string) => msg.startsWith("Git is not installed");
 
 let saying = 0;
 
-export function say(msg: string, err = false) {
+export function say(msg: string, err = false, keep = false) {
   if (err && noGit(msg)) return void warnOnce("no-git", "Git is not installed", msg.slice(msg.indexOf(". ") + 2), "err");
   // errors pop up, the status bar keeps the quiet news
   if (err) return void toast("Error", msg + hint(msg), "err");
   const s = $("status");
   s.textContent = msg.replace(/\s*\n\s*/g, " · ");
   s.title = msg;
-  // news, not a state: gone after 5 s unless newer came; an operation's "push…" stays until its outcome replaces it
+  // news, not a state: gone after 5 s unless newer came; `keep`, an operation's "push…", stays until its outcome replaces it
   clearTimeout(saying);
-  if (!msg.endsWith("…")) saying = setTimeout(() => ((s.textContent = ""), (s.title = "")), 5000);
+  if (!keep) saying = setTimeout(() => ((s.textContent = ""), (s.title = "")), 5000);
 }
 
 export const svg = (d: string) => `<svg viewBox="0 0 24 24"><path d="${d}"/></svg>`;
