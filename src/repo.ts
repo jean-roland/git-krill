@@ -100,6 +100,8 @@ export const selection = { hashes: ["WIP"], anchor: "", isRange: false, stash: n
 let reveal = false;
 // ops whose changes land in WIP: it is picked before they run
 const TO_WIP = new Set(["reset-soft", "reset-mixed", "stash-apply", "stash-pop"]);
+// ops that take changes out of WIP: run from it, it stays shown
+const EMPTY_WIP = new Set(["stash-push", "stash-files", "discard", "clean", "discard-staged", "discard-all", "submodule-discard"]);
 
 /** Pick WIP before an op whose changes land there; its refresh moves on to HEAD if none are left. */
 function pickWip() {
@@ -162,8 +164,8 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
   document.body.classList.add("busy");
   // picked before the op: its refresh lands there in one go
   if (TO_WIP.has(name)) pickWip();
-  // run from WIP (stash, discard): it stays, emptied or not, until HEAD moves (a commit)
-  else if (selection.hashes[0] === "WIP" && !selection.stash && !selection.pr) selection.held = true;
+  // emptying the shown WIP: it stays until HEAD moves (a commit)
+  else if (EMPTY_WIP.has(name) && selection.hashes[0] === "WIP" && !selection.stash && !selection.pr) selection.held = true;
   // the index a stash applies over: undoing a conflicted apply puts it back
   const stash = record && (name === "stash-apply" || name === "stash-pop") ? refs.stashes.find((s) => s.name === (arg1 || "stash@{0}")) : undefined;
   const tree = stash ? await run<string>("index_tree").catch(() => "") : "";
