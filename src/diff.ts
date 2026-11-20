@@ -144,7 +144,8 @@ export function editor() {
   me.onMouseMove((e) => hoverButton(barButton(e)));
   me.onMouseLeave(() => hoverButton());
   me.onMouseDown((e) => barButton(e)?.click());
-  me.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => save().then(refresh));
+  // Monaco's commands are global, the last one added wins: each picks by what is open
+  me.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => (merging ? saveMerge() : save().then(refresh)));
   applyMode();
   return diffEditor;
 }
@@ -1609,7 +1610,7 @@ function mergeEditors() {
     ed.onMouseLeave(() => hover(0));
   }
   out.onDidChangeModelContent(() => merging && (merging.dirty = true));
-  out.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveMerge());
+  out.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => (merging ? saveMerge() : save().then(refresh)));
   // the panes follow each other, matching lines across the conflicts
   const panes = [[a, "a"], [b, "b"], [out, "out"]] as const;
   let syncing = false;
