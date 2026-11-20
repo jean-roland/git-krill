@@ -781,7 +781,9 @@ function branchMenu(name: string, remote: boolean): MenuItem[] {
     null,
     ...(remote ? [] : ([["Rename", () => askName("New branch name", name, (n) => gitOp("branch-rename", [name, n]))]] as MenuItem[])),
     // is_merged tests against the upstream, wherever it is
-    ...(remote || current ? [] : ([["Delete local", () => deleteBranch(name, findRef(`refs/remotes/${up}`) ? up : "")]] as MenuItem[])),
+    ...(remote
+      ? []
+      : ([current ? ["Delete local", null, "Can't delete the checked out branch: check out another one first"] : ["Delete local", () => deleteBranch(name, findRef(`refs/remotes/${up}`) ? up : "")]] as MenuItem[])),
     // a local branch's upstream too: one menu for both; none of it on the checked out branch
     ...(onRemote && !current
       ? ([[`Delete on ${rem}`, () => ask(`Delete branch ${remBranch} on ${rem}? This pushes the deletion.`, "Delete").then((ok) => ok && gitOp("push-delete", [rem, `refs/heads/${remBranch}`]))]] as MenuItem[])

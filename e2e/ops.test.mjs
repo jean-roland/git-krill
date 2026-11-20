@@ -38,6 +38,19 @@ test("a branch's menu shows over the column grips", async () => {
   await k.until(() => !document.querySelector(".menu:not([hidden])"));
 });
 
+test("the checked out branch's Delete local is greyed, saying why", async () => {
+  await k.menu('#sidebar [data-key="local"] .item', "main");
+  const [off, why] = await k.js(() => {
+    const b = [...document.querySelectorAll("#menu button")].find((b) => b.textContent === "Delete local");
+    return [b?.classList.contains("off"), b?.title];
+  });
+  assert.ok(off);
+  assert.match(why, /^Can't delete the checked out branch/);
+  await k.click("#menu button", "Delete local");
+  await k.until(() => document.getElementById("status").textContent.startsWith("Can't delete the checked out branch"));
+  await k.keys("\uE00C");
+});
+
 test("a tag made on a commit is pushed to the remote, then deleted here", async () => {
   await k.menu("#graph .row", "chore: move to the 2024 edition");
   await k.click("#menu button", "Create tag here");
