@@ -254,7 +254,8 @@ export async function openWorktree(path: string, parent = "") {
 }
 
 /** `git worktree add` of `branch`, or of a new branch from commit `from`, by default in a folder beside the repository's; this tab then shows it. */
-function createWorktree(branch: string, from = "", busy = "") {
+async function createWorktree(branch: string, from = "", busy = "") {
+  if (branch && !(await pruneHolder(branch, "go on"))) return;
   // a repo tool checkout keeps them out of its tree, where its build would find them: <top>/../wt
   const main = refs.worktrees[0]?.path ?? repo, top = refs.repoTop;
   const beside = (b: string) => `${top ? `${top.slice(0, top.lastIndexOf("/"))}/wt/${basename(main)}` : main}-${b.replace(/\//g, "-")}`;
@@ -291,11 +292,12 @@ async function removeWorktree(w: Worktree, branchToo = false) {
   // this one question covers the branch too: unmerged commits are named in it
   const unmerged = merged ? "" : ` (not merged into ${findRef(`refs/heads/${w.branch}`)?.upstream || status?.branch || "HEAD"})`;
   const r = repo;
+  const removed = `Removed worktree ${basename(w.path)}`;
   const remove = (andBranch: boolean) => async () => {
-    // still in the tab it was asked from
     // one toast for both, the branch's: git's line there has its last commit
-    if ((await gitOp(dirty ? "worktree-force-remove" : "worktree-remove", w.path, true, andBranch ? "" : undefined)) && andBranch && repo === r)
-      gitOp(merged ? "branch-delete" : "branch-force-delete", w.branch, true, `Removed worktree ${basename(w.path)} and deleted branch ${w.branch}`);
+    if (!(await gitOp(dirty ? "worktree-force-remove" : "worktree-remove", w.path, true, andBranch ? "" : undefined)) || !andBranch) return;
+    // still in the tab it was asked from; else, or the branch kept, the removal is told alone
+    if (repo !== r || !(await gitOp(merged ? "branch-delete" : "branch-force-delete", w.branch, true, `${removed} and deleted branch ${w.branch}`))) toast(removed, "", "info");
   };
   const branch = `${merged ? "delete" : "force delete"} branch`;
   // the question bold, what goes with it under it
@@ -660,18 +662,21 @@ export function paintSelection() {
 /** The ref a label stands for: its local branch, else its first remote's. */
 const labelRef = (l: Label) => (l.local ? l.name : `${l.remotes[0]}/${l.name}`);
 
+/** Whether to go on with `local`: a worktree whose folder is gone holds it, and git refuses it, until pruned; asked to prune first. */
+async function pruneHolder(local: string, verb: string) {
+  const stale = refs.worktrees.find((w) => w.branch === local && w.prunable);
+  if (!stale) return true;
+  const q = `${local} is held by the worktree ${basename(stale.path)}, whose folder is gone.\nEvery worktree whose folder is gone is pruned first.`;
+  return (await ask(q, `Prune and ${verb}`)) && gitOp("worktree-prune");
+}
+
 /** Check out `name`; a remote branch whose local one is elsewhere catches it up when only behind, else asks: reset the local one to it, or take it as it is. */
-function checkoutBranch(name: string, remote: boolean) {
+async function checkoutBranch(name: string, remote: boolean) {
   const local = remote ? name.slice(name.indexOf("/") + 1) : name;
   // git refuses a branch another worktree has (but 2.43's checkout -B takes it, leaving its files behind): open that worktree instead
   const wt = worktreeOf(local);
   if (wt) return openWorktree(wt.path);
-  // a worktree whose folder is gone still holds its branch until pruned
-  const stale = !remote && refs.worktrees.find((w) => w.branch === local && w.prunable);
-  if (stale)
-    return ask(`${local} is held by the worktree ${basename(stale.path)}, whose folder is gone. Prune it and checkout ${local}?`, "Prune and checkout").then(
-      async (ok) => ok && (await gitOp("worktree-prune")) && gitOp("checkout", local),
-    );
+  if (!(await pruneHolder(local, "checkout"))) return;
   const mine = findRef(`refs/heads/${local}`), theirs = findRef(`refs/remotes/${name}`);
   if (!remote || !mine || !theirs || mine.hash === theirs.hash) return gitOp("checkout", local);
   // only behind its upstream: catching up drops nothing, no question
@@ -795,11 +800,15 @@ async function deleteBranch(name: string, upstream: string) {
   // the main folder's stays: it cannot be removed
   const wt = worktreeOf(name);
   if (wt && wt !== refs.worktrees[0]) return removeWorktree(wt, true);
+  // a worktree whose folder is gone holds it: pruned first, in the same question, one toast
+  const stale = refs.worktrees.find((w) => w.branch === name && w.prunable);
+  const prune = stale ? `\nIts worktree ${basename(stale.path)}, whose folder is gone, is pruned first, with any other gone one.` : "";
+  const go = async (op: string) => (!stale || (await gitOp("worktree-prune", "", true, ""))) && gitOp(op, name);
   const merged = await run<boolean>("is_merged", { branch: name }).catch(() => false);
-  if (merged) return (await ask(`Delete branch ${name}?`, "Delete")) && gitOp("branch-delete", name);
+  if (merged) return (await ask(`Delete branch ${name}?${prune}`, "Delete")) && go("branch-delete");
   // a squash-merged pull request leaves its branch unmerged here
   const into = upstream || status?.branch || "HEAD";
-  if (await ask(`${name} is not merged into ${into}. Delete it with its unmerged commits?`, "Force delete")) gitOp("branch-force-delete", name);
+  if (await ask(`${name} is not merged into ${into}. Delete it with its unmerged commits?${prune}`, "Force delete")) go("branch-force-delete");
 }
 
 function tagMenu(name: string): MenuItem[] {

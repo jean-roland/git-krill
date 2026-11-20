@@ -112,3 +112,15 @@ test("a branch another worktree has deletes with that worktree, in one question"
   assert.ok(!existsSync(join(dir, "tidepool-moon")));
   assert.equal(execFileSync("git", ["branch", "--list", "feature/moon-phase"], { cwd: join(dir, "tidepool") }).toString(), "");
 });
+
+test("a branch a gone worktree holds deletes after a prune, in one question", async () => {
+  // tidepool-gone's folder went in an earlier test: its branch stays held
+  await k.menu('#sidebar [data-key="local"] .item', "gone");
+  await k.click("#menu button", "Delete local");
+  await k.until(() => document.querySelector("#dialog .dlg-note")?.textContent.includes("tidepool-gone, whose folder is gone, is pruned first"));
+  await k.click("#dialog button.primary");
+  await k.until(() => ![...document.querySelectorAll('#sidebar [data-key="local"] .item')].some((r) => r.textContent.includes("gone")));
+  const top = join(dir, "tidepool");
+  assert.equal(execFileSync("git", ["branch", "--list", "gone"], { cwd: top }).toString(), "");
+  assert.doesNotMatch(execFileSync("git", ["worktree", "list"], { cwd: top }).toString(), /tidepool-gone/);
+});
