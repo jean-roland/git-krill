@@ -170,9 +170,9 @@ export function say(msg: string, err = false) {
   const s = $("status");
   s.textContent = msg.replace(/\s*\n\s*/g, " · ");
   s.title = msg;
-  // news, not a state: gone after 5 s unless newer came
+  // news, not a state: gone after 5 s unless newer came; an operation's "push…" stays until its outcome replaces it
   clearTimeout(saying);
-  saying = setTimeout(() => ((s.textContent = ""), (s.title = "")), 5000);
+  if (!msg.endsWith("…")) saying = setTimeout(() => ((s.textContent = ""), (s.title = "")), 5000);
 }
 
 export const svg = (d: string) => `<svg viewBox="0 0 24 24"><path d="${d}"/></svg>`;
