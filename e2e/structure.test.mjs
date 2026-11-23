@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, rmSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { demo, launch } from "./driver.mjs";
@@ -97,6 +97,35 @@ test("a worktree whose folder goes away under its tab steps back to its reposito
   // out of the sidebar's list, not pruned: a folder on an unplugged drive comes back; git's gc prunes it in time
   await k.until(() => document.querySelector('#sidebar [data-key="worktrees"] .n')?.textContent === "2");
   assert.match(execFileSync("git", ["worktree", "list", "--porcelain"], { cwd: join(dir, "tidepool") }).toString(), /tidepool-gone\n(.+\n)*prunable/);
+});
+
+const worktrees = () => execFileSync("git", ["worktree", "list", "--porcelain"], { cwd: join(dir, "tidepool") }).toString();
+
+test("a branch another worktree has swaps with this one's, and back", async () => {
+  await k.menu("#graph .ref", "feature/moon-phase");
+  await k.click("#menu button", "Swap with worktree tidepool-moon");
+  await k.until(() => document.getElementById("branch").textContent === "feature/moon-phase");
+  assert.match(worktrees(), /tidepool-moon\nHEAD \w+\nbranch refs\/heads\/main\n/);
+  await k.menu("#graph .ref", "main");
+  await k.click("#menu button", "Swap with worktree tidepool-moon");
+  await k.until(() => document.getElementById("branch").textContent === "main");
+  assert.match(worktrees(), /tidepool-moon\nHEAD \w+\nbranch refs\/heads\/feature\/moon-phase\n/);
+  // the next tests count the toasts naming tidepool-moon
+  await k.js(() => document.querySelectorAll("#toasts .toast").forEach((t) => t.remove()));
+});
+
+test("a swap the other worktree's changes block leaves both as they were", async () => {
+  // src/main.rs differs between main and feature/moon-phase: git refuses to switch over its change
+  const file = join(dir, "tidepool-moon", "src/main.rs"), was = readFileSync(file, "utf8");
+  appendFileSync(file, "// wip\n");
+  await k.menu("#graph .ref", "feature/moon-phase");
+  await k.click("#menu button", "Swap with worktree tidepool-moon");
+  await k.until(() => document.querySelector("#toasts .toast.err"));
+  await k.until(() => document.getElementById("branch").textContent === "main");
+  assert.match(worktrees(), /tidepool-moon\nHEAD \w+\nbranch refs\/heads\/feature\/moon-phase\n/);
+  assert.equal(readFileSync(file, "utf8"), `${was}// wip\n`);
+  execFileSync("git", ["checkout", "--", "src/main.rs"], { cwd: join(dir, "tidepool-moon") });
+  await k.js(() => document.querySelectorAll("#toasts .toast").forEach((t) => t.remove()));
 });
 
 test("a branch another worktree has deletes with that worktree, in one question", async () => {

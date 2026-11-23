@@ -1855,6 +1855,27 @@ fn submodule_delete(repo: &str, path: &str, name: &str) -> Result<String, String
     Ok(out)
 }
 
+/// \brief Trade branches with the worktree at `other`, which has `theirs`: this one takes `theirs`, `other` this one's; each keeps its changes, or both go back.
+fn worktree_swap(repo: &str, other: &str, theirs: &str) -> Result<String, String> {
+    let mine = git(repo, &["symbolic-ref", "--short", "HEAD"])?.trim().to_string();
+    // a branch is checked out in one worktree only: `other` lets go of it first, its files untouched
+    git(other, &["checkout", "--detach"])?;
+    let here = git_with_stderr(repo, &["checkout", not_option(theirs)?]);
+    let there = match &here {
+        Ok(_) => git_with_stderr(other, &["checkout", &mine]).map_err(|e| format!("In {other}:\n{e}")),
+        Err(e) => Err(e.clone()),
+    };
+    if let (Ok(a), Ok(b)) = (&here, &there) {
+        return Ok(format!("{a}\n{b}"));
+    }
+    // a switch git refused (changes in the way): both go back to their own branch
+    if here.is_ok() {
+        let _ = git(repo, &["checkout", &mine]);
+    }
+    let _ = git(other, &["checkout", theirs]);
+    there
+}
+
 #[derive(Serialize)]
 struct SubCommit {
     hash: String,
@@ -2086,6 +2107,8 @@ fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
             return git_with_stderr(&repo, &["worktree", "add", "-b", not_option(&branch)?, not_option(&arg)?, not_option(&from)?]);
         }
         "submodule-delete" => return submodule_delete(&repo, &arg, &arg2),
+        // arg the other worktree's folder, arg2 its branch
+        "worktree-swap" => return worktree_swap(&repo, &arg, &arg2),
         "stash-apply" => return stash_restore(&repo, "apply", &arg),
         // arg the index tree before the apply, arg2 the print after it
         "stash-undo" => return stash_undo(&repo, &arg, &arg2),

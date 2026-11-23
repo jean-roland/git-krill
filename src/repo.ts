@@ -59,6 +59,7 @@ const DONE: Record<string, (arg: string, arg2: string, branch: string, upstream:
   "worktree-remove": (path) => `Removed worktree ${basename(path)}`,
   "worktree-force-remove": (path) => `Removed worktree ${basename(path)}`,
   "worktree-prune": () => "Pruned the worktrees whose folder is gone",
+  "worktree-swap": (path, theirs, mine) => `Swapped: ${theirs} here, ${mine} in the worktree ${basename(path)}`,
   "lfs-pull": () => "Pulled the LFS files",
   "lfs-fetch": () => "Downloaded the LFS files",
   "lfs-prune": () => "Pruned the LFS files",

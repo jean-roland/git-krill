@@ -700,8 +700,11 @@ function refMenu(name: string, remote: boolean): MenuItem[] {
   if (!remote && name === status?.branch) return [];
   // already in HEAD: nothing to merge, nothing to replay
   const merged = inHistory(sha, headHash());
+  // a branch another worktree has: the two trade branches
+  const holder = !remote && status?.branch ? worktreeOf(name) : undefined;
   return [
     ["Checkout", () => checkoutBranch(name, remote)],
+    ...(holder ? ([[`Swap with worktree ${basename(holder.path)}`, () => gitOp("worktree-swap", [holder.path, name])]] as MenuItem[]) : []),
     ...(merged
       ? []
       : ([
