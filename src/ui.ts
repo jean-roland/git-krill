@@ -164,7 +164,7 @@ export const noGit = (msg: string) => msg.startsWith("Git is not installed");
 let saying = 0;
 
 export function say(msg: string, err = false, keep = false) {
-  if (err && noGit(msg)) return void warnOnce("no-git", "Git is not installed", msg.slice(msg.indexOf(". ") + 2), "err");
+  if (err && noGit(msg)) return warnNoGit(msg.slice(msg.indexOf(". ") + 2));
   // errors pop up, the status bar keeps the quiet news
   if (err) return void toast("Error", msg + hint(msg), "err");
   const s = $("status");
@@ -192,6 +192,22 @@ export function hint(msg: string) {
 const warned = new Set<string>();
 /** A toast for `key`, once a run: a missing tool is said once, not on every refresh. */
 export const warnOnce = (key: string, title: string, body: string, kind: "err" | "info" | "egg") => warned.has(key) || (warned.add(key), toast(title, body, kind));
+
+/** Git missing, said once a run; on Windows its toast installs it with winget, then the window starts over. */
+export function warnNoGit(help: string) {
+  const t = warnOnce("no-git", "Git is not installed", help, "err");
+  if (t === true || !navigator.userAgent.includes("Windows")) return;
+  const b = h("button", {
+    className: "primary",
+    textContent: "Install Git",
+    onclick: () => {
+      b.disabled = true;
+      say("Installing Git…", false, true);
+      invoke("install_git").then(() => location.reload(), (e) => ((b.disabled = false), say(String(e), true)));
+    },
+  });
+  t.el.querySelector(".t-body")!.append(h("div", { className: "t-actions" }, b));
+}
 
 /** A pop-up in the corner: errors stay until dismissed, the rest fades out. */
 /** A toast; a `held` one, its countdown running from the start all the same, also waits for its `fade` (an error has no countdown). */

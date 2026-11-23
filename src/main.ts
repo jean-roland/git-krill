@@ -4,7 +4,7 @@ import "@xterm/xterm/css/xterm.css";
 import { Mode, closeDiff, closeHistory, confirmDiscard, closeMerge, diffEditor, diffFile, editor, fitImages, goConflict, hist, histEd, histView, loadMerge, loadMonaco, merging, nextChange, openDiffFile, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setFileView, setFontSize, setMode, setWordWrap, setSvgView, showRev, warmDiff } from "./diff";
 import { rebaseKey } from "./rebase";
 import { SORTS, amending, commit, conflictCount, emptyStep, fileLists, filterFiles, foldAll, getMsg, openFile, paintFileOpts, pathArg, pickedFiles, renderCommitBtn, renderPanel, setMsg } from "./panel";
-import { $, ICONS, ask, closeDialog, dismissToast, hideBanner, input, mod, onCtrlEnter, pickDir, popup, say, store, svg, warnOnce } from "./ui";
+import { $, ICONS, ask, closeDialog, dismissToast, hideBanner, input, mod, onCtrlEnter, pickDir, popup, say, store, svg, warnNoGit } from "./ui";
 import { closeFind, drawRows, findStep, findTyped, stepBack, laneBarScrolled, openFind, paintSelection, scrollLanes, showRow, shown, wheelLanes } from "./graph";
 import { Change, active, addTab, autoFetch, cloneDialog, closeTab, fetchMinutes, gitOp, opInfo, newTabMenu, openPicked, openRepo, openSettings, paintPull, pull, pullMenu, push, refresh, renderTabHits, reopenTab, repo, restoreTabs, run, selection, switchTab, tabs, undoMenu, undoRedo } from "./repo";
 import { checkTools } from "./settings";
@@ -345,4 +345,4 @@ addEventListener("keydown", (e) => {
 // Monaco and its diff worker warmed up under the splash: a cold first diff took ~0.5 s, and a file opened during the warm-up drew wrong
 restoreTabs(loadMonaco().then(() => (diffEditor ? undefined : warmDiff())).catch(() => {}));
 // once a run, as soon as it starts: git missing is said before any repository fails on it
-checkTools().then((t) => t.git || warnOnce("no-git", "Git is not installed", t.gitHelp, "err"), () => {});
+checkTools().then((t) => t.git || warnNoGit(t.gitHelp), () => {});

@@ -210,6 +210,30 @@ const GIT_HELP: &str = if cfg!(windows) {
     "Install it with your package manager, as `sudo apt install git`, then restart Git Krill."
 };
 
+/// \brief Install Git for Windows with winget, behind its installer's admin prompt; blocks until it is done, then puts git on this run's PATH.
+#[tauri::command(async)]
+fn install_git() -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let out = command("winget")
+            .args(["install", "--id", "Git.Git", "--exact", "--source", "winget", "--accept-package-agreements", "--accept-source-agreements"])
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|e| if e.kind() == std::io::ErrorKind::NotFound { format!("winget is not on this Windows. {GIT_HELP}") } else { e.to_string() })?;
+        // already installed but off PATH counts too: winget then fails, git.exe is there
+        let dirs = [("ProgramFiles", r"Git\cmd"), ("LOCALAPPDATA", r"Programs\Git\cmd")];
+        let found = dirs.iter().filter_map(|(var, sub)| Some(Path::new(&std::env::var_os(var)?).join(sub))).find(|d| d.join("git.exe").is_file());
+        let Some(dir) = found else { return Err(output_text(&out)) };
+        // krill's PATH predates the install
+        let path = std::env::join_paths(std::iter::once(dir).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()))).map_err(|e| e.to_string())?;
+        // SAFETY: std locks the environment on Windows
+        unsafe { std::env::set_var("PATH", path) };
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    Err(GIT_HELP.to_string())
+}
+
 /// \brief Git that would not start, missing said plainly: the window keys on "Git is not installed".
 fn git_spawn_error(e: std::io::Error) -> String {
     if e.kind() == std::io::ErrorKind::NotFound { format!("Git is not installed. {GIT_HELP}") } else { e.to_string() }
@@ -2298,7 +2322,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, gh_verified, gh, pr_base, remote_tags, submodule_change, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, worktree_main, lfs_patterns, version_ids, keeps_crlf,
-            is_merged, revert_lines, index_tree, stash_print, clone_cancel, tracing, trace_line, open_default, open_version, file_bytes, binary_text, text_part, diff_hunks, tool_status, global_config, set_global_config, trust_folder, delete_file, open_url, remote_urls, edit_remote,
+            is_merged, revert_lines, index_tree, stash_print, clone_cancel, tracing, trace_line, open_default, open_version, file_bytes, binary_text, text_part, diff_hunks, tool_status, install_git, global_config, set_global_config, trust_folder, delete_file, open_url, remote_urls, edit_remote,
             pty::pty_spawn, pty::pty_write, pty::pty_resize, pty::pty_kill, askpass::askpass_reply
         ])
         .build(tauri::generate_context!())

@@ -1077,6 +1077,7 @@ svg.blame-av { cursor: pointer; }
 .toast .band { flex: none; display: flex; justify-content: center; width: 36px; padding-top: 14px; color: #fff; background: var(--kind); }
 .toast .band svg { width: 20px; height: 20px; }
 .toast .t-body { min-width: 0; padding: 12px 36px 14px 14px; }
+.toast .t-actions { display: flex; gap: 8px; margin-top: 8px; }
 /* a clone's progress, carried over from its dialog: the toast's full width */
 .toast .t-body:has(.clone-progress) { flex: 1; }
 .toast .clone-progress { margin-top: 0; }
