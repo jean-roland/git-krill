@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { homeDir } from "@tauri-apps/api/path";
-import { DEFAULT_EDITOR, fetchMinutes } from "./repo";
+import { DEFAULT_EDITOR, fetchMinutes, openSettings } from "./repo";
 import { $, ICONS, dateTimeText, h, ico, pickDir, say, showMenu, store, svg, toast } from "./ui";
 
 type Tools = { git: string; lfs: string; gh: string; lfsSetUp: boolean; lfsInUse: boolean; ghHosts: string[]; gitHelp: string };
@@ -11,6 +11,16 @@ const IDENTITY: [string, string][] = [["user.name", "Name"], ["user.email", "Ema
 const RERERE = ["rerere.enabled", "rerere.autoUpdate"];
 // asked at startup: Settings opens filled in, then asks again
 let globals = invoke<string[]>("global_config");
+/** Whether the global git config lacks the name or the email a commit needs. */
+export const noIdentity = () => globals.then((v) => !v[0] || !v[1]);
+// the startup notice of a missing identity, up until both are saved
+let identityToast: { dismiss: () => void } | null = null;
+
+/** Settings opened on a missing identity, a red toast saying why. */
+export function askIdentity() {
+  openSettings();
+  identityToast = toast("Git identity missing", "Commits need your name and email: fill them in under Git, for every repository.", "err");
+}
 
 const row = (label: string, ...kids: (Node | string)[]) => h("div", { className: "set-row" }, h("span", { className: "set-label", textContent: label }), h("div", {}, ...kids));
 const hint = (text: string) => h("small", { className: "set-hint", textContent: text });
@@ -106,7 +116,7 @@ function openDirRow() {
 
 /** ~/.gitconfig's identity, conflict replay and commit-graph, saved field by field. */
 function globalRows() {
-  const fields = IDENTITY.map(([key]) => h("input", { spellcheck: false, onchange: (e: Event) => set(key, (e.target as HTMLInputElement).value.trim()) }));
+  const fields = IDENTITY.map(([key, label]) => h("input", { spellcheck: false, required: key !== "user.signingkey", placeholder: key === "user.signingkey" ? "" : `Please fill in your ${label.toLowerCase()}`, onchange: (e: Event) => set(key, (e.target as HTMLInputElement).value.trim()) }));
   const sign = h("input", { type: "checkbox", onchange: () => set("commit.gpgsign", sign.checked ? "true" : "") });
   // the replayed files come back staged: the stop is only for a look
   const rerere = h("input", { type: "checkbox", onchange: () => RERERE.forEach((k) => set(k, rerere.checked ? "true" : "")) });
@@ -122,8 +132,13 @@ function globalRows() {
   globals.then(fill);
   // one write at a time: two would fight over the config's lock; a failed one shows what is really saved
   let writing = Promise.resolve();
+  const saved = (key: string) => {
+    say(`Saved ${key}`);
+    // both there: the startup notice goes
+    if (fields[0].value.trim() && fields[1].value.trim()) identityToast?.dismiss();
+  };
   const set = (key: string, value: string) =>
-    (writing = writing.then(() => invoke("set_global_config", { key, value }).then(() => say(`Saved ${key}`), (e) => (say(String(e), true), load(true)))));
+    (writing = writing.then(() => invoke("set_global_config", { key, value }).then(() => saved(key), (e) => (say(String(e), true), load(true)))));
   load();
   return {
     git: [

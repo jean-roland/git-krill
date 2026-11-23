@@ -80,8 +80,8 @@ export async function launch(repo, more = {}, home = mkdtempSync(join(tmpdir(), 
     }
   }
   try {
-    // the repository on screen, the splash gone: a click before lands on it
-    await k.until(() => document.querySelector("#graph .row"));
+    // the repository or Settings on screen, the splash gone: a click before lands on it
+    await k.until(() => document.querySelector("#graph .row") || !document.getElementById("settings").hidden);
     await k.settle();
     return k;
   } catch (e) {

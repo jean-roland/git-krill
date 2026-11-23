@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { demo, launch } from "./driver.mjs";
@@ -50,4 +50,24 @@ test("after a restart the tabs and settings come back as they were", async () =>
   await k.click("#settings-btn");
   await k.until(() => document.querySelector("#settings-box label"));
   assert.equal(await k.js(() => [...document.querySelectorAll("#settings-box label")].find((l) => l.textContent.includes("in the background")).querySelector("input").checked), false);
+});
+
+test("with no name or email in the global git config, Settings open at startup and mark both", async () => {
+  await k.quit(true);
+  const none = join(home, "no-identity");
+  writeFileSync(none, "");
+  k = await launch(`${demo()}/tidepool`, { GIT_CONFIG_GLOBAL: none });
+  await k.until(() => !document.getElementById("settings").hidden && document.querySelectorAll("#settings-box input:invalid").length === 2);
+  const notice = () => [...document.querySelectorAll("#toasts .toast.err:not(.out) b")].some((b) => b.textContent === "Git identity missing");
+  assert.ok(await k.js(notice));
+  // both saved, the notice goes
+  await k.js(() =>
+    document.querySelectorAll("#settings-box input:invalid").forEach((f, i) => {
+      f.value = ["Krill Tester", "tester@example.com"][i];
+      f.dispatchEvent(new Event("change"));
+    }),
+  );
+  await k.until(() => ![...document.querySelectorAll("#toasts .toast.err:not(.out) b")].some((b) => b.textContent === "Git identity missing"));
+  for (let i = 0; i < 50 && !/email = tester@example.com/.test(readFileSync(none, "utf8")); i++) await new Promise((r) => setTimeout(r, 100));
+  assert.match(readFileSync(none, "utf8"), /name = Krill Tester[\s\S]*email = tester@example.com/);
 });

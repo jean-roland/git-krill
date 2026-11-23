@@ -7,7 +7,7 @@ import { SORTS, amending, commit, conflictCount, emptyStep, fileLists, filterFil
 import { $, ICONS, ask, closeDialog, dismissToast, hideBanner, input, mod, onCtrlEnter, pickDir, popup, say, store, svg, warnNoGit } from "./ui";
 import { closeFind, drawRows, findStep, findTyped, stepBack, laneBarScrolled, openFind, paintSelection, scrollLanes, showRow, shown, wheelLanes } from "./graph";
 import { Change, active, addTab, autoFetch, cloneDialog, closeTab, fetchMinutes, gitOp, opInfo, newTabMenu, openPicked, openRepo, openSettings, paintPull, pull, pullMenu, push, refresh, renderTabHits, reopenTab, repo, restoreTabs, run, selection, switchTab, tabs, undoMenu, undoRedo } from "./repo";
-import { checkTools } from "./settings";
+import { askIdentity, checkTools, noIdentity } from "./settings";
 import { terms, toggleTerm } from "./terminal";
 import { closePr, followPrLink, loadPrs } from "./pr";
 
@@ -343,6 +343,10 @@ addEventListener("keydown", (e) => {
 });
 
 // Monaco and its diff worker warmed up under the splash: a cold first diff took ~0.5 s, and a file opened during the warm-up drew wrong
-restoreTabs(loadMonaco().then(() => (diffEditor ? undefined : warmDiff())).catch(() => {}));
+const restored = restoreTabs(loadMonaco().then(() => (diffEditor ? undefined : warmDiff())).catch(() => {}));
 // once a run, as soon as it starts: git missing is said before any repository fails on it
-checkTools().then((t) => t.git || warnNoGit(t.gitHelp), () => {});
+checkTools().then(async (t) => {
+  if (!t.git) return warnNoGit(t.gitHelp);
+  // a commit needs the name and the email
+  if (await noIdentity()) await restored.then(askIdentity);
+}, () => {});

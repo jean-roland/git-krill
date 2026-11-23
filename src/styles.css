@@ -301,6 +301,8 @@ body.home main { grid-template-columns: 1fr; }
 .set-row { display: grid; grid-template-columns: 160px 1fr; gap: 14px; align-items: baseline; padding: 7px 0; }
 .set-label { color: var(--dim); }
 .set-row input:not([type="checkbox"]) { width: 100%; }
+/* a commit needs them */
+.set-row input:invalid { border-color: var(--del); box-shadow: 0 0 0 1px var(--del); }
 .set-hint { display: block; margin-top: 3px; color: var(--dim); }
 .set-note { margin-left: 10px; color: var(--dim); }
 #settings-box .head .set-note { font-size: 12px; font-weight: 400; text-transform: none; letter-spacing: 0; }
