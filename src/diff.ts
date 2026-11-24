@@ -1861,8 +1861,8 @@ function conflictBanner(f: Change) {
 /* file history */
 
 type Blamed = { hash: string; author: string; time: number; summary: string };
-// the file's commits newest first, each with the file's name there, the one shown, its blame, and whether its text is a hex dump
-export let hist: { path: string; revs: [Commit, Change][]; at: number; blame: Blamed[]; hex?: boolean } | null = null;
+// the file's commits newest first, each with the file's name there, the one shown, its blame, whether its text is a hex dump, and the diff it was opened from
+export let hist: { path: string; revs: [Commit, Change][]; at: number; blame: Blamed[]; hex?: boolean; from?: { kind: DiffSource; f: Change; c?: Commit } } | null = null;
 export let histEd: Monaco.editor.IStandaloneCodeEditor | null = null;
 // the diff's File view, and its bar to load the next part of a file shown in parts
 let fileEd: Monaco.editor.IStandaloneCodeEditor | null = null, fileMore = "";
@@ -1883,13 +1883,14 @@ export async function openHistory(path: string, c?: Commit) {
     return say(String(e), true);
   }
   // closed only now: the graph would show while git log runs
+  const from = diffFile ? { kind: diffFile.kind, f: diffFile.f, c: diffFile.c } : undefined;
   await closeDiff();
   if (diffFile) return;
   // the working tree file as a commit on top of HEAD: blob and diff take WORKTREE as a revision
   if (wipFiles().some((f) => f.path === path))
     revs.unshift([fakeCommit("WORKTREE", ["HEAD"], "Uncommitted changes"), { path, old: null, code: "M" }]);
   if (!revs.length) return say(`${path} has no commits yet`);
-  hist = { path, revs, at: -1, blame: [] };
+  hist = { path, revs, at: -1, blame: [], from };
   $("hist-path").textContent = `File history: ${path}`;
   $("hist-list").replaceChildren(
     ...revs.map(([r, f], i) =>
@@ -2073,6 +2074,22 @@ export function histView(v: string) {
   hist.at = -1;
   $("hist-main").classList.add("blank");
   showRev(i);
+}
+
+/** The history closed by the user: back to the diff it was opened from, if any. */
+export async function leaveHistory() {
+  const from = hist?.from;
+  if (!from) return closeHistory();
+  // the history stays in sight until that diff is drawn, not the graph: openDiff takes a still copy over and drops it then
+  const r = $("hist").getBoundingClientRect(), copy = still($("hist"))!;
+  // fixed over the window: closed, the history gives its width back to the sidebar and the details; its File | Diff switch is the history's own
+  Object.assign(copy.style, { position: "fixed", left: `${r.left}px`, top: `${r.top}px` });
+  document.body.append(copy);
+  copy.querySelector("#diff-view")?.remove();
+  await closeHistory();
+  await openDiff(from.kind, from.f, from.c);
+  // not opened: nothing else takes it down
+  if (!diffFile) copy.remove();
 }
 
 export async function closeHistory() {

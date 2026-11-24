@@ -38,3 +38,33 @@ test("a history diff drawn as pages is idle once they load", async () => {
   assert.ok(!(await k.js(() => document.body.classList.contains("slow"))));
   await k.click('[data-svg="text"]');
 });
+
+test("leaving a history opened from a diff goes back to that diff", async () => {
+  // opened from the --json commit's diff, left on another commit
+  const from = await k.js(() => [...document.querySelectorAll("#hist-list .hist-row")].find((r) => r.textContent.includes("--json in the README")).querySelector("code").textContent);
+  await k.click("#hist-list .hist-row", "docs: add a README");
+  // left from a preview: a copy's frames would load again, blank then at their top
+  await k.click('[data-svg="image"]');
+  await k.until(() => document.querySelector("#diff-binary iframe")?.contentDocument?.body?.childElementCount);
+  // each frame until it is drawn: the history, a still copy of it, or the diff; never the graph
+  await k.js(() => {
+    window.framed = [];
+    window.shown = [];
+    const d = document.getElementById("diff"), t0 = performance.now();
+    const tick = () => {
+      window.shown.push(document.body.classList.contains("history") || !!document.querySelector(".still") || (!d.hidden && !d.classList.contains("blank")));
+      window.framed.push([...document.querySelectorAll(".still iframe")].some((f) => getComputedStyle(f).visibility !== "hidden"));
+      if (performance.now() - t0 < 1500) requestAnimationFrame(tick);
+    };
+    tick();
+  });
+  await k.click("#hist-close");
+  const path = await k.until(() => !document.body.classList.contains("history") && !document.getElementById("diff").hidden && document.getElementById("diff-path").textContent.includes("..") && document.getElementById("diff-path").textContent);
+  assert.match(path, new RegExp(`^README\\.md .*\\.\\.${from}$`));
+  await k.until(() => window.shown.length > 30);
+  assert.ok(await k.js(() => window.shown.every(Boolean)), "the graph showed between the history and the diff");
+  assert.ok(!(await k.js(() => window.framed.some(Boolean))), "a copied frame showed");
+  await k.click('[data-svg="text"]');
+  await k.keys("\uE00C");
+  await k.until(() => document.getElementById("diff").hidden);
+});
