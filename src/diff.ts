@@ -460,6 +460,8 @@ function submoduleChange(kind: DiffSource, f: Change, c?: Commit) {
 
 // the latest file asked for: an earlier one still loading gives way
 let openSeq = 0;
+/** A diff still loading gives way: another tab takes the window. */
+export const cancelOpen = () => void openSeq++;
 
 /** Whether two versions are known to be one: a binary's or a big file's text is empty, it tells nothing. */
 const alike = (a: Blob, b: Blob) => a.text === b.text && a.exists === b.exists && a.binary === b.binary && a.large === b.large && a.lfs === b.lfs && !a.binary && !a.large;
@@ -2093,18 +2095,25 @@ export function histView(v: string) {
   showRev(i);
 }
 
+// true from Esc until the diff a history was opened from is back: a second Esc waits for it, not the next thing Esc closes
+export let leavingHistory = false;
+
 /** The history closed by the user: back to the diff it was opened from, if any. */
 export async function leaveHistory() {
+  if (leavingHistory) return;
   const from = hist?.from;
-  if (!from) return closeHistory();
+  // a working tree file since staged, committed or discarded has no such diff left: the graph instead
+  const f = from?.kind === "commit" ? from.f : from && status?.[from.kind].find((x) => x.path === from.f.path);
+  if (!from || !f) return closeHistory();
   // the history stays in sight until that diff is drawn, not the graph: openDiff takes a still copy over and drops it then
   const r = $("hist").getBoundingClientRect(), copy = still($("hist"))!;
   // fixed over the window: closed, the history gives its width back to the sidebar and the details; its File | Diff switch is the history's own
   Object.assign(copy.style, { position: "fixed", left: `${r.left}px`, top: `${r.top}px` });
   document.body.append(copy);
   copy.querySelector("#diff-view")?.remove();
+  leavingHistory = true;
   await closeHistory();
-  await openDiff(from.kind, from.f, from.c);
+  await openDiff(from.kind, f, from.c).finally(() => (leavingHistory = false));
   // not opened: nothing else takes it down
   if (!diffFile) copy.remove();
 }

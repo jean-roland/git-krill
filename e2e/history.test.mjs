@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { appendFileSync } from "node:fs";
+import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { demo, launch } from "./driver.mjs";
 
-let k;
-before(async () => (k = await launch(`${demo()}/tidepool`)));
+let k, top;
+before(async () => (k = await launch((top = `${demo()}/tidepool`))));
 after(() => k?.quit());
 
 test("a file's history shows each version with its blame, then each commit's change", async () => {
@@ -67,4 +70,23 @@ test("leaving a history opened from a diff goes back to that diff", async () => 
   await k.click('[data-svg="text"]');
   await k.keys("\uE00C");
   await k.until(() => document.getElementById("diff").hidden);
+});
+
+test("leaving a history opened from a working tree diff whose file was staged since goes back to the graph", async () => {
+  const readme = join(top, "README.md");
+  appendFileSync(readme, "\nA line not committed.\n");
+  await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
+  await k.click("#graph .row", "// WIP");
+  await k.click('#unstaged .file[data-path="README.md"]');
+  await k.click("#diff-history");
+  await k.until(() => document.body.classList.contains("history"));
+  execFileSync("git", ["add", "README.md"], { cwd: top });
+  await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
+  await k.until(() => document.querySelector('#staged .file[data-path="README.md"]'));
+  await k.click("#hist-close");
+  await k.until(() => !document.body.classList.contains("history"));
+  await k.settle();
+  assert.ok(await k.js(() => document.getElementById("diff").hidden));
+  execFileSync("git", ["reset", "-q", "--", "README.md"], { cwd: top });
+  execFileSync("git", ["checkout", "--", "README.md"], { cwd: top });
 });

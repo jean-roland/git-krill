@@ -1,7 +1,7 @@
 // Entry: wires the buttons and keys to the features, then reopens the tabs.
 import { invoke } from "@tauri-apps/api/core";
 import "@xterm/xterm/css/xterm.css";
-import { Mode, closeDiff, confirmDiscard, closeMerge, diffEditor, diffFile, editor, fitImages, goConflict, hist, histEd, histView, leaveHistory, loadMerge, loadMonaco, merging, nextChange, openDiffFile, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setFileView, setFontSize, setMode, setWordWrap, setSvgView, showRev, warmDiff } from "./diff";
+import { Mode, closeDiff, confirmDiscard, closeMerge, diffEditor, diffFile, editor, fitImages, goConflict, hist, histEd, histView, leaveHistory, leavingHistory, loadMerge, loadMonaco, merging, nextChange, openDiffFile, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setFileView, setFontSize, setMode, setWordWrap, setSvgView, showRev, warmDiff } from "./diff";
 import { rebaseKey } from "./rebase";
 import { SORTS, amending, commit, conflictCount, emptyStep, fileLists, filterFiles, foldAll, getMsg, openFile, paintFileOpts, pathArg, pickedFiles, renderCommitBtn, renderPanel, setMsg } from "./panel";
 import { $, ICONS, ask, closeDialog, dismissToast, hideBanner, input, mod, onCtrlEnter, pickDir, popup, say, store, svg, warnNoGit } from "./ui";
@@ -326,7 +326,7 @@ addEventListener("keydown", (e) => {
     else if (!$("dialog").hidden) closeDialog();
     else if (!$("tab-search").hidden) $("tab-search").hidden = true;
     else if (!$("find").hidden && !openFile()) closeFind();
-    else if (hist) leaveHistory();
+    else if (hist || leavingHistory) leaveHistory();
     else if (!$("diff").hidden) closeDiff();
     else if (merging) closeMerge();
     else if (!$("pr").hidden) closePr();

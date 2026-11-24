@@ -4,7 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { repoName } from "./core.js";
 import { $, COLORS, ICONS, MenuItem, ask, basename, colorIndex, dialog, h, hideBanner, hideDialog, hint, ico, input, noGit, pickDir, pickDirs, plural, popup, say, short, showBanner, showDialog, showMenu, store, svg, toast, warnOnce } from "./ui";
-import { closeHistory, closeMerge, closeResolvedMerge, confirmDrop, diffFile, openRow, reloadDiff } from "./diff";
+import { cancelOpen, closeHistory, closeMerge, closeResolvedMerge, confirmDrop, diffFile, openRow, reloadDiff } from "./diff";
 import { conflictCount, getMsg, panelData, renderPanel, setMsg } from "./panel";
 import { loadProjects, offerGone, offerMove, stepBack, paintSelection, paintWipRow, renderGraph, renderSide, resetGraph, showRow } from "./graph";
 import { dropTerm, showTerm } from "./terminal";
@@ -670,6 +670,7 @@ export async function switchTab(i: number, save = true) {
   if (save) keepTab();
   // the op that asked for it ran in the tab left
   reveal = false;
+  cancelOpen();
   closeHistory();
   // its Push is for the tab it was asked in
   hideBanner();
