@@ -14,7 +14,7 @@ A lean desktop git client for Linux, Windows and macOS: a clean interface, power
 - **Rebase**: clean up commit history visually by reordering, rewording, squashing or dropping commits, individually or in bulk.
 - **Pull requests**, powered by the GitHub CLI: check CI statuses, read review threads or open new PRs without leaving the app.
 - **Previews**: render Markdown, HTML and SVG. View PDFs, inspect images and binaries or open any file in its default app.
-- **Advanced Git**: manage worktrees, submodules and LFS files right from the interface.
+- **Advanced Git**: manage worktrees, submodules, LFS files and repo tool checkouts right from the interface.
 
 ## Screenshots
 
