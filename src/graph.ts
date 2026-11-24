@@ -5,7 +5,7 @@ import { closeRebase, ontoRange, openRebase, rebaseRange } from "./rebase";
 import { Commit, LOG_LIMIT, Stash, Status, Submodule, Worktree, active, closeTab, commits, dropEdits, fakeCommit, findRef, FOLDS_KEY, gitOp, headHash, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, keepTab, newTab, opInfo, openRepo, paintRepoName, pull, push, redraw, refs, remoteTags, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
 import { $, COLORS, ICONS, MenuItem, ask, askName, basename, copy, dateTimeText, dialog, h, ico, input, mod, popup, say, short, spriteId, store, svg, toast } from "./ui";
 import { dropTerm } from "./terminal";
-import { closePr, newPr, prChip, prItems, prOf, prRows, pullsHere } from "./pr";
+import { closePr, mergedHeads, newPr, prChip, prItems, prOf, prRows, pullsHere } from "./pr";
 import { conflictCount, conflictLine, fileCounts, opLine, renderPanel, wipFiles } from "./panel";
 
 type Label = { name: string; tag: boolean; head: boolean; local: boolean; remotes: string[] };
@@ -814,6 +814,48 @@ async function deleteBranch(name: string, upstream: string) {
   // a squash-merged pull request leaves its branch unmerged here
   const into = upstream || status?.branch || "HEAD";
   if (await ask(`${name} is not merged into ${into}. Delete it with its unmerged commits?${prune}`, "Force delete")) go("branch-force-delete");
+}
+
+// per repository and branch: gone branches weighed this run, so a refresh does not offer them again
+const goneSeen = new Set<string>();
+
+/** A toast offering to delete the local branches deleted on their remote and merged there; Keep, or closing it, remembers them. */
+export async function offerGone() {
+  const r = repo, keptKey = `gone-kept:${refs.worktrees[0]?.path ?? r}`;
+  const kept: string[] = JSON.parse(store(keptKey) ?? "[]");
+  // the checked out branch and a worktree's go from their own menu
+  const gone = refs.refs
+    .filter((x) => x.name.startsWith("refs/heads/") && x.track === "[gone]")
+    .map((x) => ({ branch: x.name.slice("refs/heads/".length), hash: x.hash, upstream: x.upstream }))
+    .filter((x) => x.branch !== status?.branch && !worktreeOf(x.branch) && !kept.includes(x.branch) && !goneSeen.has(`${r}\0${x.branch}`));
+  if (!gone.length) return;
+  gone.forEach((x) => goneSeen.add(`${r}\0${x.branch}`));
+  // a squash or rebase merge leaves the branch unmerged by ancestry: its merged pull request's head is its tip
+  const heads = await mergedHeads();
+  const isMerged = async (x: (typeof gone)[number]) => {
+    if (heads.has(x.hash)) return true;
+    return run<boolean>("is_merged", { branch: x.branch }).catch(() => false);
+  };
+  const verdicts = await Promise.all(gone.map(isMerged));
+  const merged = gone.filter((_, i) => verdicts[i]);
+  if (repo !== r || !merged.length) return;
+  const names = merged.map((x) => x.branch);
+  const remotes = new Set(merged.map((x) => refs.remotes.find((rm) => x.upstream.startsWith(`${rm}/`)) ?? ""));
+  const where = remotes.size === 1 ? [...remotes][0] : "their remotes";
+  const title = names.length === 1 ? `${names[0]} was deleted on ${where}` : `${names.length} branches were deleted on ${where}`;
+  const body = names.length === 1 ? "It is merged: delete the local branch too?" : `They are merged: delete the local ones too?\n${names.join("\n")}`;
+  const t = toast(title, body, "info", true);
+  const keep = () => store(keptKey, JSON.stringify([...JSON.parse(store(keptKey) ?? "[]"), ...names]));
+  const remove = () => {
+    // the toast stays up across tabs: its branches are its repository's
+    if (repo !== r) return say(`These branches are in ${basename(r)}: delete them from its tab`, true);
+    t.dismiss();
+    gitOp("branches-delete", names.join("\0"));
+  };
+  t.el.querySelector(".x")!.addEventListener("click", keep);
+  t.el.querySelector(".t-body")!.append(
+    h("div", { className: "t-actions" }, h("button", { className: "primary", textContent: "Delete", onclick: remove }), h("button", { textContent: "Keep", onclick: () => (keep(), t.dismiss()) })),
+  );
 }
 
 function tagMenu(name: string): MenuItem[] {

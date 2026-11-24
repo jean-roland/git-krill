@@ -2218,6 +2218,8 @@ fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         "cherry-pick" => vec!["cherry-pick", not_option(&arg)?],
         "branch-delete" => vec!["branch", "-d", not_option(&arg)?],
         "branch-force-delete" => vec!["branch", "-D", not_option(&arg)?],
+        // the branch names, NUL separated
+        "branches-delete" => paths(&["branch", "-D", "--"]),
         "worktree-remove" => vec!["worktree", "remove", not_option(&arg)?],
         "worktree-force-remove" => vec!["worktree", "remove", "--force", not_option(&arg)?],
         "worktree-prune" => vec!["worktree", "prune"],

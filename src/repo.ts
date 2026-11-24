@@ -6,7 +6,7 @@ import { repoName } from "./core.js";
 import { $, COLORS, ICONS, MenuItem, ask, basename, colorIndex, dialog, h, hideBanner, hideDialog, hint, ico, input, noGit, pickDir, pickDirs, plural, popup, say, short, showBanner, showDialog, showMenu, store, svg, toast, warnOnce } from "./ui";
 import { closeHistory, closeMerge, closeResolvedMerge, confirmDrop, diffFile, openRow, reloadDiff } from "./diff";
 import { conflictCount, getMsg, panelData, renderPanel, setMsg } from "./panel";
-import { stepBack, paintSelection, paintWipRow, renderGraph, renderSide, resetGraph, showRow } from "./graph";
+import { offerGone, stepBack, paintSelection, paintWipRow, renderGraph, renderSide, resetGraph, showRow } from "./graph";
 import { dropTerm, showTerm } from "./terminal";
 import { closePr, loadPrs, paintPrBar } from "./pr";
 import { renderSettings, rerereTip } from "./settings";
@@ -54,6 +54,7 @@ const DONE: Record<string, (arg: string, arg2: string, branch: string, upstream:
   "tag-rename": (name, to) => `Renamed tag ${name} to ${JSON.parse(to)[0]}`,
   "branch-delete": (name) => `Deleted branch ${name}`,
   "branch-force-delete": (name) => `Deleted branch ${name}`,
+  "branches-delete": (names) => `Deleted the branches ${names.split("\0").join(", ")}`,
   "worktree-add": (path, branch) => `Created worktree ${basename(path)} on ${branch}`,
   "worktree-add-new": (path, spec) => `Created worktree ${basename(path)} on the new branch ${JSON.parse(spec)[0]}`,
   "worktree-remove": (path) => `Removed worktree ${basename(path)}`,
@@ -399,6 +400,7 @@ async function reload() {
     if (r !== repo) return;
     status = s;
     refs = rf;
+    offerGone();
     if (rf.lfs && rf.lfsProblem) warnOnce(`lfs:${r}`, `${basename(r)} uses Git LFS`, LFS_PROBLEMS[rf.lfsProblem], "err");
     opInfo = info;
     const landed = landing;

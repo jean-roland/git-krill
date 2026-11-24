@@ -68,6 +68,15 @@ export async function loadPrs(fresh = false) {
   else if (open && JSON.stringify(open.statusCheckRollup) !== JSON.stringify(onShow!.statusCheckRollup)) paintChecks(open.statusCheckRollup);
 }
 
+/** The head commits of this repository's last 100 merged pull requests, as gh lists them; none without gh. */
+export async function mergedHeads() {
+  await loadPrs();
+  const slug = pullsHere()?.slug;
+  if (!slug) return new Set<string>();
+  const out = await run<string>("gh", { args: ["pr", "list", "-R", slug, "--state", "merged", "--limit", "100", "--json", "headRefOid"] }, true).catch(() => "[]");
+  return new Set((JSON.parse(out) as { headRefOid: string }[]).map((p) => p.headRefOid));
+}
+
 // checks running or not listed yet: asked again while their page shows
 setInterval(() => onShow && !$("pr").hidden && !document.hidden && !["pass", "fail"].includes(checksSum(onShow)[0]) && loadPrs(true), 30_000);
 

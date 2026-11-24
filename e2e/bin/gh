@@ -26,7 +26,7 @@ try {
 if (cmd !== "--version" && read("signed-out", null) !== null) fail("To get started with GitHub CLI, please run:  gh auth login");
 if (cmd === "--version") console.log("gh version 2.0.0 (e2e)");
 else if (cmd === "auth") console.log("github.com\n  ✓ Logged in to github.com account krill-e2e (keyring)");
-else if (cmd === "pr" && sub === "list") process.stdout.write(read("prs.json"));
+else if (cmd === "pr" && sub === "list") process.stdout.write(args.includes("merged") ? read("prs-merged.json", "[]") : read("prs.json"));
 else if (cmd === "api") {
   // repos/<owner>/<name>/pulls/7/reviews?per_page=100 -> pulls-7-reviews.json
   const path = args.find((a) => a.startsWith("repos/")).split("?")[0].split("/").slice(3).join("-");

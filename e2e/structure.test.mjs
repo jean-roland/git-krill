@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, readFileSync, rmSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { demo, launch } from "./driver.mjs";
@@ -152,4 +152,27 @@ test("a branch a gone worktree holds deletes after a prune, in one question", as
   const top = join(dir, "tidepool");
   assert.equal(execFileSync("git", ["branch", "--list", "gone"], { cwd: top }).toString(), "");
   assert.doesNotMatch(execFileSync("git", ["worktree", "list"], { cwd: top }).toString(), /tidepool-gone/);
+});
+
+test("branches deleted on their remote and merged are offered for deletion in one toast, once", async () => {
+  const git = (...args) => execFileSync("git", ["-c", "user.name=Krill Test", "-c", "user.email=test@example.com", ...args], { cwd: join(dir, "tidepool") }).toString().trim();
+  // merged by ancestry; squash merged, as its pull request says; merged nowhere
+  git("branch", "done", "main~1");
+  const squashed = git("commit-tree", "--no-gpg-sign", "main^{tree}", "-p", "main", "-m", "squashed");
+  git("branch", "squashed", squashed);
+  git("branch", "abandoned", git("commit-tree", "--no-gpg-sign", "main^{tree}", "-p", "main", "-m", "abandoned"));
+  writeFileSync(join(dir, "gh", "prs-merged.json"), JSON.stringify([{ headRefOid: squashed }]));
+  git("push", "-q", "-u", "origin", "done", "squashed", "abandoned");
+  git("push", "-q", "origin", "--delete", "done", "squashed", "abandoned");
+  await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
+  await k.until(() => [...document.querySelectorAll("#toasts .toast b")].some((b) => b.textContent === "2 branches were deleted on origin"));
+  assert.match(await k.js(() => document.querySelector("#toasts .toast:last-child pre").textContent), /\ndone\nsquashed$/);
+  await k.click("#toasts .toast .t-actions button", "Delete");
+  await k.until(() => [...document.querySelectorAll("#toasts .toast b")].some((b) => b.textContent === "Deleted the branches done, squashed"));
+  assert.equal(git("branch", "--list", "done", "squashed", "abandoned"), "abandoned");
+  // asked once: a refresh offers nothing more
+  await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
+  await k.settle();
+  assert.equal(await k.js(() => [...document.querySelectorAll("#toasts .toast")].filter((t) => t.textContent.includes("deleted on origin")).length), 0);
+  git("branch", "-D", "abandoned");
 });
