@@ -7,7 +7,7 @@ import { sprite, unwrapHints } from "./core.js";
 // an entry with items opens them beside it on hover
 // a title heads the menu with what its items act on, so they need not name it
 // a null action greys the entry out
-// an action, a submenu, or null for one greyed out, its tooltip saying why; an icon before its label
+// an action, a submenu, or null for one greyed out, its tooltip saying why; an icon before its label, or where its label says {icon}
 export type MenuItem = [string, (() => unknown) | MenuItem[] | null, string?, string?] | { title: string; icon: string } | null;
 export const COLORS = ["#46b1ab", "#5d88d9", "#9c5dd9", "#5bc78e", "#d9ba5d", "#d95d96", "#d97d5d", "#d95d72"];
 export const ICONS: Record<string, string> = {
@@ -366,7 +366,10 @@ function fillMenu(m: HTMLElement, items: MenuItem[]) {
       const [label, act, why = "", icon] = it;
       // a very long name (a branch, a remote) is cut in its middle: the action around it stays readable
       // greyed by a class, as below: a disabled button shows no tooltip, and the why is the point
-      const b = h("button", { className: act ? "" : "off", title: why }, ...(icon ? [ico(icon)] : []), label.replace(/\S{33,}/g, (w) => `${w.slice(0, 16)}…${w.slice(-12)}`));
+      const cut = (text: string) => text.replace(/\S{33,}/g, (w) => `${w.slice(0, 16)}…${w.slice(-12)}`);
+      const [before, after] = label.split("{icon}");
+      const parts = after === undefined ? [...(icon ? [ico(icon)] : []), cut(label)] : [cut(before), Object.assign(ico(icon!), { className: "ico mid" }), cut(after)];
+      const b = h("button", { className: act ? "" : "off", title: why }, ...parts);
       if (!act) return b;
       if (typeof act === "function") {
         b.onclick = act;

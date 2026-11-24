@@ -999,6 +999,8 @@ svg.blame-av { cursor: pointer; }
 .menu button:hover:not(.off) { background: var(--sel); }
 .menu button .ico { margin-right: 8px; vertical-align: -2px; color: var(--dim); }
 .menu button .ico svg { width: 14px; height: 14px; }
+/* inside its label, where it says {icon} */
+.menu button .ico.mid { margin: 0 2px; }
 .menu-title { display: flex; justify-content: center; align-items: center; gap: 7px; max-width: 380px; padding: 5px 14px 8px; margin-bottom: 4px; white-space: nowrap; font-weight: 700; color: var(--text); border-bottom: 1px solid var(--border); }
 .menu-title span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .menu-title .ico { color: var(--dim); }

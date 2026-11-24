@@ -675,7 +675,7 @@ async function checkoutBranch(name: string, remote: boolean) {
   const local = remote ? name.slice(name.indexOf("/") + 1) : name;
   // git refuses a branch another worktree has (but 2.43's checkout -B takes it, leaving its files behind): open that worktree instead
   const wt = worktreeOf(local);
-  if (wt) return openWorktree(wt.path);
+  if (wt) return openHolder(wt, local);
   if (!(await pruneHolder(local, "checkout"))) return;
   const mine = findRef(`refs/heads/${local}`), theirs = findRef(`refs/remotes/${name}`);
   if (!remote || !mine || !theirs || mine.hash === theirs.hash) return gitOp("checkout", local);
@@ -693,6 +693,24 @@ async function checkoutBranch(name: string, remote: boolean) {
   );
 }
 
+/** Open worktree `wt`, which has `branch`; its toast offers to check `branch` out in the folder left instead, the two trading branches. */
+async function openHolder(wt: Worktree, branch: string) {
+  const from = repo, mine = status?.branch;
+  await openWorktree(wt.path);
+  if (repo !== wt.path) return;
+  const t = toast(`Switched to worktree ${basename(wt.path)}`, `${branch} is checked out there.`, "info");
+  // detached, the folder left has no branch to trade
+  if (!mine) return;
+  const swap = async () => {
+    t.dismiss();
+    // the tab as it was, when this one replaced it
+    const t0 = tabs[active];
+    await (t0.parent === from && t0.back?.repo === from ? stepBack() : openWorktree(from));
+    if (repo === from) gitOp("worktree-swap", [wt.path, branch]);
+  };
+  t.el.querySelector(".t-body")!.append(h("div", { className: "t-actions" }, h("button", { textContent: `Check it out in ${basename(from)} instead`, onclick: swap })));
+}
+
 /** Checkout, merge and rebase for branch `name` (a remote one as "remote/branch"); none for the checked out one. */
 function refMenu(name: string, remote: boolean): MenuItem[] {
   // the full name: a bare one may resolve to a tag or the stash list of the same name
@@ -700,11 +718,16 @@ function refMenu(name: string, remote: boolean): MenuItem[] {
   if (!remote && name === status?.branch) return [];
   // already in HEAD: nothing to merge, nothing to replay
   const merged = inHistory(sha, headHash());
-  // a branch another worktree has: the two trade branches
-  const holder = !remote && status?.branch ? worktreeOf(name) : undefined;
+  // a branch another worktree has: checkout opens that worktree, or the two trade branches
+  const holder = worktreeOf(remote ? name.slice(name.indexOf("/") + 1) : name), from = status?.branch;
+  const checkout: MenuItem = holder
+    ? ["Checkout ({icon})", () => checkoutBranch(name, remote), `Opens the worktree ${basename(holder.path)}, where it is checked out`, ICONS.worktree]
+    : ["Checkout", () => checkoutBranch(name, remote)];
   return [
-    ["Checkout", () => checkoutBranch(name, remote)],
-    ...(holder ? ([[`Swap with worktree ${basename(holder.path)}`, () => gitOp("worktree-swap", [holder.path, name])]] as MenuItem[]) : []),
+    checkout,
+    ...(holder && !remote && from
+      ? ([[`Checkout, swap with {icon}${basename(holder.path)}`, () => gitOp("worktree-swap", [holder.path, name]), `${basename(holder.path)} gets ${from}; each folder keeps its uncommitted changes`, ICONS.worktree]] as MenuItem[])
+      : []),
     ...(merged
       ? []
       : ([

@@ -103,14 +103,26 @@ const worktrees = () => execFileSync("git", ["worktree", "list", "--porcelain"],
 
 test("a branch another worktree has swaps with this one's, and back", async () => {
   await k.menu("#graph .ref", "feature/moon-phase");
-  await k.click("#menu button", "Swap with worktree tidepool-moon");
+  await k.click("#menu button", "Checkout, swap with tidepool-moon");
   await k.until(() => document.getElementById("branch").textContent === "feature/moon-phase");
   assert.match(worktrees(), /tidepool-moon\nHEAD \w+\nbranch refs\/heads\/main\n/);
   await k.menu("#graph .ref", "main");
-  await k.click("#menu button", "Swap with worktree tidepool-moon");
+  await k.click("#menu button", "Checkout, swap with tidepool-moon");
   await k.until(() => document.getElementById("branch").textContent === "main");
   assert.match(worktrees(), /tidepool-moon\nHEAD \w+\nbranch refs\/heads\/feature\/moon-phase\n/);
   // the next tests count the toasts naming tidepool-moon
+  await k.js(() => document.querySelectorAll("#toasts .toast").forEach((t) => t.remove()));
+});
+
+test("a branch another worktree has opens there, its toast checks it out here instead", async () => {
+  await k.js(() => [...document.querySelectorAll("#graph .ref")].find((r) => r.textContent.includes("feature/moon-phase")).dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+  await k.until(() => document.getElementById("repo-name").textContent.includes("moon"));
+  await k.click("#toasts .toast .t-actions button", "Check it out in tidepool instead");
+  await k.until(() => !document.getElementById("repo-name").textContent.includes("moon") && document.getElementById("branch").textContent === "feature/moon-phase");
+  assert.match(worktrees(), /tidepool-moon\nHEAD \w+\nbranch refs\/heads\/main\n/);
+  await k.menu("#graph .ref", "main");
+  await k.click("#menu button", "Checkout, swap with tidepool-moon");
+  await k.until(() => document.getElementById("branch").textContent === "main");
   await k.js(() => document.querySelectorAll("#toasts .toast").forEach((t) => t.remove()));
 });
 
@@ -119,7 +131,7 @@ test("a swap the other worktree's changes block leaves both as they were", async
   const file = join(dir, "tidepool-moon", "src/main.rs"), was = readFileSync(file, "utf8");
   appendFileSync(file, "// wip\n");
   await k.menu("#graph .ref", "feature/moon-phase");
-  await k.click("#menu button", "Swap with worktree tidepool-moon");
+  await k.click("#menu button", "Checkout, swap with tidepool-moon");
   await k.until(() => document.querySelector("#toasts .toast.err"));
   await k.until(() => document.getElementById("branch").textContent === "main");
   assert.match(worktrees(), /tidepool-moon\nHEAD \w+\nbranch refs\/heads\/feature\/moon-phase\n/);
