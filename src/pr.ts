@@ -105,7 +105,7 @@ export function prRows() {
     return h(
       "div",
       {
-        className: `item${pr.isDraft ? " draft" : ""}`,
+        className: `item pr${pr.isDraft ? " draft" : ""}`,
         title: `#${pr.number} ${pr.title}${pr.isDraft ? " (draft)" : ""}\n${pr.author?.login}: ${pr.headRefName} → ${pr.baseRefName}\n${checks}`,
         onclick: () => openPr(pr),
         ondblclick: () => checkoutPr(pr),

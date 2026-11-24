@@ -352,6 +352,7 @@ body.home main { grid-template-columns: 1fr; }
 /* the folder's name first, its branch in what is left: never less than a letter and its ellipsis */
 .item.project .label { flex: 0 1 auto; }
 .item.project small { flex: 1 1 0; min-width: 2em; overflow: hidden; text-overflow: ellipsis; text-align: right; color: var(--dim); }
+.item.pr small { color: var(--dim); }
 .item.current { position: relative; background-color: var(--sel); }
 .item.current .label { color: var(--accent); font-weight: 600; }
 .item .ico { color: var(--dim); }
