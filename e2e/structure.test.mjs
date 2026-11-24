@@ -92,8 +92,8 @@ test("a worktree whose folder goes away under its tab steps back to its reposito
   await k.js((gone) => document.getElementById("toasts").insertAdjacentHTML("beforeend", `<div class="toast err"><b>Error</b><pre>${gone} no longer exists</pre></div>`), gone);
   await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
   await k.until(() => document.getElementById("branch").textContent === "main" && document.querySelector("#tabs .tab.on .tab-name")?.textContent === "tidepool");
-  // one notice: the step back's
-  assert.deepEqual(await k.js(() => [...document.querySelectorAll("#toasts .toast.err, #toasts .toast:last-child")].map((t) => t.querySelector("b").textContent)), ["Back to tidepool"]);
+  // one notice: the step back's; the worktree's LFS one, said when it opened, is no part of it
+  assert.deepEqual(await k.js(() => [...document.querySelectorAll("#toasts .toast.err, #toasts .toast:last-child")].map((t) => t.querySelector("b").textContent).filter((t) => !t.endsWith("uses Git LFS"))), ["Back to tidepool"]);
   // out of the sidebar's list, not pruned: a folder on an unplugged drive comes back; git's gc prunes it in time
   await k.until(() => document.querySelector('#sidebar [data-key="worktrees"] .n')?.textContent === "2");
   assert.match(execFileSync("git", ["worktree", "list", "--porcelain"], { cwd: join(dir, "tidepool") }).toString(), /tidepool-gone\n(.+\n)*prunable/);
