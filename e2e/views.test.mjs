@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { demo, launch } from "./driver.mjs";
@@ -89,12 +89,25 @@ test("a PDF shows in the window's own viewer, alone in the File view, beside its
   });
   assert.deepEqual(sides, ["Staged", "Working tree"]);
   assert.equal(await k.js(() => [...document.querySelectorAll("#diff-binary iframe")].map((f) => f.dataset.kept ?? "").join()), ",1");
+  // the view it is in, asked again: the same two
+  await k.click('[data-dview="diff"]');
+  await k.settle();
+  assert.equal(await k.js(() => document.querySelectorAll("#diff-binary .img-side").length), 2);
   await k.click('[data-dview="file"]');
   await k.until(() => document.querySelectorAll("#diff-binary iframe").length === 1);
   assert.equal(await k.js(() => document.querySelector("#diff-binary iframe").dataset.kept), "1");
   // staged, it is a new file: nothing to compare
   await k.click('#staged .file[data-path="docs/preview.pdf"]');
   await k.until(() => document.querySelector('[data-dview="diff"]').classList.contains("off") && document.querySelector('[data-dview="file"]').classList.contains("on"));
+  // deleted from the working tree: its staged version is all it shows, File asked again included
+  rmSync(path);
+  await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
+  await k.click('#unstaged .file[data-path="docs/preview.pdf"]');
+  await k.until(() => document.querySelectorAll("#diff-binary .img-side.del iframe").length === 1);
+  await k.click('[data-dview="file"]');
+  await k.settle();
+  assert.equal(await k.js(() => document.querySelectorAll("#diff-binary .img-side").length), 1);
+  execFileSync("git", ["reset", "-q", "--", "docs/preview.pdf"], { cwd: repository });
 });
 
 test("a preview gives way to the next file's text with no copy of its pages over it", async () => {

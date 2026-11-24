@@ -315,9 +315,11 @@ function layOutView() {
     paintFile();
   } else {
     // the new version stays as drawn, a moved frame would load again: the old one comes beside it, scrolled where it is, or goes
-    const box = $("diff-binary").querySelector<HTMLElement>(".img-sides")!;
-    if (fileView()) box.querySelector(".img-side.del")?.remove();
-    else {
+    const box = $("diff-binary").querySelector<HTMLElement>(".img-sides")!, old = box.querySelector(".img-side.del");
+    // a deleted file's old version is all it shows; a repeated click, or a history step back to this commit, finds it there
+    if (fileView()) {
+      if (diffFile!.mod.exists) old?.remove();
+    } else if (!old && diffFile!.orig.exists) {
       const [at, path] = sideSources(diffFile!.kind, diffFile!.f, diffFile!.c)[0];
       readAt = spot;
       box.prepend(sideOf(diffFile!.f.path)(at, path, "del"));
