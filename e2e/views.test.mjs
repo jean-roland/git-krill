@@ -134,3 +134,16 @@ test("a preview gives way to the next file's text with no copy of its pages over
   await k.click('#commit-files .file[data-path="README.md"]');
   await k.click('[data-svg="text"]');
 });
+
+test("a deleted image shows its last version in the File view", async () => {
+  rmSync(join(repository, "docs", "logo.svg"));
+  await k.keys("\uE00C");
+  await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
+  await k.click("#graph .row", "// WIP");
+  await k.click('#unstaged .file[data-path="docs/logo.svg"]');
+  await k.click('[data-svg="image"]');
+  await k.until(() => document.querySelector("#diff-binary .img-side.del img"));
+  assert.ok(await k.js(() => !!document.querySelector("#diff-binary .img-side.del").offsetParent));
+  await k.click('[data-svg="text"]');
+  execFileSync("git", ["checkout", "--", "docs/logo.svg"], { cwd: repository });
+});

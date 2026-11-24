@@ -263,8 +263,6 @@ function applyMode() {
   setOptions({ renderSideBySide: m === "split", hideUnchangedRegions: { enabled: m === "hunk" }, renderOverviewRuler: overview, scrollbar: { vertical: overview ? "hidden" : "auto", verticalScrollbarSize: overview ? 0 : 28 } });
   updateHunkBars();
   document.querySelectorAll<HTMLElement>("[data-mode]").forEach((b) => b.classList.toggle("on", b.dataset.mode === m));
-  // a diff's images: both in the Diff view, the new one alone in the File view
-  $("diff-binary").classList.toggle("single", file);
   const [prev, next, hunk, inline, split] = diffButtons();
   // on top of paintSides' dimming, which clears it for a text diff: no diff to lay out in the File view; images, only side by side and no change to step to; Monaco cannot fold a file that big
   (file ? [prev, next, hunk, inline, split] : d?.drawn ? [prev, next, hunk, inline] : full ? [hunk] : []).forEach((b) => b.classList.add("off"));
