@@ -79,3 +79,14 @@ test("a removed worktree leaves its project's row at once, though the last ask w
   await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
   await k.until((rows) => ![...document.querySelectorAll(rows)][1].querySelector(".ico[title^='Linked']"), rows);
 });
+
+test("a project the manifest lists but that is not on disk says so", async () => {
+  appendFileSync(join(top, ".repo", "project.list"), "packages/missing\n");
+  await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
+  await k.until((rows) => document.querySelectorAll(rows).length === 5, rows);
+  const row = await k.js((rows) => {
+    const r = [...document.querySelectorAll(rows)].find((r) => r.querySelector(".label").textContent === "missing");
+    return [r.classList.contains("off"), r.querySelector("small").textContent, r.title.split("\n")[1].startsWith("Not readable: ")];
+  }, rows);
+  assert.deepEqual(row, [true, "not readable", true]);
+});

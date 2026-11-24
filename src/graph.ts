@@ -10,7 +10,7 @@ import { conflictCount, conflictLine, fileCounts, opLine, renderPanel, wipFiles 
 
 type Label = { name: string; tag: boolean; head: boolean; local: boolean; remotes: string[] };
 // lib.rs Project: a repo tool checkout's project, path under its top, branch empty when detached
-type Project = { path: string; branch: string; head: string; ahead: number | null; behind: number | null; changed: number; untracked: number; worktrees: [string, string][] };
+type Project = { path: string; branch: string; head: string; ahead: number | null; behind: number | null; changed: number; untracked: number; worktrees: [string, string][]; error: string };
 // the projects beside this one in its repo tool checkout, and when they were asked
 let projects: { top: string; list: Project[] | null; at: number } = { top: "", list: null, at: 0 };
 // the ask a refresh within 5 s of the last one put off
@@ -254,6 +254,16 @@ export function renderSide() {
   };
   const projectRow = (p: Project) => {
     const path = `${projects.top}/${p.path}`, here = path === (refs.worktrees[0]?.path ?? repo);
+    // listed by the manifest, not readable here: its folder gone, or not a repository
+    if (p.error)
+      return h(
+        "div",
+        { className: "item project off", title: `${path}\nNot readable: ${p.error}`, oncontextmenu: (e: MouseEvent) => popup(e, [["Copy path", () => copy(path)]]) },
+        h("span", { className: "ico sub-state out", innerHTML: svg(ICONS.warn) }),
+        ico(ICONS.repo),
+        h("span", { className: "label", textContent: basename(p.path) }),
+        h("small", { textContent: "not readable" }),
+      );
     // out of step: changes here, or commits on one side only
     const out = !!(p.changed || p.untracked || p.ahead || p.behind);
     const where = [p.branch || `detached at ${p.head}`, p.ahead && `↑${p.ahead}`, p.behind && `↓${p.behind}`].filter(Boolean).join(" ");

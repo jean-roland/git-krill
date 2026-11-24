@@ -124,6 +124,8 @@ struct Project {
     untracked: u32,
     // its linked worktrees, beside its own folder: [folder, branch], the branch empty when detached
     worktrees: Vec<(String, String)>,
+    // why git could not read it (its folder gone, not a repository), empty when read; the fields above are then empty
+    error: String,
 }
 
 #[derive(Serialize)]
@@ -629,8 +631,14 @@ fn repo_projects(top: String) -> Result<Vec<Project>, String> {
 /// \brief Project `path` of the repo tool's checkout at `top`: its branch, its changes and its worktrees.
 fn project(top: &str, path: &str) -> Project {
     let dir = format!("{top}/{path}");
-    let mut p = Project { path: path.into(), branch: String::new(), head: String::new(), ahead: None, behind: None, changed: 0, untracked: 0, worktrees: Vec::new() };
-    let status = git(&dir, &["status", "--porcelain=v2", "--branch", "-z"]).unwrap_or_default();
+    let mut p = Project { path: path.into(), branch: String::new(), head: String::new(), ahead: None, behind: None, changed: 0, untracked: 0, worktrees: Vec::new(), error: String::new() };
+    let status = match git(&dir, &["status", "--porcelain=v2", "--branch", "-z"]) {
+        Ok(s) => s,
+        Err(e) => {
+            p.error = e.lines().next().unwrap_or("not readable").to_string();
+            return p;
+        }
+    };
     // a rename's entry is followed by its old path, a field of its own
     let mut old_path = false;
     for e in status.split('\0') {
