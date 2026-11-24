@@ -207,7 +207,7 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
       const print = stash && tree && tab === tabs[active] ? await run<string>("stash_print", { tree }).catch(() => "") : "";
       if (stash && print) recordUndo(tab, { op: name, what: stash.subject, branch: [branch, branch], head: [head, head], stash: [stash.hash, tree, print] });
     } else if (name === "push" && msg.includes("(non-fast-forward)") && tab === tabs[active]) forcePush(branch, status?.behind ?? 0);
-    else if (name === "push" && PROTECTED.test(msg) && tab === tabs[active]) offerMove(branch);
+    else if (name === "push" && PROTECTED.test(msg) && tab === tabs[active]) offerMove(branch, msg);
     else toast(`${what} failed${onBranch}`, msg + hint(msg), "err");
     say(`${what} ${conflicts.length ? "stopped on conflicts" : "failed"}`);
     ok = false;

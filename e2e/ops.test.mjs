@@ -146,10 +146,21 @@ test("a push refused as protected moves the commits to a new branch and pushes t
   await k.until(() => document.getElementById("branch").textContent === "main" && document.getElementById("ahead").textContent === "1");
   await k.click('[data-op="push"]');
   await k.until(() => !document.getElementById("banner").hidden && document.getElementById("banner").textContent.includes("main is protected on origin"));
+  // the server's own words, to hover
+  assert.match(await k.js(() => document.querySelector("#banner span").title), /GH013: Repository rule violations found for refs\/heads\/main\.[\s\S]*Changes must be made through a pull request/);
+  // a commit since the refusal: the banner's commits are not all of them
+  git(top, "commit", "-q", "--no-gpg-sign", "--allow-empty", "-m", "docs: note the tide");
+  await refresh();
+  await k.until(() => document.getElementById("ahead").textContent === "2");
+  await k.click("#banner button.primary", "Move and push");
+  await k.until(() => [...document.querySelectorAll("#toasts .toast.err pre")].some((p) => p.textContent.includes("main changed since its push was refused: push it again")));
+  assert.ok(await k.js(() => document.getElementById("dialog").hidden));
+  await k.click('[data-op="push"]');
+  await k.until(() => !document.getElementById("banner").hidden && document.getElementById("banner").textContent.includes("Move your 2 commits"));
   await k.click("#banner button.primary", "Move and push");
   await k.until(() => document.querySelector("#dialog input")?.value === "docs-note-the-datum");
   await k.click("#dialog button.primary");
-  await toast("Moved 1 commit to docs-note-the-datum; main is back at origin/main; pushed docs-note-the-datum to origin");
+  await toast("Moved 2 commits to docs-note-the-datum; main is back at origin/main; pushed docs-note-the-datum to origin");
   assert.match(git(dir, "ls-remote", "--heads", "origin.git"), /refs\/heads\/docs-note-the-datum/);
   assert.equal(git(top, "rev-parse", "main"), git(top, "rev-parse", "origin/main"));
   rmSync(hook);

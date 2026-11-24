@@ -888,9 +888,11 @@ function commitMenu(e: MouseEvent, c: Commit) {
   ]);
 }
 
-/** Move `rows`, this branch's commits above `base`, newest first, to a new branch then checked out and pushed to this branch's remote; this branch goes back to `base`, the files stay. */
-function moveAndPush(base: string, rows: Commit[]) {
-  const branch = status?.branch ?? "", up = findRef(`refs/heads/${branch}`)?.upstream ?? "";
+/** Move `rows`, checked out `branch`'s commits above `base`, newest first, to a new branch then checked out and pushed to its remote; `branch` goes back to `base`, the files stay. */
+function moveAndPush(branch: string, base: string, rows: Commit[]) {
+  // the banner outlives a checkout or a commit: its commits are the refused push's
+  if (status?.branch !== branch || headHash() !== rows[0].hash) return say(`${branch} changed since its push was refused: push it again`, true);
+  const up = findRef(`refs/heads/${branch}`)?.upstream ?? "";
   const remote = refs.remotes.find((r) => up.startsWith(`${r}/`)) ?? "origin";
   // by name when its upstream is there
   const back = up && findRef(`refs/remotes/${up}`)?.hash === base ? up : short(base);
@@ -900,22 +902,26 @@ function moveAndPush(base: string, rows: Commit[]) {
   dialog(`Move ${n} to a new branch\n${branch} goes back to ${back}; your files stay as they are.`, [["New branch name", named]], "Move and push", async ([name]) => {
     if (!name) return;
     // one toast for both, the push's: the server's pull request link comes with it
-    const ok = await gitOp("branch-move", [name, base], false, "");
-    if (ok) gitOp("push-upstream", [remote, name], true, `Moved ${n} to ${name}; ${branch} is back at ${back}; pushed ${name} to ${remote}`);
+    const moved = await gitOp("branch-move", [name, base], false, "");
+    const pushed = moved && (await gitOp("push-upstream", [remote, name], true, `Moved ${n} to ${name}; ${branch} is back at ${back}; pushed ${name} to ${remote}`));
+    // the push's error alone would hide the move
+    if (moved && !pushed) say(`Moved ${n} to ${name}; ${branch} is back at ${back}; ${name} is not pushed yet`, true);
   });
 }
 
-/** A push of `branch` refused as protected: a banner offers to move its unpushed commits to a new branch and push that one. */
-export function offerMove(branch: string) {
+/** A push of `branch` refused as protected: a banner offers to move its unpushed commits to a new branch and push that one; the server's own `reason` in its tooltip. */
+export function offerMove(branch: string, reason: string) {
   const up = findRef(`refs/heads/${branch}`)?.upstream ?? "", base = findRef(`refs/remotes/${up}`)?.hash ?? "";
   const remote = refs.remotes.find((r) => up.startsWith(`${r}/`)) ?? "its remote";
   const rows = base ? ontoRange(base) : null;
   const refused = `Push rejected: ${branch} is protected on ${remote}.`;
   // a merge among them, or past the loaded commits
-  if (!rows?.length) return showBanner(h("span", { textContent: `${refused} Move its commits to a new branch and push that one.` }));
+  // a rule moving cannot get past (status checks, signatures) is in the server's words: kept to hover, too long for the banner's line
+  const title = reason.trim();
+  if (!rows?.length) return showBanner(h("span", { title, textContent: `${refused} Move its commits to a new branch and push that one.` }));
   showBanner(
-    h("span", { textContent: `${refused} Move your ${plural(rows.length, "commit")} to a new branch and push that one?` }),
-    h("button", { className: "primary", textContent: "Move and push", onclick: () => (hideBanner(), moveAndPush(base, rows)) }),
+    h("span", { title, textContent: `${refused} Move your ${plural(rows.length, "commit")} to a new branch and push that one?` }),
+    h("button", { className: "primary", textContent: "Move and push", onclick: () => (hideBanner(), moveAndPush(branch, base, rows)) }),
   );
 }
 
