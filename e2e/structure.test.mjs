@@ -28,6 +28,10 @@ test("a picture stored with LFS shows its badge, and both versions side by side"
   await k.keys("\uE00C");
 });
 
+test("a repository outside a repo tool checkout has no Workspace projects", async () => {
+  assert.equal(await count("workspace"), "0");
+});
+
 test("a submodule not checked out yet is initialized, then opened and left", async () => {
   await section("submodules");
   await k.until(() => document.querySelector('#sidebar [data-key="submodules"] .sub-state.out'));

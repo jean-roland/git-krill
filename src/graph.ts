@@ -2,13 +2,92 @@
 import { invoke } from "@tauri-apps/api/core";
 import { layoutGraph } from "./core.js";
 import { closeRebase, ontoRange, openRebase, rebaseRange } from "./rebase";
-import { Commit, LOG_LIMIT, Stash, Status, Submodule, Worktree, active, closeTab, commits, dropEdits, fakeCommit, findRef, FOLDS_KEY, gitOp, headHash, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, keepTab, newTab, opInfo, openRepo, paintRepoName, pull, push, redraw, refs, remoteTags, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
+import { Commit, LOG_LIMIT, Stash, Status, Submodule, Worktree, active, closeTab, commits, dropEdits, fakeCommit, findRef, FOLDS_KEY, gitOp, headHash, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, keepTab, newTab, opInfo, openRepo, paintRepoName, pull, push, redraw, refresh, refs, remoteTags, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
 import { $, COLORS, ICONS, MenuItem, ask, askName, basename, copy, dateTimeText, dialog, h, hideBanner, ico, input, mod, plural, popup, say, short, showBanner, spriteId, store, svg, toast } from "./ui";
 import { dropTerm } from "./terminal";
 import { closePr, mergedHeads, newPr, prChip, prItems, prOf, prRows, pullsHere } from "./pr";
 import { conflictCount, conflictLine, fileCounts, opLine, renderPanel, wipFiles } from "./panel";
 
 type Label = { name: string; tag: boolean; head: boolean; local: boolean; remotes: string[] };
+// lib.rs Project: a repo tool checkout's project, path under its top, branch empty when detached
+type Project = { path: string; branch: string; head: string; ahead: number | null; behind: number | null; changed: number; untracked: number; worktrees: [string, string][] };
+// the projects beside this one in its repo tool checkout, and when they were asked
+let projects: { top: string; list: Project[] | null; at: number } = { top: "", list: null, at: 0 };
+// the ask a refresh within 5 s of the last one put off
+let projectsLater = 0;
+// Fetch every project running: its button spins, sidebar repaints included
+let fetchingAll = false;
+
+/** The repo tool checkout's projects, asked at most every 5 s: a refresh sooner is answered at the 5 s mark; the sidebar repaints when they changed. */
+export async function loadProjects() {
+  const top = refs.repoTop;
+  clearTimeout(projectsLater);
+  if (!top) return;
+  const wait = top === projects.top ? projects.at + 5000 - Date.now() : 0;
+  if (wait > 0) return void (projectsLater = setTimeout(loadProjects, wait));
+  projects.at = Date.now();
+  const list = await invoke<Project[]>("repo_projects", { top }).catch(() => []);
+  if (top !== refs.repoTop || (top === projects.top && JSON.stringify(list) === JSON.stringify(projects.list))) return;
+  projects = { top, list, at: projects.at };
+  renderSide();
+}
+
+/** A Workspace project's menu: open it, fetch it, find its folder. */
+function projectMenu(p: Project, path: string, here: boolean): MenuItem[] {
+  return [
+    { title: p.path, icon: ICONS.repo },
+    ...(here ? [] : ([["Open", () => openRepo(path)]] as MenuItem[])),
+    // this tab's own: the graph follows
+    ["Fetch", () => (here ? gitOp("fetch") : fetchProject(p, path))],
+    null,
+    ["Show in folder", () => run("open_default", { repo: projects.top, path: p.path, folder: false }).catch((e) => say(String(e), true))],
+    ["Copy path", () => copy(path)],
+  ];
+}
+
+/** `git fetch --all --prune` in every project of the workspace at once; their rows then asked again, this tab refreshed. */
+async function fetchAll() {
+  const list = projects.list ?? [];
+  if (!list.length || fetchingAll) return;
+  fetchingAll = true;
+  renderSide();
+  say(`Fetching ${plural(list.length, "project")}…`, false, true);
+  const fetched = Promise.all(list.map((p) => run<string>("git_op", { repo: `${projects.top}/${p.path}`, op: "fetch", arg: "" }, true).then(() => "", (e) => `${p.path}: ${String(e).split("\n")[0]}`)));
+  // a second's turn at least: a quick fetch is seen to happen
+  const [answers] = await Promise.all([fetched, new Promise((r) => setTimeout(r, 1000))]);
+  const failed = answers.filter(Boolean);
+  fetchingAll = false;
+  renderSide();
+  if (failed.length) toast(`Fetch failed in ${plural(failed.length, "project")}`, failed.join("\n"), "err");
+  say(`Fetched ${plural(list.length - failed.length, "project")}`);
+  projects.at = 0;
+  loadProjects();
+  refresh();
+}
+
+/** `git fetch --all --prune` in another project of the workspace, its row then asked again. */
+async function fetchProject(p: Project, path: string) {
+  const name = basename(p.path);
+  say(`Fetching ${name}…`, false, true);
+  const ok = await run<string>("git_op", { repo: path, op: "fetch", arg: "" }).then(
+    () => true,
+    (e) => (say(String(e), true), false),
+  );
+  if (ok) say(`Fetched ${name}`);
+  projects.at = 0;
+  loadProjects();
+}
+
+/** A project's branch against its upstream, in words. */
+function projectBranch(p: Project) {
+  if (!p.branch) return `Detached at ${p.head}`;
+  if (p.ahead === null) return `${p.branch}, no upstream`;
+  if (p.ahead || p.behind) return `${p.branch}, ${p.ahead} ahead, ${p.behind} behind its upstream`;
+  return `${p.branch}, in step with its upstream`;
+}
+
+/** A project's uncommitted changes, in words. */
+const projectChanges = (p: Project) => (p.changed || p.untracked ? `Uncommitted changes: ${p.changed} changed, ${p.untracked} untracked` : "No uncommitted changes");
 
 const ROW = 26, LANE = 22;
 // rows per chunk; the chunks within two of the view are drawn, a fast scroll fills one at a time
@@ -76,7 +155,7 @@ export function renderSide() {
   // a null count: still being asked, a spinner in its place
   const section = (key: string, title: string, count: number | null, rows: () => HTMLElement[], open: boolean, icon: string, tip: string) => {
     // the count first: floated right, it keeps its line however narrow the title gets
-    const n = h("span", { className: "n" }, count === null ? h("span", { className: "spinner", title: "Asking gh" }) : String(count));
+    const n = h("span", { className: "n" }, count === null ? h("span", { className: "spinner", title: "Loading" }) : String(count));
     const d = h("details", { open: folds[key] ?? open }, h("summary", { title: tip }, n, ico(ICONS[icon]), title));
     // a folded section's rows are made when it first opens
     let filled = false;
@@ -151,6 +230,34 @@ export function renderSide() {
       h("small", { textContent: [s.ahead && `↑${s.ahead}`, s.behind && `↓${s.behind}`].filter(Boolean).join(" ") }),
     );
   };
+  const projectRow = (p: Project) => {
+    const path = `${projects.top}/${p.path}`, here = path === (refs.worktrees[0]?.path ?? repo);
+    // out of step: changes here, or commits on one side only
+    const out = !!(p.changed || p.untracked || p.ahead || p.behind);
+    const where = [p.branch || `detached at ${p.head}`, p.ahead && `↑${p.ahead}`, p.behind && `↓${p.behind}`].filter(Boolean).join(" ");
+    const linked = p.worktrees.length ? `Linked worktrees:\n${p.worktrees.map(([folder, branch]) => `${folder}: ${branch || "detached"}`).join("\n")}` : "";
+    // its folder's name: the path is in the tooltip, the row stays readable in a narrow sidebar
+    return h(
+      "div",
+      {
+        className: `item project${here ? " current" : ""}`,
+        title: [path, projectBranch(p), projectChanges(p), linked].filter(Boolean).join("\n"),
+        ondblclick: () => here || openRepo(path),
+        oncontextmenu: (e: MouseEvent) => popup(e, projectMenu(p, path, here)),
+      },
+      h("span", { className: `ico sub-state ${out ? "out" : "ok"}`, innerHTML: svg(ICONS[out ? "sync" : "check"]) }),
+      ico(ICONS.repo),
+      h("span", { className: "label", textContent: basename(p.path) }),
+      h("small", { textContent: where }),
+      ...(p.worktrees.length ? [ico(ICONS.worktree, linked)] : []),
+    );
+  };
+  // a repo tool checkout: its projects, one repository each, null until asked; none elsewhere
+  let listed: Project[] | null = [];
+  if (refs.repoTop) listed = projects.top === refs.repoTop ? projects.list : null;
+  const workspace = addButton(section("workspace", "Workspace", listed?.length ?? null, () => (listed ?? []).map(projectRow), !!refs.repoTop, "repo", "Repositories checked out together by the repo tool, with the branch and changes of each"), "Fetch every project", fetchAll, "sync");
+  // turning while Fetch every project runs
+  workspace.querySelector(".add")!.classList.toggle("busy", fetchingAll);
   paintRepoName();
   $("sidebar").replaceChildren(
     section("local", "Local", local.length, () => local.map(localRow), true, "local", "Branches of the repository present on this computer"),
@@ -161,13 +268,14 @@ export function renderSide() {
     addButton(section("worktrees", "Worktrees", live.length, () => live.map(worktreeRow), false, "worktree", "Folders checked out from this repository, each on its own branch"), "Create a worktree", () => createWorktree("", headHash(), status?.branch ?? "")),
     addButton(section("submodules", "Submodules", refs.submodules.length, () => refs.submodules.map(submoduleRow), false, "submodule", "Repositories nested in this one, each pinned to a commit"), "Add a submodule", addSubmodule),
     addButton(section("pulls", "Pull requests", pullsHere()?.list.length ?? null, prRows, true, "pr", "Pull requests opened for this repository"), "Create a pull request from the checked out branch", newPr),
+    workspace,
   );
 }
 
-/** A section's + on hover, adding one more of what it lists. */
-function addButton(d: HTMLElement, title: string, add: () => unknown) {
+/** A button on a section's header, shown on hover: by default its +, adding one more of what it lists; `icon` an ICONS key, its class too. */
+function addButton(d: HTMLElement, title: string, add: () => unknown, icon = "a") {
   // the fold stays as it is
-  d.querySelector("summary .n")!.after(h("button", { className: "add", title, innerHTML: svg(ICONS.a), onclick: (e: Event) => (e.preventDefault(), e.stopPropagation(), add()) }));
+  d.querySelector("summary .n")!.after(h("button", { className: `add ${icon}`, title, innerHTML: svg(ICONS[icon]), onclick: (e: Event) => (e.preventDefault(), e.stopPropagation(), add()) }));
   return d;
 }
 

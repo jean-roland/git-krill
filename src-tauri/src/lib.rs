@@ -110,6 +110,23 @@ struct Submodule {
 }
 
 #[derive(Serialize)]
+struct Project {
+    // its folder under the repo tool's top, as .repo/project.list names it
+    path: String,
+    // empty when detached
+    branch: String,
+    head: String,
+    // against its upstream, none without one
+    ahead: Option<u32>,
+    behind: Option<u32>,
+    // tracked files changed, staged or not; untracked files
+    changed: u32,
+    untracked: u32,
+    // its linked worktrees, beside its own folder: [folder, branch], the branch empty when detached
+    worktrees: Vec<(String, String)>,
+}
+
+#[derive(Serialize)]
 struct Worktree {
     path: String,
     head: String,
@@ -578,6 +595,58 @@ fn main_folder(listed: &str) -> (String, String) {
         }
     }
     (listed.to_string(), String::new())
+}
+
+/// \brief The projects of the repo tool's checkout at `top`, each with its branch and changes; asked in parallel.
+#[tauri::command(async)]
+fn repo_projects(top: String) -> Result<Vec<Project>, String> {
+    let list = std::fs::read_to_string(Path::new(&top).join(".repo/project.list")).map_err(|e| e.to_string())?;
+    let top = &top;
+    Ok(std::thread::scope(|s| {
+        let jobs: Vec<_> = list.lines().filter(|l| !l.is_empty()).map(|path| s.spawn(move || project(top, path))).collect();
+        jobs.into_iter().filter_map(|j| j.join().ok()).collect()
+    }))
+}
+
+/// \brief Project `path` of the repo tool's checkout at `top`: its branch, its changes and its worktrees.
+fn project(top: &str, path: &str) -> Project {
+    let dir = format!("{top}/{path}");
+    let mut p = Project { path: path.into(), branch: String::new(), head: String::new(), ahead: None, behind: None, changed: 0, untracked: 0, worktrees: Vec::new() };
+    let status = git(&dir, &["status", "--porcelain=v2", "--branch", "-z"]).unwrap_or_default();
+    // a rename's entry is followed by its old path, a field of its own
+    let mut old_path = false;
+    for e in status.split('\0') {
+        if std::mem::take(&mut old_path) {
+            continue;
+        }
+        if let Some(oid) = e.strip_prefix("# branch.oid ") {
+            p.head = oid.chars().take(7).collect();
+        } else if let Some(b) = e.strip_prefix("# branch.head ") {
+            p.branch = if b == "(detached)" { String::new() } else { b.into() };
+        } else if let Some((a, b)) = e.strip_prefix("# branch.ab ").and_then(|ab| ab.split_once(' ')) {
+            p.ahead = a.trim_start_matches('+').parse().ok();
+            p.behind = b.trim_start_matches('-').parse().ok();
+        } else if e.starts_with("? ") {
+            p.untracked += 1;
+        } else if e.starts_with("1 ") || e.starts_with("u ") {
+            p.changed += 1;
+        } else if e.starts_with("2 ") {
+            p.changed += 1;
+            old_path = true;
+        }
+    }
+    // one block per worktree, "worktree <folder>" then "branch refs/heads/<name>" or "detached"; the first is the project's own
+    let listed = git(&dir, &["worktree", "list", "--porcelain"]).unwrap_or_default();
+    p.worktrees = listed
+        .split("\n\n")
+        .skip(1)
+        .filter_map(|block| {
+            let folder = block.lines().find_map(|l| l.strip_prefix("worktree "))?;
+            let branch = block.lines().find_map(|l| l.strip_prefix("branch refs/heads/")).unwrap_or("");
+            Some((folder.to_string(), branch.to_string()))
+        })
+        .collect();
+    p
 }
 
 /// \brief The submodules `.gitmodules` lists, with their state; git is asked again only about the ones that changed.
@@ -2333,7 +2402,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, gh_verified, gh, pr_base, remote_tags, submodule_change, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, worktree_main, lfs_patterns, version_ids, keeps_crlf,
-            is_merged, revert_lines, index_tree, stash_print, clone_cancel, tracing, trace_line, open_default, open_version, file_bytes, binary_text, text_part, diff_hunks, tool_status, install_git, global_config, set_global_config, trust_folder, delete_file, open_url, remote_urls, edit_remote,
+            is_merged, revert_lines, index_tree, stash_print, clone_cancel, tracing, trace_line, open_default, open_version, file_bytes, binary_text, text_part, diff_hunks, tool_status, install_git, repo_projects, global_config, set_global_config, trust_folder, delete_file, open_url, remote_urls, edit_remote,
             pty::pty_spawn, pty::pty_write, pty::pty_resize, pty::pty_kill, askpass::askpass_reply
         ])
         .build(tauri::generate_context!())

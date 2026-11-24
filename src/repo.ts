@@ -6,7 +6,7 @@ import { repoName } from "./core.js";
 import { $, COLORS, ICONS, MenuItem, ask, basename, colorIndex, dialog, h, hideBanner, hideDialog, hint, ico, input, noGit, pickDir, pickDirs, plural, popup, say, short, showBanner, showDialog, showMenu, store, svg, toast, warnOnce } from "./ui";
 import { closeHistory, closeMerge, closeResolvedMerge, confirmDrop, diffFile, openRow, reloadDiff } from "./diff";
 import { conflictCount, getMsg, panelData, renderPanel, setMsg } from "./panel";
-import { offerGone, offerMove, stepBack, paintSelection, paintWipRow, renderGraph, renderSide, resetGraph, showRow } from "./graph";
+import { loadProjects, offerGone, offerMove, stepBack, paintSelection, paintWipRow, renderGraph, renderSide, resetGraph, showRow } from "./graph";
 import { dropTerm, showTerm } from "./terminal";
 import { closePr, loadPrs, paintPrBar } from "./pr";
 import { renderSettings, rerereTip } from "./settings";
@@ -405,6 +405,7 @@ async function reload() {
     status = s;
     refs = rf;
     offerGone();
+    loadProjects();
     if (rf.lfs && rf.lfsProblem) warnOnce(`lfs:${r}`, `${basename(r)} uses Git LFS`, LFS_PROBLEMS[rf.lfsProblem], "err");
     opInfo = info;
     const landed = landing;
