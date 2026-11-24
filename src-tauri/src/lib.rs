@@ -1680,6 +1680,13 @@ fn revert_lines(repo: String, commit: String, path: String, text: Option<String>
     Ok(())
 }
 
+/// \brief Whether a commit in `repo` has its author: a name and an email from the environment or any config git reads there (includeIf, the repository's own).
+#[tauri::command(async)]
+fn has_identity(repo: String) -> bool {
+    let set = |key: &str, var: &str| std::env::var_os(var).is_some_and(|v| !v.is_empty()) || git(&repo, &["config", "--get", key]).is_ok_and(|v| !v.trim().is_empty());
+    set("user.name", "GIT_AUTHOR_NAME") && set("user.email", "GIT_AUTHOR_EMAIL")
+}
+
 /// \brief Whether `git branch -d` takes `branch`: merged into its upstream, or into HEAD without one.
 #[tauri::command(async)]
 fn is_merged(repo: String, branch: String) -> Result<bool, String> {
@@ -2435,7 +2442,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, gh_verified, gh, pr_base, remote_tags, submodule_change, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, worktree_main, lfs_patterns, version_ids, keeps_crlf,
-            is_merged, revert_lines, index_tree, stash_print, clone_cancel, tracing, trace_line, open_default, open_version, file_bytes, binary_text, text_part, diff_hunks, tool_status, install_git, repo_projects, global_config, set_global_config, trust_folder, delete_file, open_url, remote_urls, edit_remote,
+            is_merged, has_identity, revert_lines, index_tree, stash_print, clone_cancel, tracing, trace_line, open_default, open_version, file_bytes, binary_text, text_part, diff_hunks, tool_status, install_git, repo_projects, global_config, set_global_config, trust_folder, delete_file, open_url, remote_urls, edit_remote,
             pty::pty_spawn, pty::pty_write, pty::pty_resize, pty::pty_kill, askpass::askpass_reply
         ])
         .build(tauri::generate_context!())

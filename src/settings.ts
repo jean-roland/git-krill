@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { homeDir } from "@tauri-apps/api/path";
-import { DEFAULT_EDITOR, fetchMinutes, openSettings } from "./repo";
+import { DEFAULT_EDITOR, fetchMinutes, openSettings, repo, run } from "./repo";
 import { $, ICONS, dateTimeText, h, ico, pickDir, say, showMenu, store, svg, toast } from "./ui";
 
 type Tools = { git: string; lfs: string; gh: string; lfsSetUp: boolean; lfsInUse: boolean; ghHosts: string[]; gitHelp: string };
@@ -11,8 +11,8 @@ const IDENTITY: [string, string][] = [["user.name", "Name"], ["user.email", "Ema
 const RERERE = ["rerere.enabled", "rerere.autoUpdate"];
 // asked at startup: Settings opens filled in, then asks again
 let globals = invoke<string[]>("global_config");
-/** Whether the global git config lacks the name or the email a commit needs. */
-export const noIdentity = () => globals.then((v) => !v[0] || !v[1]);
+/** Whether a commit would lack the name or the email: as git reads them in the open repository (includeIf, its own config), else in the global config. */
+export const noIdentity = async () => (repo ? !(await run<boolean>("has_identity").catch(() => true)) : globals.then((v) => !v[0] || !v[1]));
 // the startup notice of a missing identity, up until both are saved
 let identityToast: { dismiss: () => void } | null = null;
 

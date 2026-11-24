@@ -347,6 +347,6 @@ const restored = restoreTabs(loadMonaco().then(() => (diffEditor ? undefined : w
 // once a run, as soon as it starts: git missing is said before any repository fails on it
 checkTools().then(async (t) => {
   if (!t.git) return warnNoGit(t.gitHelp);
-  // a commit needs the name and the email
-  if (await noIdentity()) await restored.then(askIdentity);
+  // a commit needs the name and the email, as the tab it opens on reads them
+  if (await restored.then(noIdentity)) askIdentity();
 }, () => {});

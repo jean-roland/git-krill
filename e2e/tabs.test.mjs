@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
@@ -70,4 +71,19 @@ test("with no name or email in the global git config, Settings open at startup a
   await k.until(() => ![...document.querySelectorAll("#toasts .toast.err:not(.out) b")].some((b) => b.textContent === "Git identity missing"));
   for (let i = 0; i < 50 && !/email = tester@example.com/.test(readFileSync(none, "utf8")); i++) await new Promise((r) => setTimeout(r, 100));
   assert.match(readFileSync(none, "utf8"), /name = Krill Tester[\s\S]*email = tester@example.com/);
+});
+
+test("an identity the repository's own config gives opens no Settings at startup", async () => {
+  await k.quit(true);
+  const none = join(home, "no-identity-here");
+  writeFileSync(none, "");
+  const top = `${demo()}/tidepool`;
+  execFileSync("git", ["config", "user.name", "Local Tester"], { cwd: top });
+  execFileSync("git", ["config", "user.email", "local@example.com"], { cwd: top });
+  k = await launch(top, { GIT_CONFIG_GLOBAL: none });
+  await k.until(() => document.querySelector("#graph .row"));
+  // the startup check runs once the tab is restored
+  await new Promise((r) => setTimeout(r, 2000));
+  assert.ok(await k.js(() => document.getElementById("settings").hidden));
+  assert.ok(!(await k.js(() => [...document.querySelectorAll("#toasts .toast.err b")].some((b) => b.textContent === "Git identity missing"))));
 });
