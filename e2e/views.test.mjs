@@ -171,3 +171,26 @@ test("a page side taken off the page before it loads does not hold the busy poin
   await k.click('[data-dview="file"]');
   await k.click('[data-svg="text"]');
 });
+
+test("both sides of a Markdown page with many diagrams draw in seconds", async () => {
+  const git = (...args) => execFileSync("git", ["-c", "user.name=Krill Test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", ...args], { cwd: repository });
+  const page = (label) => Array.from({ length: 20 }, (_, i) => `## Part ${i}\n\n\`\`\`mermaid\nflowchart LR\n  A${i}[${label} ${i}] --> B${i}[Next] --> C${i}[Last]\n\`\`\`\n`).join("\n");
+  writeFileSync(join(repository, "DIAGRAMS.md"), page("Start"));
+  git("add", "DIAGRAMS.md");
+  git("commit", "-q", "-m", "docs: diagrams");
+  writeFileSync(join(repository, "DIAGRAMS.md"), page("Begin"));
+  git("commit", "-q", "-a", "-m", "docs: begin the diagrams");
+  await k.keys("\uE00C");
+  await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
+  await k.click("#graph .row", "docs: begin the diagrams");
+  await k.click('#commit-files .file[data-path="DIAGRAMS.md"]');
+  await k.click('[data-svg="image"]');
+  // a mermaid frame out of view is slowed to 2 s a diagram: 40 of them took over a minute
+  const t0 = Date.now();
+  await k.click('[data-dview="diff"]');
+  await k.until(() => [...document.querySelectorAll("#diff-binary iframe")].filter((f) => f.contentDocument?.querySelectorAll(".mermaid-drawn svg").length === 20).length === 2);
+  assert.ok(Date.now() - t0 < 12000, `${Date.now() - t0} ms`);
+  await k.click('[data-svg="text"]');
+  await k.keys("\uE00C");
+  git("reset", "-q", "--hard", "HEAD~2");
+});

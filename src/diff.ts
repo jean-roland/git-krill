@@ -1107,8 +1107,8 @@ function mermaidDrawer() {
   return (drawer ??= import("mermaid/dist/mermaid.min.js?raw").then(
     ({ default: lib }) =>
       new Promise((done) => {
-        // laid out but out of sight: the library measures its text
-        const frame = h("iframe", { sandbox: "allow-scripts", style: "position: fixed; left: -10000px; width: 1200px; height: 900px; visibility: hidden" }) as HTMLIFrameElement;
+        // laid out, as the library measures its text; in the viewport but see-through and under the window: WebKit slows a frame out of view to 2 s a diagram
+        const frame = h("iframe", { sandbox: "allow-scripts", style: "position: fixed; left: 0; top: 0; width: 1200px; height: 900px; opacity: 0; pointer-events: none; z-index: -1" }) as HTMLIFrameElement;
         const csp = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:";
         frame.srcdoc = `<!doctype html><meta http-equiv="Content-Security-Policy" content="${csp}"><body><script>
 onmessage = async ({ data }) => {
