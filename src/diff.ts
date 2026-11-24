@@ -314,10 +314,16 @@ function layOutView() {
     $("diff-file").hidden = !fileView();
     paintFile();
   } else {
-    // the File view draws its version alone: the other one comes now, scrolled where this one is
-    readAt = spot;
-    $("diff-binary").replaceChildren(imageSides());
-    readAt = null;
+    // the new version stays as drawn, a moved frame would load again: the old one comes beside it, scrolled where it is, or goes
+    const box = $("diff-binary").querySelector<HTMLElement>(".img-sides")!;
+    if (fileView()) box.querySelector(".img-side.del")?.remove();
+    else {
+      const [at, path] = sideSources(diffFile!.kind, diffFile!.f, diffFile!.c)[0];
+      readAt = spot;
+      box.prepend(sideOf(diffFile!.f.path)(at, path, "del"));
+      readAt = null;
+      syncPages([...box.querySelectorAll("iframe")]);
+    }
   }
   dimDiffOpts(false);
   applyMode();
@@ -879,10 +885,16 @@ let binaryView = false;
 const sideName = (at: string) => (at === "WORKTREE" ? "Working tree" : at === "INDEX" ? "Staged" : at === "HEAD" ? "HEAD" : short(at));
 const bytesText = (n: number) => (n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 1024).toFixed(1)} KB` : megabytes(n));
 
+/** How a version of `path` is drawn: a PDF in its viewer, a page in a frame, else as an image. */
+function sideOf(path: string) {
+  if (PDF.test(path)) return pdfSide;
+  return PAGE.test(path) ? pageSide : imageSide;
+}
+
 /** The open image's old and new versions, side by side. */
 function imageSides() {
   const { kind, f, c, orig, mod } = diffFile!;
-  const side = PDF.test(f.path) ? pdfSide : PAGE.test(f.path) ? pageSide : imageSide;
+  const side = sideOf(f.path);
   // the File view's shown version alone: the old one only for a deleted file
   const sides = sideSources(kind, f, c).flatMap(([at, path], i) => ((i ? mod : orig).exists && (i || !mod.exists || !fileView()) ? [side(at, path, i ? "add" : "del")] : []));
   const box = zoomable(h("div", { className: "img-sides" }, ...sides));

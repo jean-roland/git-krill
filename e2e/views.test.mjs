@@ -80,12 +80,18 @@ test("a PDF shows in the window's own viewer, alone in the File view, beside its
   assert.deepEqual(await k.js(shown), ["Working tree"]);
   // no text to zoom
   assert.ok(await k.js(() => document.getElementById("zoom").classList.contains("off")));
+  // the version on screen is not loaded again by a view switch
+  await k.js(() => (document.querySelector("#diff-binary iframe").dataset.kept = "1"));
   await k.click('[data-dview="diff"]');
   const sides = await k.until(() => {
     const all = [...document.querySelectorAll("#diff-binary .img-side")];
     return all.length === 2 && all.every((s) => s.offsetParent && s.querySelector("iframe").src.startsWith("blob:") && / · \d+ B$/.test(s.textContent)) && all.map((s) => s.textContent.split(" · ")[0]);
   });
   assert.deepEqual(sides, ["Staged", "Working tree"]);
+  assert.equal(await k.js(() => [...document.querySelectorAll("#diff-binary iframe")].map((f) => f.dataset.kept ?? "").join()), ",1");
+  await k.click('[data-dview="file"]');
+  await k.until(() => document.querySelectorAll("#diff-binary iframe").length === 1);
+  assert.equal(await k.js(() => document.querySelector("#diff-binary iframe").dataset.kept), "1");
   // staged, it is a new file: nothing to compare
   await k.click('#staged .file[data-path="docs/preview.pdf"]');
   await k.until(() => document.querySelector('[data-dview="diff"]').classList.contains("off") && document.querySelector('[data-dview="file"]').classList.contains("on"));
