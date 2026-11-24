@@ -520,8 +520,8 @@ function still(el?: HTMLElement) {
   // canvases (minimap, overview ruler) do not clone their pixels
   const from = el.querySelectorAll("canvas");
   copy.querySelectorAll("canvas").forEach((c, i) => from[i].width && from[i].height && c.getContext("2d")?.drawImage(from[i], 0, 0));
-  // a copied frame loads again, blank then at its top: the pane shows through instead
-  copy.querySelectorAll("iframe").forEach((f) => (f.style.visibility = "hidden"));
+  // a copied frame would load again, blank then at its top: left empty, the pane shows through instead
+  copy.querySelectorAll("iframe").forEach((f) => (f.removeAttribute("srcdoc"), f.removeAttribute("src"), (f.style.visibility = "hidden")));
   copy.classList.add("still");
   Object.assign(copy.style, { position: "absolute", zIndex: "20", pointerEvents: "none", left: `${el.offsetLeft}px`, top: `${el.offsetTop}px`, width: `${el.offsetWidth}px`, height: `${el.offsetHeight}px` });
   // after it: its ids still find the live element
