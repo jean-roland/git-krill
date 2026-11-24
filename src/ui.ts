@@ -202,8 +202,9 @@ export function warnNoGit(help: string) {
     textContent: "Install Git",
     onclick: () => {
       b.disabled = true;
-      say("Installing Git…", false, true);
-      invoke("install_git").then(() => location.reload(), (e) => ((b.disabled = false), say(String(e), true)));
+      // winget downloads first, quietly, before the installer asks for admin rights
+      b.replaceChildren(h("span", { className: "spinner" }), "Installing Git…");
+      invoke("install_git").then(() => location.reload(), (e) => ((b.disabled = false), b.replaceChildren("Install Git"), say(String(e), true)));
     },
   });
   t.el.querySelector(".t-body")!.append(h("div", { className: "t-actions" }, b));
