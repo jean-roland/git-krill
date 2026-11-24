@@ -654,6 +654,8 @@ async function renderCommitDetails(n: number) {
     const changed = new Map(info.files.map((f) => [f.path, f]));
     const files = all.length ? [...new Set([...all, ...changed.keys()])].sort().map((p) => changed.get(p) ?? { path: p, old: null, code: "" }) : info.files;
     fileList($("commit-files"), files, (f) => openDiff("commit", f, view.c), [], (f) => fileMenu(f, "commit", view.c));
+    // an empty commit, or two ends with the same files: said, not a blank panel
+    if (!files.length) $("commit-files").append(h("div", { className: "files-none", textContent: selection.hashes.length > 1 ? "No changes between these commits" : "No changes in this commit" }));
   } catch (e) {
     say(String(e), true);
   }

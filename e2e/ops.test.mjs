@@ -127,6 +127,14 @@ test("Push sends main's commits; a colleague's commit comes back with Fetch and 
   await k.until(() => !document.getElementById("behind").textContent && document.querySelector("#graph .row.row-head")?.textContent.includes("chore: Eve was here"));
 });
 
+test("an empty commit, and two commits with the same files, say they have no changes", async () => {
+  // Eve's commit, made with --allow-empty, has its parent's files
+  await k.click("#graph .row", "chore: Eve was here");
+  await k.until(() => document.querySelector("#commit-files .files-none")?.textContent === "No changes in this commit");
+  await k.js(() => [...document.querySelectorAll("#graph .row")].find((r) => r.textContent.includes("feat: search stations")).dispatchEvent(new MouseEvent("click", { ctrlKey: true, bubbles: true })));
+  await k.until(() => document.querySelector("#commit-files .files-none")?.textContent === "No changes between these commits");
+});
+
 const refresh = () => k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
 
 test("a push refused as protected moves the commits to a new branch and pushes that one", async () => {
