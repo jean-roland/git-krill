@@ -134,6 +134,12 @@ function eye(key: string, hidden: boolean, toggle = () => toggleHidden(key)) {
   });
 }
 
+/** The chip of the pull request open from branch `name` at `hash`, if any. */
+function prChips(name: string, hash: string) {
+  const pr = prOf(name, hash);
+  return pr ? [prChip(pr)] : [];
+}
+
 /** A sidebar row; `hide` is what its eye keeps out of the graph, none on the checked out branch. */
 function sideItem(label: string, icon: string, hash: string, extra: string, cls: string, menu: () => MenuItem[], dbl?: () => unknown, hide?: string) {
   const hidden = !!hide && hiddenSet.has(hide);
@@ -179,11 +185,15 @@ export function renderSide() {
     const row = sideItem(name, "branch", hash, trackLabel(track), current ? "current" : "", () => branchMenu(name, false), () => current || checkoutBranch(name, false), current ? undefined : ref);
     // its upstream was deleted on the remote, like a merged pull request's branch
     if (track === "[gone]") row.append(ico(ICONS.gone, `${findRef(ref)?.upstream || "Its upstream"} was deleted on the remote`));
-    const pr = prOf(name, hash);
-    if (pr) row.append(prChip(pr));
+    row.append(...prChips(name, hash));
     return row;
   };
-  const remoteRow = ([full, hash, ref]: string[]) => sideItem(full.slice(full.indexOf("/") + 1), "branch", hash, "", "", () => branchMenu(full, true), () => checkoutBranch(full, true), ref);
+  const remoteRow = ([full, hash, ref]: string[]) => {
+    const name = full.slice(full.indexOf("/") + 1);
+    const row = sideItem(name, "branch", hash, "", "", () => branchMenu(full, true), () => checkoutBranch(full, true), ref);
+    row.append(...prChips(name, hash));
+    return row;
+  };
   const tagRow = ([name, hash, ref]: string[]) => {
     const row = sideItem(name, "tag", hash, "", "", () => tagMenu(name), undefined, ref);
     // an unpushed tag keeps the cloud's place: the laptops stay in one column

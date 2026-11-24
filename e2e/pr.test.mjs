@@ -68,6 +68,11 @@ test("the open pull requests are listed, their numbers on their branches", async
   await k.until(() => document.querySelectorAll('#sidebar [data-key="pulls"] .item').length === 3);
   assert.match(await k.js(() => document.querySelector('#sidebar [data-key="pulls"] .item.draft').textContent), /Document the tides#8/);
   assert.equal(await k.js(() => document.querySelector('#graph .ref[title*="feature/moon"] .pr-n')?.textContent), "#7");
+  // the sidebar's branches carry it too, local and remote
+  assert.equal(await k.js(() => document.querySelector('#sidebar [data-key="local"] .item[title="feature/moon"] .pr-n')?.textContent), "#7");
+  await k.click('#sidebar [data-key="remote/origin"] summary');
+  assert.equal(await k.until(() => document.querySelector('#sidebar [data-key="remote/origin"] .item[title="feature/moon"] .pr-n')?.textContent), "#7");
+  await k.click('#sidebar [data-key="remote/origin"] summary');
 });
 
 test("a pull request shows its checks, description, review thread and files", async () => {
