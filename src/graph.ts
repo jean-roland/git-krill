@@ -15,8 +15,8 @@ type Project = { path: string; branch: string; head: string; ahead: number | nul
 let projects: { top: string; list: Project[] | null; at: number } = { top: "", list: null, at: 0 };
 // the ask a refresh within 5 s of the last one put off
 let projectsLater = 0;
-// Fetch every project running: its button spins, sidebar repaints included
-let fetchingAll = false;
+// the checkouts whose Fetch every project runs: their button spins, sidebar repaints included
+const fetchingAll = new Set<string>();
 
 /** The repo tool checkout's projects, asked at most every 5 s: a refresh sooner is answered at the 5 s mark; the sidebar repaints when they changed. */
 export async function loadProjects() {
@@ -25,9 +25,11 @@ export async function loadProjects() {
   if (!top) return;
   const wait = top === projects.top ? projects.at + 5000 - Date.now() : 0;
   if (wait > 0) return void (projectsLater = setTimeout(loadProjects, wait));
+  // another checkout's: asked now, the refreshes meanwhile wait for it
+  if (top !== projects.top) projects = { top, list: null, at: 0 };
   projects.at = Date.now();
-  const list = await invoke<Project[]>("repo_projects", { top }).catch(() => []);
-  if (top !== refs.repoTop || (top === projects.top && JSON.stringify(list) === JSON.stringify(projects.list))) return;
+  const r = repo, list = await invoke<Project[]>("repo_projects", { top }).catch(() => []);
+  if (r !== repo || top !== refs.repoTop || (top === projects.top && JSON.stringify(list) === JSON.stringify(projects.list))) return;
   projects = { top, list, at: projects.at };
   renderSide();
 }
@@ -45,18 +47,27 @@ function projectMenu(p: Project, path: string, here: boolean): MenuItem[] {
   ];
 }
 
-/** `git fetch --all --prune` in every project of the workspace at once; their rows then asked again, this tab refreshed. */
+// fetches at once: a server takes so many new connections at a time (sshd's MaxStartups starts refusing past 10)
+const FETCHES_AT_ONCE = 6;
+
+/** `git fetch --all --prune` in every project of the workspace, a few at a time; their rows then asked again, this tab refreshed. */
 async function fetchAll() {
-  const list = projects.list ?? [];
-  if (!list.length || fetchingAll) return;
-  fetchingAll = true;
+  const list = projects.list ?? [], top = projects.top, answers: string[] = [];
+  if (!list.length || fetchingAll.has(top)) return;
+  fetchingAll.add(top);
   renderSide();
   say(`Fetching ${plural(list.length, "project")}…`, false, true);
-  const fetched = Promise.all(list.map((p) => run<string>("git_op", { repo: `${projects.top}/${p.path}`, op: "fetch", arg: "" }, true).then(() => "", (e) => `${p.path}: ${String(e).split("\n")[0]}`)));
+  let next = 0;
+  const fetchNext = async () => {
+    for (let i = next++; i < list.length; i = next++) {
+      const p = list[i];
+      answers[i] = await run<string>("git_op", { repo: `${top}/${p.path}`, op: "fetch", arg: "" }, true).then(() => "", (e) => `${p.path}: ${String(e).split("\n")[0]}`);
+    }
+  };
   // a second's turn at least: a quick fetch is seen to happen
-  const [answers] = await Promise.all([fetched, new Promise((r) => setTimeout(r, 1000))]);
+  await Promise.all([...Array.from({ length: Math.min(FETCHES_AT_ONCE, list.length) }, fetchNext), new Promise((r) => setTimeout(r, 1000))]);
   const failed = answers.filter(Boolean);
-  fetchingAll = false;
+  fetchingAll.delete(top);
   renderSide();
   if (failed.length) toast(`Fetch failed in ${plural(failed.length, "project")}`, failed.join("\n"), "err");
   say(`Fetched ${plural(list.length - failed.length, "project")}`);
@@ -268,7 +279,7 @@ export function renderSide() {
   if (refs.repoTop) listed = projects.top === refs.repoTop ? projects.list : null;
   const workspace = addButton(section("workspace", "Workspace", listed?.length ?? null, () => (listed ?? []).map(projectRow), !!refs.repoTop, "repo", "Repositories checked out together by the repo tool, with the branch and changes of each"), "Fetch every project", fetchAll, "sync");
   // turning while Fetch every project runs
-  workspace.querySelector(".add")!.classList.toggle("busy", fetchingAll);
+  workspace.querySelector(".add")!.classList.toggle("busy", fetchingAll.has(refs.repoTop));
   paintRepoName();
   $("sidebar").replaceChildren(
     section("local", "Local", local.length, () => local.map(localRow), true, "local", "Branches of the repository present on this computer"),

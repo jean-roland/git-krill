@@ -601,11 +601,29 @@ fn main_folder(listed: &str) -> (String, String) {
 #[tauri::command(async)]
 fn repo_projects(top: String) -> Result<Vec<Project>, String> {
     let list = std::fs::read_to_string(Path::new(&top).join(".repo/project.list")).map_err(|e| e.to_string())?;
-    let top = &top;
-    Ok(std::thread::scope(|s| {
-        let jobs: Vec<_> = list.lines().filter(|l| !l.is_empty()).map(|path| s.spawn(move || project(top, path))).collect();
-        jobs.into_iter().filter_map(|j| j.join().ok()).collect()
-    }))
+    let (top, paths) = (&top, list.lines().filter(|l| !l.is_empty()).collect::<Vec<_>>());
+    // a few at a time: two git runs per project at once run out of file descriptors on a big manifest
+    let workers = std::thread::available_parallelism().map_or(4, |n| n.get()).min(8);
+    let next = AtomicUsize::new(0);
+    let mut found: Vec<(usize, Project)> = tokio::task::block_in_place(|| {
+        std::thread::scope(|s| {
+            let jobs: Vec<_> = (0..workers)
+                .map(|_| {
+                    s.spawn(|| {
+                        let mut mine = Vec::new();
+                        loop {
+                            let i = next.fetch_add(1, Ordering::Relaxed);
+                            let Some(path) = paths.get(i) else { break mine };
+                            mine.push((i, project(top, path)));
+                        }
+                    })
+                })
+                .collect();
+            jobs.into_iter().filter_map(|j| j.join().ok()).flatten().collect()
+        })
+    });
+    found.sort_by_key(|(i, _)| *i);
+    Ok(found.into_iter().map(|(_, p)| p).collect())
 }
 
 /// \brief Project `path` of the repo tool's checkout at `top`: its branch, its changes and its worktrees.
