@@ -288,8 +288,10 @@ export function renderSide() {
   let listed: Project[] | null = [];
   if (refs.repoTop) listed = projects.top === refs.repoTop ? projects.list : null;
   const workspace = addButton(section("workspace", "Workspace", listed?.length ?? null, () => (listed ?? []).map(projectRow), !!refs.repoTop, "repo", "Repositories checked out together by the repo tool, with the branch and changes of each"), "Fetch every project", fetchAll, "sync");
-  // turning while Fetch every project runs
-  workspace.querySelector(".add")!.classList.toggle("busy", fetchingAll.has(refs.repoTop));
+  // turning while Fetch every project runs; greyed outside a repo tool checkout
+  const fetchButton = workspace.querySelector<HTMLElement>(".add")!;
+  fetchButton.classList.toggle("busy", fetchingAll.has(refs.repoTop));
+  if (!refs.repoTop) Object.assign(fetchButton, { title: "Nothing to fetch: not a repo tool checkout" }).classList.add("off");
   paintRepoName();
   $("sidebar").replaceChildren(
     section("local", "Local", local.length, () => local.map(localRow), true, "local", "Branches of the repository present on this computer"),

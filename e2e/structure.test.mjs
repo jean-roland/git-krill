@@ -30,6 +30,11 @@ test("a picture stored with LFS shows its badge, and both versions side by side"
 
 test("a repository outside a repo tool checkout has no Workspace projects", async () => {
   assert.equal(await count("workspace"), "0");
+  // nothing to fetch: greyed, saying why
+  assert.deepEqual(await k.js(() => {
+    const b = document.querySelector('#sidebar [data-key="workspace"] .add');
+    return [b.classList.contains("off"), b.title];
+  }), [true, "Nothing to fetch: not a repo tool checkout"]);
 });
 
 test("a submodule not checked out yet is initialized, then opened and left", async () => {
