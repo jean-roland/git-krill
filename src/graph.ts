@@ -74,10 +74,10 @@ export function renderSide() {
   const r = repo, folds = sideFolds();
   updateHidden();
   // a null count: still being asked, a spinner in its place
-  const section = (key: string, title: string, count: number | null, rows: () => HTMLElement[], open: boolean, icon = "") => {
+  const section = (key: string, title: string, count: number | null, rows: () => HTMLElement[], open: boolean, icon: string, tip: string) => {
     // the count first: floated right, it keeps its line however narrow the title gets
     const n = h("span", { className: "n" }, count === null ? h("span", { className: "spinner", title: "Asking gh" }) : String(count));
-    const d = h("details", { open: folds[key] ?? open }, h("summary", {}, n, ...(icon ? [ico(ICONS[icon])] : []), title));
+    const d = h("details", { open: folds[key] ?? open }, h("summary", { title: tip }, n, ico(ICONS[icon]), title));
     // a folded section's rows are made when it first opens
     let filled = false;
     const fill = () => !filled && d.open && ((filled = true), d.append(...rows()));
@@ -153,14 +153,14 @@ export function renderSide() {
   };
   paintRepoName();
   $("sidebar").replaceChildren(
-    section("local", "Local", local.length, () => local.map(localRow), true, "local"),
-    section("remote", "Remote", remotes.size, () => [...remotes].map(([name, rows]) => remoteSection(section(`remote/${name}`, name, rows.length, () => rows.map(remoteRow), false, "globe"), name)), true, "remote"),
-    section("tags", "Tags", tags.length, () => tags.map(tagRow), false, "tag"),
-    section("stashes", "Stashes", refs.stashes.length, () => refs.stashes.map(stashRow), false, "stash"),
+    section("local", "Local", local.length, () => local.map(localRow), true, "local", "Branches of the repository present on this computer"),
+    section("remote", "Remote", remotes.size, () => [...remotes].map(([name, rows]) => remoteSection(section(`remote/${name}`, name, rows.length, () => rows.map(remoteRow), false, "globe", `Branches on ${name}, as the last fetch saw them`), name)), true, "remote", "Remotes of the repository and their branches"),
+    section("tags", "Tags", tags.length, () => tags.map(tagRow), false, "tag", "Tags of the repository"),
+    section("stashes", "Stashes", refs.stashes.length, () => refs.stashes.map(stashRow), false, "stash", "Changes put aside with Stash, newest first"),
     // shown even empty, for their +: folded until opened
-    addButton(section("worktrees", "Worktrees", live.length, () => live.map(worktreeRow), false, "worktree"), "Create a worktree", () => createWorktree("", headHash(), status?.branch ?? "")),
-    addButton(section("submodules", "Submodules", refs.submodules.length, () => refs.submodules.map(submoduleRow), false, "submodule"), "Add a submodule", addSubmodule),
-    addButton(section("pulls", "Pull requests", pullsHere()?.list.length ?? null, prRows, true, "pr"), "Create a pull request from the checked out branch", newPr),
+    addButton(section("worktrees", "Worktrees", live.length, () => live.map(worktreeRow), false, "worktree", "Folders checked out from this repository, each on its own branch"), "Create a worktree", () => createWorktree("", headHash(), status?.branch ?? "")),
+    addButton(section("submodules", "Submodules", refs.submodules.length, () => refs.submodules.map(submoduleRow), false, "submodule", "Repositories nested in this one, each pinned to a commit"), "Add a submodule", addSubmodule),
+    addButton(section("pulls", "Pull requests", pullsHere()?.list.length ?? null, prRows, true, "pr", "Pull requests opened for this repository"), "Create a pull request from the checked out branch", newPr),
   );
 }
 
