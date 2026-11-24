@@ -213,10 +213,13 @@ fn git_command(repo: &str, args: &[&str], ask: bool) -> Command {
     git
 }
 
-/// \brief Whether git-lfs runs here, asked once a run: an install while krill runs shows after a restart.
+// whether git-lfs runs here, None until asked: install_git forgets it, Git for Windows brings git-lfs
+static LFS_INSTALLED: Mutex<Option<bool>> = Mutex::new(None);
+
+/// \brief Whether git-lfs runs here, asked once a run and again after install_git: one installed by hand shows after a restart.
 fn lfs_installed() -> bool {
-    static INSTALLED: OnceLock<bool> = OnceLock::new();
-    *INSTALLED.get_or_init(|| command("git").args(["lfs", "version"]).stdin(Stdio::null()).output().is_ok_and(|o| o.status.success()))
+    let mut known = LFS_INSTALLED.lock().unwrap_or_else(|e| e.into_inner());
+    *known.get_or_insert_with(|| command("git").args(["lfs", "version"]).stdin(Stdio::null()).output().is_ok_and(|o| o.status.success()))
 }
 
 /// \brief How to get git here, for when it is missing.
@@ -247,6 +250,7 @@ fn install_git() -> Result<(), String> {
         let path = std::env::join_paths(std::iter::once(dir).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()))).map_err(|e| e.to_string())?;
         // SAFETY: std locks the environment on Windows
         unsafe { std::env::set_var("PATH", path) };
+        *LFS_INSTALLED.lock().unwrap_or_else(|e| e.into_inner()) = None;
         Ok(())
     }
     #[cfg(not(windows))]
