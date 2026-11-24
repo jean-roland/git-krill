@@ -183,9 +183,22 @@ test("branches deleted on their remote and merged are offered for deletion in on
   await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
   await k.until(() => [...document.querySelectorAll("#toasts .toast b")].some((b) => b.textContent === "2 branches were deleted on origin"));
   assert.match(await k.js(() => document.querySelector("#toasts .toast:last-child pre").textContent), /\ndone\nsquashed$/);
+  // committed to while the toast waited: its new commit is merged nowhere
+  git("branch", "-f", "done", git("commit-tree", "--no-gpg-sign", "done^{tree}", "-p", "done", "-m", "late"));
+  await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
+  await k.settle();
   await k.click("#toasts .toast .t-actions button", "Delete");
-  await k.until(() => [...document.querySelectorAll("#toasts .toast b")].some((b) => b.textContent === "Deleted the branches done, squashed"));
-  assert.equal(git("branch", "--list", "done", "squashed", "abandoned"), "abandoned");
+  await k.until(() => [...document.querySelectorAll("#toasts .toast b")].some((b) => b.textContent === "Deleted the branches squashed"));
+  assert.match(await k.js(() => [...document.querySelectorAll("#toasts .toast.err pre")].map((p) => p.textContent).join()), /Kept done: changed since/);
+  assert.equal(git("branch", "--list", "done", "squashed", "abandoned").replace(/\s+/g, " "), "abandoned done");
+  git("branch", "-D", "done");
+  // merged after it was first asked about: offered once HEAD moves
+  const was = git("rev-parse", "HEAD");
+  git("merge", "-q", "--ff-only", "abandoned");
+  await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
+  await k.until(() => [...document.querySelectorAll("#toasts .toast b")].some((b) => b.textContent === "abandoned was deleted on origin"));
+  await k.click("#toasts .toast .t-actions button", "Keep");
+  git("reset", "-q", "--hard", was);
   // asked once: a refresh offers nothing more
   await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
   await k.settle();

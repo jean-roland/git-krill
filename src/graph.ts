@@ -993,17 +993,23 @@ const goneSeen = new Set<string>();
 
 /** A toast offering to delete the local branches deleted on their remote and merged there; Keep, or closing it, remembers them. */
 export async function offerGone() {
-  const r = repo, keptKey = `gone-kept:${refs.worktrees[0]?.path ?? r}`;
-  const kept: string[] = JSON.parse(store(keptKey) ?? "[]");
+  // called as status and refs land, before the commits: HEAD from those
+  const r = repo, keptKey = `gone-kept:${refs.worktrees[0]?.path ?? r}`, head = findRef(`refs/heads/${status?.branch}`)?.hash ?? headHash();
+  // not merged yet: asked again once HEAD moves, as a pull bringing the merge in
+  const asked = (branch: string) => `${r}\0${branch}\0${head}`;
+  // "<branch> <tip>": a new branch of a kept one's name is asked again; plain names stored before 0.5.0
+  const kept: string[] = JSON.parse(store(keptKey) ?? "[]"), keptId = (x: { branch: string; hash: string }) => `${x.branch} ${x.hash}`;
   // the checked out branch and a worktree's go from their own menu
   const gone = refs.refs
     .filter((x) => x.name.startsWith("refs/heads/") && x.track === "[gone]")
     .map((x) => ({ branch: x.name.slice("refs/heads/".length), hash: x.hash, upstream: x.upstream }))
-    .filter((x) => x.branch !== status?.branch && !worktreeOf(x.branch) && !kept.includes(x.branch) && !goneSeen.has(`${r}\0${x.branch}`));
+    .filter((x) => x.branch !== status?.branch && !worktreeOf(x.branch) && !kept.includes(keptId(x)) && !kept.includes(x.branch) && !goneSeen.has(`${r}\0${x.branch}`) && !goneSeen.has(asked(x.branch)));
   if (!gone.length) return;
-  gone.forEach((x) => goneSeen.add(`${r}\0${x.branch}`));
+  gone.forEach((x) => goneSeen.add(asked(x.branch)));
   // a squash or rebase merge leaves the branch unmerged by ancestry: its merged pull request's head is its tip
   const heads = await mergedHeads();
+  // another tab meanwhile: its branches are asked on its return
+  if (repo !== r) return void gone.forEach((x) => goneSeen.delete(asked(x.branch)));
   const isMerged = async (x: (typeof gone)[number]) => {
     if (heads.has(x.hash)) return true;
     return run<boolean>("is_merged", { branch: x.branch }).catch(() => false);
@@ -1011,18 +1017,25 @@ export async function offerGone() {
   const verdicts = await Promise.all(gone.map(isMerged));
   const merged = gone.filter((_, i) => verdicts[i]);
   if (repo !== r || !merged.length) return;
+  merged.forEach((x) => goneSeen.add(`${r}\0${x.branch}`));
   const names = merged.map((x) => x.branch);
   const remotes = new Set(merged.map((x) => refs.remotes.find((rm) => x.upstream.startsWith(`${rm}/`)) ?? ""));
-  const where = remotes.size === 1 ? [...remotes][0] : "their remotes";
-  const title = names.length === 1 ? `${names[0]} was deleted on ${where}` : `${names.length} branches were deleted on ${where}`;
+  // a local branch as upstream has no remote to name
+  const where = remotes.size !== 1 ? "on their remotes" : [...remotes][0] ? `on ${[...remotes][0]}` : "upstream";
+  const title = names.length === 1 ? `${names[0]} was deleted ${where}` : `${names.length} branches were deleted ${where}`;
   const body = names.length === 1 ? "It is merged: delete the local branch too?" : `They are merged: delete the local ones too?\n${names.join("\n")}`;
   const t = toast(title, body, "info", true);
-  const keep = () => store(keptKey, JSON.stringify([...JSON.parse(store(keptKey) ?? "[]"), ...names]));
+  // the kept ones whose branch is gone are forgotten
+  const keep = () => store(keptKey, JSON.stringify([...(JSON.parse(store(keptKey) ?? "[]") as string[]).filter((id) => findRef(`refs/heads/${id.split(" ")[0]}`)), ...merged.map(keptId)]));
   const remove = () => {
     // the toast stays up across tabs: its branches are its repository's
     if (repo !== r) return say(`These branches are in ${basename(r)}: delete them from its tab`, true);
     t.dismiss();
-    gitOp("branches-delete", names.join("\0"));
+    // committed to since the verdict: not merged any more
+    const moved = merged.filter((x) => findRef(`refs/heads/${x.branch}`)?.hash !== x.hash).map((x) => x.branch);
+    const doomed = names.filter((n) => !moved.includes(n));
+    if (moved.length) say(`Kept ${moved.join(", ")}: changed since`, true);
+    if (doomed.length) gitOp("branches-delete", doomed.join("\0"));
   };
   t.el.querySelector(".x")!.addEventListener("click", keep);
   t.el.querySelector(".t-body")!.append(
