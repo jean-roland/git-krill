@@ -134,10 +134,11 @@ function eye(key: string, hidden: boolean, toggle = () => toggleHidden(key)) {
   });
 }
 
-/** The chip of the pull request open from branch `name` at `hash`, if any. */
-function prChips(name: string, hash: string) {
+/** The chip of the pull request open from branch `name` at `hash`, if any; on `remote`'s copy, only the pull requests' own remote's or one at its commit. */
+function prChips(name: string, hash: string, remote = "") {
   const pr = prOf(name, hash);
-  return pr ? [prChip(pr)] : [];
+  const ours = !remote || remote === pullsHere()?.remote || pr?.headRefOid === hash;
+  return pr && ours ? [prChip(pr)] : [];
 }
 
 /** A sidebar row; `hide` is what its eye keeps out of the graph, none on the checked out branch. */
@@ -191,7 +192,7 @@ export function renderSide() {
   const remoteRow = ([full, hash, ref]: string[]) => {
     const name = full.slice(full.indexOf("/") + 1);
     const row = sideItem(name, "branch", hash, "", "", () => branchMenu(full, true), () => checkoutBranch(full, true), ref);
-    row.append(...prChips(name, hash));
+    row.append(...prChips(name, hash, full.slice(0, full.indexOf("/"))));
     return row;
   };
   const tagRow = ([name, hash, ref]: string[]) => {

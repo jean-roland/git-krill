@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { launch, repo } from "./driver.mjs";
 
-let k, gh;
+let k, gh, top;
+const git = (...args) => execFileSync("git", args, { cwd: top }).toString();
 before(async () => {
   const dir = repo(({ dir, git, commit, write }) => {
     write("tide.rs", "fn tide() -> u32 {\n    12\n}\n");
@@ -60,6 +62,7 @@ before(async () => {
       { id: 31, in_reply_to_id: 30, pull_request_review_id: 21, user: user("octo"), path: "tide.rs", line: 3, original_line: 3, diff_hunk: hunk, body: "The moon rises later each day.", created_at: at(3, 12) },
     ]));
   });
+  top = dir;
   k = await launch(dir);
 });
 after(() => k?.quit());
@@ -73,6 +76,16 @@ test("the open pull requests are listed, their numbers on their branches", async
   await k.click('#sidebar [data-key="remote/origin"] summary');
   assert.equal(await k.until(() => document.querySelector('#sidebar [data-key="remote/origin"] .item[title="feature/moon"] .pr-n')?.textContent), "#7");
   await k.click('#sidebar [data-key="remote/origin"] summary');
+  // another remote's branch of the same name, elsewhere: not the pull request's
+  git("remote", "add", "backup", "https://github.invalid/krill/backup.git");
+  git("update-ref", "refs/remotes/backup/feature/moon", "main");
+  await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
+  await k.click('#sidebar [data-key="remote/backup"] summary');
+  await k.until(() => document.querySelector('#sidebar [data-key="remote/backup"] .item[title="feature/moon"]'));
+  assert.equal(await k.js(() => document.querySelector('#sidebar [data-key="remote/backup"] .item[title="feature/moon"] .pr-n')), null);
+  git("remote", "remove", "backup");
+  await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
+  await k.until(() => !document.querySelector('#sidebar [data-key="remote/backup"]'));
 });
 
 test("a pull request shows its checks, description, review thread and files", async () => {
