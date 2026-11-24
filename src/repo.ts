@@ -6,7 +6,7 @@ import { repoName } from "./core.js";
 import { $, COLORS, ICONS, MenuItem, ask, basename, colorIndex, dialog, h, hideBanner, hideDialog, hint, ico, input, noGit, pickDir, pickDirs, plural, popup, say, short, showBanner, showDialog, showMenu, store, svg, toast, warnOnce } from "./ui";
 import { closeHistory, closeMerge, closeResolvedMerge, confirmDrop, diffFile, openRow, reloadDiff } from "./diff";
 import { conflictCount, getMsg, panelData, renderPanel, setMsg } from "./panel";
-import { offerGone, stepBack, paintSelection, paintWipRow, renderGraph, renderSide, resetGraph, showRow } from "./graph";
+import { offerGone, offerMove, stepBack, paintSelection, paintWipRow, renderGraph, renderSide, resetGraph, showRow } from "./graph";
 import { dropTerm, showTerm } from "./terminal";
 import { closePr, loadPrs, paintPrBar } from "./pr";
 import { renderSettings, rerereTip } from "./settings";
@@ -84,6 +84,8 @@ export function lfsChip() {
   return h("small", { className: why ? "lfs broken" : "lfs", textContent: "LFS", title: why ?? "Stored with Git LFS" });
 }
 // what may change the remotes' tags, or the list of them
+// a push refused for the branch itself: GitHub's protection and rulesets, GitLab, Bitbucket
+const PROTECTED = /GH006|Changes must be made through a pull request|protected branch|can only be modified through pull requests/i;
 const NET_OPS = new Set(["fetch", "fetch-remote", "pr-checkout", "pull", "push", "push-force", "push-upstream", "tag-push", "push-delete", "tag-rename"]);
 // how Pull reconciles a diverged branch, by git_op's pull argument
 const PULLS: Record<string, string> = { "": "fast-forward if possible", "ff-only": "fast-forward only", rebase: "rebase" };
@@ -205,6 +207,7 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
       const print = stash && tree && tab === tabs[active] ? await run<string>("stash_print", { tree }).catch(() => "") : "";
       if (stash && print) recordUndo(tab, { op: name, what: stash.subject, branch: [branch, branch], head: [head, head], stash: [stash.hash, tree, print] });
     } else if (name === "push" && msg.includes("(non-fast-forward)") && tab === tabs[active]) forcePush(branch, status?.behind ?? 0);
+    else if (name === "push" && PROTECTED.test(msg) && tab === tabs[active]) offerMove(branch);
     else toast(`${what} failed${onBranch}`, msg + hint(msg), "err");
     say(`${what} ${conflicts.length ? "stopped on conflicts" : "failed"}`);
     ok = false;

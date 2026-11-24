@@ -129,6 +129,24 @@ test("Push sends main's commits; a colleague's commit comes back with Fetch and 
 
 const refresh = () => k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
 
+test("a push refused as protected moves the commits to a new branch and pushes that one", async () => {
+  const top = join(dir, "tidepool"), hook = join(dir, "origin.git", "hooks", "pre-receive");
+  // as GitHub answers a push a ruleset refuses
+  writeFileSync(hook, '#!/bin/sh\nwhile read old new ref; do [ "$ref" = refs/heads/main ] && { printf "error: GH013: Repository rule violations found for refs/heads/main.\\n\\n- Changes must be made through a pull request.\\n" >&2; exit 1; }; done\nexit 0\n', { mode: 0o755 });
+  git(top, "commit", "-q", "--no-gpg-sign", "--allow-empty", "-m", "docs: note the datum");
+  await refresh();
+  await k.until(() => document.getElementById("branch").textContent === "main" && document.getElementById("ahead").textContent === "1");
+  await k.click('[data-op="push"]');
+  await k.until(() => !document.getElementById("banner").hidden && document.getElementById("banner").textContent.includes("main is protected on origin"));
+  await k.click("#banner button.primary", "Move and push");
+  await k.until(() => document.querySelector("#dialog input")?.value === "docs-note-the-datum");
+  await k.click("#dialog button.primary");
+  await toast("Moved 1 commit to docs-note-the-datum; main is back at origin/main; pushed docs-note-the-datum to origin");
+  assert.match(git(dir, "ls-remote", "--heads", "origin.git"), /refs\/heads\/docs-note-the-datum/);
+  assert.equal(git(top, "rev-parse", "main"), git(top, "rev-parse", "origin/main"));
+  rmSync(hook);
+});
+
 test("a commit's hooks are counted in their toast, one line each", async () => {
   const top = join(dir, "tidepool"), hook = join(top, ".git", "hooks", "pre-commit");
   // as pre-commit reports them

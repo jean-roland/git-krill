@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { layoutGraph } from "./core.js";
 import { closeRebase, ontoRange, openRebase, rebaseRange } from "./rebase";
 import { Commit, LOG_LIMIT, Stash, Status, Submodule, Worktree, active, closeTab, commits, dropEdits, fakeCommit, findRef, FOLDS_KEY, gitOp, headHash, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, keepTab, newTab, opInfo, openRepo, paintRepoName, pull, push, redraw, refs, remoteTags, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
-import { $, COLORS, ICONS, MenuItem, ask, askName, basename, copy, dateTimeText, dialog, h, ico, input, mod, popup, say, short, spriteId, store, svg, toast } from "./ui";
+import { $, COLORS, ICONS, MenuItem, ask, askName, basename, copy, dateTimeText, dialog, h, hideBanner, ico, input, mod, plural, popup, say, short, showBanner, spriteId, store, svg, toast } from "./ui";
 import { dropTerm } from "./terminal";
 import { closePr, mergedHeads, newPr, prChip, prItems, prOf, prRows, pullsHere } from "./pr";
 import { conflictCount, conflictLine, fileCounts, opLine, renderPanel, wipFiles } from "./panel";
@@ -768,6 +768,37 @@ function commitMenu(e: MouseEvent, c: Commit) {
     ["Copy commit SHA", () => copy(c.hash)],
     ...(remote ? ([[`Copy link to commit on ${remote}`, async () => copy(`${await webUrl(remote)}/commit/${c.hash}`)]] as MenuItem[]) : []),
   ]);
+}
+
+/** Move `rows`, this branch's commits above `base`, newest first, to a new branch then checked out and pushed to this branch's remote; this branch goes back to `base`, the files stay. */
+function moveAndPush(base: string, rows: Commit[]) {
+  const branch = status?.branch ?? "", up = findRef(`refs/heads/${branch}`)?.upstream ?? "";
+  const remote = refs.remotes.find((r) => up.startsWith(`${r}/`)) ?? "origin";
+  // by name when its upstream is there
+  const back = up && findRef(`refs/remotes/${up}`)?.hash === base ? up : short(base);
+  const n = plural(rows.length, "commit");
+  // the oldest one's subject: "fix(station): reject unknown ones" -> fix-station-reject-unknown-ones
+  const named = rows[rows.length - 1].subject.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+/, "").slice(0, 40).replace(/-+$/, "");
+  dialog(`Move ${n} to a new branch\n${branch} goes back to ${back}; your files stay as they are.`, [["New branch name", named]], "Move and push", async ([name]) => {
+    if (!name) return;
+    // one toast for both, the push's: the server's pull request link comes with it
+    const ok = await gitOp("branch-move", [name, base], false, "");
+    if (ok) gitOp("push-upstream", [remote, name], true, `Moved ${n} to ${name}; ${branch} is back at ${back}; pushed ${name} to ${remote}`);
+  });
+}
+
+/** A push of `branch` refused as protected: a banner offers to move its unpushed commits to a new branch and push that one. */
+export function offerMove(branch: string) {
+  const up = findRef(`refs/heads/${branch}`)?.upstream ?? "", base = findRef(`refs/remotes/${up}`)?.hash ?? "";
+  const remote = refs.remotes.find((r) => up.startsWith(`${r}/`)) ?? "its remote";
+  const rows = base ? ontoRange(base) : null;
+  const refused = `Push rejected: ${branch} is protected on ${remote}.`;
+  // a merge among them, or past the loaded commits
+  if (!rows?.length) return showBanner(h("span", { textContent: `${refused} Move its commits to a new branch and push that one.` }));
+  showBanner(
+    h("span", { textContent: `${refused} Move your ${plural(rows.length, "commit")} to a new branch and push that one?` }),
+    h("button", { className: "primary", textContent: "Move and push", onclick: () => (hideBanner(), moveAndPush(base, rows)) }),
+  );
 }
 
 /** Whether `hash` is commit `from` or one of its loaded ancestors. */

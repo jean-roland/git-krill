@@ -1879,6 +1879,13 @@ fn submodule_delete(repo: &str, path: &str, name: &str) -> Result<String, String
     Ok(out)
 }
 
+/// \brief Move this branch's commits above `base` to the new branch `name`, then checked out; this branch goes back to `base`, the files stay.
+fn branch_move(repo: &str, name: &str, base: &str) -> Result<String, String> {
+    let branch = git(repo, &["symbolic-ref", "--short", "HEAD"])?.trim().to_string();
+    let out = git_with_stderr(repo, &["checkout", "-b", not_option(name)?])?;
+    git_with_stderr(repo, &["branch", "-f", &branch, not_option(base)?]).map(|o| format!("{out}\n{o}"))
+}
+
 /// \brief Trade branches with the worktree at `other`, which has `theirs`: this one takes `theirs`, `other` this one's; each keeps its changes, or both go back.
 fn worktree_swap(repo: &str, other: &str, theirs: &str) -> Result<String, String> {
     let mine = git(repo, &["symbolic-ref", "--short", "HEAD"])?.trim().to_string();
@@ -2133,6 +2140,8 @@ fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         "submodule-delete" => return submodule_delete(&repo, &arg, &arg2),
         // arg the other worktree's folder, arg2 its branch
         "worktree-swap" => return worktree_swap(&repo, &arg, &arg2),
+        // arg the new branch, arg2 the commit this one goes back to
+        "branch-move" => return branch_move(&repo, &arg, &arg2),
         "stash-apply" => return stash_restore(&repo, "apply", &arg),
         // arg the index tree before the apply, arg2 the print after it
         "stash-undo" => return stash_undo(&repo, &arg, &arg2),
