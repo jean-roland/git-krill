@@ -81,9 +81,9 @@ export const loadMonaco = () =>
 type SubCommit = { hash: string; subject: string };
 type SubmoduleChange = { old: SubCommit | null; new: SubCommit | null; added: SubCommit[]; removed: SubCommit[]; changed: number; untracked: number; initialized: boolean };
 // full: loaded past the size a diff loads unasked; sub: what a submodule went through, shown instead of a text diff; ids: its sides' versions, see versionIds
-// same: no change when opened (an All files entry), so no Diff view; file: shown as the file alone (File view); drawn: shown as images or a page;
+// same: no change when opened (an All files entry), so no Diff view; file: shown as the file alone (File view); drawn: shown as images or a page; pane: shown as images or a card, no text;
 // shown: the text in the editor in place of the blobs', a binary's listing or a big file's parts so far; more: how to load its next part
-export let diffFile: { kind: DiffSource; f: Change; c?: Commit; orig: Blob; mod: Blob; dirty: boolean; full: boolean; same: boolean; file?: boolean; drawn?: boolean; sub?: SubmoduleChange; ids?: string; listing?: Listing; shown?: [string, string]; more?: More; seq?: number; loading?: boolean } | null = null;
+export let diffFile: { kind: DiffSource; f: Change; c?: Commit; orig: Blob; mod: Blob; dirty: boolean; full: boolean; same: boolean; file?: boolean; drawn?: boolean; pane?: boolean; sub?: SubmoduleChange; ids?: string; listing?: Listing; shown?: [string, string]; more?: More; seq?: number; loading?: boolean } | null = null;
 // a binary's sides as text: an object file's sections and symbols when asked and one, else hex dumps
 type Listing = { symbols: boolean; object: boolean };
 // what is shown of a file loaded a part at a time, the loader of both sides' next part (or up to a new side's line), and the new side's line where git's next change past them ends
@@ -560,6 +560,7 @@ function paintSides(): Promise<unknown> {
   d.file ??= d.same || !orig.exists || (images && !drawable) || (binary && !(d.listing?.object && d.listing.symbols)) || !!large || store("diff-view") === "file";
   // before the panes are picked: a drawn file has nothing to compare, the text it goes back to may
   d.drawn = images;
+  d.pane = pane;
   cover?.removeAttribute("style");
   const b = $("diff-binary"), held = !pane && !b.hidden && b.classList.contains("images");
   cover = held ? b : null;
@@ -1935,8 +1936,8 @@ export async function showRev(i: number) {
     else (openSeq++, layOutView());
     if (hist !== m || m.at !== i) return;
     histPane(false);
-    // a page, an image or a submodule's card has no hunks to land
-    const text = !diffFile?.drawn && !diffFile?.sub;
+    // images, a page or a card have no hunks to land; nor a diff that did not open
+    const text = !!diffFile && !diffFile.pane;
     return reveal(opening && text ? diffDrawn() : undefined);
   }
   $("diff-path").textContent = `${f.path} · ${short(c.hash)}`;
