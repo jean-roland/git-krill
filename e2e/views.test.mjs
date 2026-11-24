@@ -147,3 +147,27 @@ test("a deleted image shows its last version in the File view", async () => {
   await k.click('[data-svg="text"]');
   execFileSync("git", ["checkout", "--", "docs/logo.svg"], { cwd: repository });
 });
+
+test("a page side taken off the page before it loads does not hold the busy pointer", async () => {
+  await k.keys("\uE00C");
+  await k.click("#graph .row", "docs: --json in the README");
+  await k.click('#commit-files .file[data-path="README.md"]');
+  await k.click('[data-svg="image"]');
+  await k.click('[data-dview="file"]');
+  await k.until(() => document.querySelector("#diff-binary iframe")?.contentDocument?.body?.childElementCount);
+  // as a click on File landing just after the old side got its page: off the page before its load
+  await k.js(() => {
+    window.cut = false;
+    const watch = new MutationObserver((changes) => {
+      const frame = changes.map((c) => c.target).find((t) => t.matches?.(".img-side.del iframe") && t.hasAttribute("srcdoc"));
+      if (frame) (frame.closest(".img-side").remove(), (window.cut = true), watch.disconnect());
+    });
+    watch.observe(document.getElementById("diff-binary"), { attributes: true, attributeFilter: ["srcdoc"], subtree: true });
+  });
+  await k.click('[data-dview="diff"]');
+  await k.until(() => window.cut);
+  await new Promise((r) => setTimeout(r, 1500));
+  assert.ok(!(await k.js(() => document.body.classList.contains("slow"))));
+  await k.click('[data-dview="file"]');
+  await k.click('[data-svg="text"]');
+});

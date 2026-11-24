@@ -2006,9 +2006,16 @@ const diffDrawn = (ms = 500) => {
   return Object.assign(Promise.race([landed, new Promise((r) => setTimeout(r, ms))]), { landed });
 };
 
-/** Busy until `el` fires one of `events`, or 10 s pass: one taken off the page meanwhile never does. */
-const untilLoaded = (el: HTMLElement, ...events: string[]) =>
-  busy(new Promise<void>((done) => (events.forEach((t) => el.addEventListener(t, () => done(), { once: true })), setTimeout(done, 10_000))));
+/** Busy until `el` fires one of `events`, is taken off the page (a view switch, another file: it never fires then), or 10 s pass. */
+const untilLoaded = (el: HTMLElement, ...events: string[]) => {
+  let gone = 0;
+  const loaded = new Promise<void>((done) => {
+    events.forEach((t) => el.addEventListener(t, () => done(), { once: true }));
+    gone = setInterval(() => el.isConnected || done(), 250);
+    setTimeout(done, 10_000);
+  });
+  return busy(loaded.finally(() => clearInterval(gone)));
+};
 
 function historyEditor() {
   if (histEd) return histEd;
