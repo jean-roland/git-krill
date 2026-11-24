@@ -1103,5 +1103,7 @@ footer {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  min-height: 22px;
+  /* one height, empty or not: 3 + 17 + 3 and its border */
+  height: 24px;
+  line-height: 17px;
 }
