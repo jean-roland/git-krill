@@ -144,6 +144,22 @@ test("a swap the other worktree's changes block leaves both as they were", async
   await k.js(() => document.querySelectorAll("#toasts .toast").forEach((t) => t.remove()));
 });
 
+test("a swap with a worktree that changed branch since is refused, that worktree left as it is", async () => {
+  const moon = join(dir, "tidepool-moon");
+  // behind the window's back: its sidebar still has feature/moon-phase there
+  execFileSync("git", ["checkout", "-q", "-b", "moon-elsewhere"], { cwd: moon });
+  await k.menu("#graph .ref", "feature/moon-phase");
+  await k.click("#menu button", "Checkout, swap with tidepool-moon");
+  await k.until(() => [...document.querySelectorAll("#toasts .toast.err pre")].some((p) => p.textContent.includes("feature/moon-phase is no longer checked out in")));
+  assert.match(worktrees(), /tidepool-moon\nHEAD \w+\nbranch refs\/heads\/moon-elsewhere\n/);
+  assert.equal(await k.js(() => document.getElementById("branch").textContent), "main");
+  execFileSync("git", ["checkout", "-q", "feature/moon-phase"], { cwd: moon });
+  execFileSync("git", ["branch", "-q", "-D", "moon-elsewhere"], { cwd: moon });
+  await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
+  await k.until(() => [...document.querySelectorAll('#sidebar [data-key="worktrees"] .item')].some((r) => r.textContent.includes("feature/moon-phase")));
+  await k.js(() => document.querySelectorAll("#toasts .toast").forEach((t) => t.remove()));
+});
+
 test("a branch another worktree has deletes with that worktree, in one question", async () => {
   await k.menu("#graph .ref", "feature/moon-phase");
   await k.click("#menu button", "Delete local");

@@ -1957,10 +1957,15 @@ fn branch_move(repo: &str, name: &str, base: &str) -> Result<String, String> {
 
 /// \brief Trade branches with the worktree at `other`, which has `theirs`: this one takes `theirs`, `other` this one's; each keeps its changes, or both go back.
 fn worktree_swap(repo: &str, other: &str, theirs: &str) -> Result<String, String> {
+    let theirs = not_option(theirs)?;
     let mine = git(repo, &["symbolic-ref", "--short", "HEAD"])?.trim().to_string();
+    // the window's view of `other` may be stale: it must still have `theirs`
+    if git(other, &["symbolic-ref", "--short", "HEAD"]).unwrap_or_default().trim() != theirs {
+        return Err(format!("{theirs} is no longer checked out in {other}"));
+    }
     // a branch is checked out in one worktree only: `other` lets go of it first, its files untouched
     git(other, &["checkout", "--detach"])?;
-    let here = git_with_stderr(repo, &["checkout", not_option(theirs)?]);
+    let here = git_with_stderr(repo, &["checkout", theirs]);
     let there = match &here {
         Ok(_) => git_with_stderr(other, &["checkout", &mine]).map_err(|e| format!("In {other}:\n{e}")),
         Err(e) => Err(e.clone()),
@@ -1972,8 +1977,10 @@ fn worktree_swap(repo: &str, other: &str, theirs: &str) -> Result<String, String
     if here.is_ok() {
         let _ = git(repo, &["checkout", &mine]);
     }
-    let _ = git(other, &["checkout", theirs]);
-    there
+    match (there, git(other, &["checkout", theirs])) {
+        (Err(e), Err(back)) => Err(format!("{e}\nIn {other}, {theirs} could not be checked out again: it is left detached.\n{back}")),
+        (there, _) => there,
+    }
 }
 
 #[derive(Serialize)]

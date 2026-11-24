@@ -820,6 +820,8 @@ async function openHolder(wt: Worktree, branch: string) {
   // detached, the folder left has no branch to trade
   if (!mine) return;
   const swap = async () => {
+    // another tab since: it is not the one to step back from
+    if (repo !== wt.path) return say(`Go back to ${basename(wt.path)} to check ${branch} out in ${basename(from)}`, true);
     t.dismiss();
     // the tab as it was, when this one replaced it
     const t0 = tabs[active];
