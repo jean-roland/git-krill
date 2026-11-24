@@ -320,9 +320,18 @@ function layOutView() {
     } else if (!old && diffFile!.orig.exists) {
       const [at, path] = sideSources(diffFile!.kind, diffFile!.f, diffFile!.c)[0];
       readAt = spot;
-      box.prepend(sideOf(diffFile!.f.path)(at, path, "del"));
+      const side = sideOf(diffFile!.f.path)(at, path, "del");
       readAt = null;
-      syncPages([...box.querySelectorAll("iframe")]);
+      box.prepend(side);
+      const frames = [...box.querySelectorAll("iframe")], added = side.querySelector("iframe");
+      // a page lands after the one read: lined up with it, then both scroll together; synced before, its own landing would lead and move the read one
+      const lineUp = () => {
+        const [read, landed] = [frames[1].contentDocument, added?.contentDocument];
+        if (read && landed) followPage(read, landed);
+        syncPages(frames);
+      };
+      if (added && PAGE.test(diffFile!.f.path)) added.addEventListener("load", lineUp, { once: true });
+      else syncPages(frames);
     }
   }
   dimDiffOpts(false);

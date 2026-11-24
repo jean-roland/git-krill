@@ -194,3 +194,32 @@ test("both sides of a Markdown page with many diagrams draw in seconds", async (
   await k.keys("\uE00C");
   git("reset", "-q", "--hard", "HEAD~2");
 });
+
+test("a page read in the File view stays put when its old version lands beside it in the Diff view", async () => {
+  const git = (...args) => execFileSync("git", ["-c", "user.name=Krill Test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", ...args], { cwd: repository });
+  const page = (word) => Array.from({ length: 60 }, (_, i) => `## Part ${i}\n\n${`The ${i % 7 ? "tide" : word} turns at the slack of the moon. `.repeat(12)}\n`).join("\n");
+  writeFileSync(join(repository, "LONG.md"), page("tide"));
+  git("add", "LONG.md");
+  git("commit", "-q", "-m", "docs: a long page");
+  writeFileSync(join(repository, "LONG.md"), page("flood"));
+  git("commit", "-q", "-a", "-m", "docs: flood every seventh part");
+  await k.keys("\uE00C");
+  await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
+  await k.click("#graph .row", "docs: flood every seventh part");
+  await k.click('#commit-files .file[data-path="LONG.md"]');
+  await k.click('[data-svg="image"]');
+  await k.click('[data-dview="file"]');
+  await k.until(() => document.querySelector("#diff-binary .img-side.add iframe")?.contentDocument?.scrollingElement?.scrollHeight > 5000);
+  // halfway down, within a paragraph
+  await k.js(() => (document.querySelector("#diff-binary .img-side.add iframe").contentDocument.scrollingElement.scrollTop = 2537));
+  await k.settle();
+  const was = await k.js(() => document.querySelector("#diff-binary .img-side.add iframe").contentDocument.scrollingElement.scrollTop);
+  await k.click('[data-dview="diff"]');
+  await k.until(() => document.querySelector("#diff-binary .img-side.del iframe")?.contentDocument?.body?.childElementCount);
+  await k.settle();
+  assert.equal(await k.js(() => document.querySelector("#diff-binary .img-side.add iframe").contentDocument.scrollingElement.scrollTop), was);
+  await k.click('[data-svg="text"]');
+  await k.keys("\uE00C");
+  git("reset", "-q", "--hard", "HEAD~2");
+});
+
