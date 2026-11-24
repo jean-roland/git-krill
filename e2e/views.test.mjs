@@ -96,3 +96,28 @@ test("a PDF shows in the window's own viewer, alone in the File view, beside its
   await k.click('#staged .file[data-path="docs/preview.pdf"]');
   await k.until(() => document.querySelector('[data-dview="diff"]').classList.contains("off") && document.querySelector('[data-dview="file"]').classList.contains("on"));
 });
+
+test("a preview gives way to the next file's text with no copy of its pages over it", async () => {
+  await k.keys("\uE00C");
+  await k.until(() => document.getElementById("diff").hidden);
+  await k.click("#graph .row", "docs: a tide chart for Brest");
+  await k.click('#commit-files .file[data-path="README.md"]');
+  await k.click('[data-svg="image"]');
+  await k.until(() => [...document.querySelectorAll("#diff-binary iframe")].pop()?.contentDocument?.body?.childElementCount);
+  // each frame until the text is drawn: a copied frame would load again, blank then at its top
+  await k.js(() => {
+    window.framed = [];
+    const t0 = performance.now();
+    const tick = () => {
+      window.framed.push([...document.querySelectorAll(".still iframe")].some((f) => getComputedStyle(f).visibility !== "hidden"));
+      if (performance.now() - t0 < 1500) requestAnimationFrame(tick);
+    };
+    tick();
+  });
+  await k.click('#commit-files .file[data-path=".gitattributes"]');
+  await k.until(() => document.querySelector("#diff-editor:not([hidden]), #diff-file:not([hidden])")?.textContent.includes("filter=lfs"));
+  await k.until(() => window.framed.length > 30);
+  assert.ok(!(await k.js(() => window.framed.some(Boolean))));
+  await k.click('#commit-files .file[data-path="README.md"]');
+  await k.click('[data-svg="text"]');
+});

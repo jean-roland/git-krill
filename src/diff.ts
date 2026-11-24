@@ -474,9 +474,9 @@ export async function openDiff(kind: DiffSource, f: Change, c?: Commit, inHistor
     return say(String(e), true);
   }
   if (seq !== openSeq) return;
-  // what is on screen stays until the new diff is drawn: the graph under a see-through pane, a merge or diff under a still copy
+  // what is on screen stays until the new diff is drawn: the graph under a see-through pane, a merge or diff under a still copy, drawn images held in place (paintSides)
   const gen = ++opening, fresh = $("diff").hidden && !merging;
-  const copy = document.querySelector(".still") ?? still(merging ? $("merge") : [$("diff-editor"), $("diff-binary")].find((e) => !$("diff").hidden && !e.hidden));
+  const copy = document.querySelector(".still") ?? still(merging ? $("merge") : [$("diff-editor"), $("diff-binary")].find((e) => !$("diff").hidden && !e.hidden && !e.classList.contains("images")));
   await closeMerge(true);
   dropParked();
   diffFile = { kind, f, c, orig, mod, dirty: false, full: false, same: !sub && (!f.code || alike(orig, mod)), sub, ids };
@@ -511,6 +511,8 @@ function still(el?: HTMLElement) {
   // canvases (minimap, overview ruler) do not clone their pixels
   const from = el.querySelectorAll("canvas");
   copy.querySelectorAll("canvas").forEach((c, i) => from[i].width && from[i].height && c.getContext("2d")?.drawImage(from[i], 0, 0));
+  // a copied frame loads again, blank then at its top: the pane shows through instead
+  copy.querySelectorAll("iframe").forEach((f) => (f.style.visibility = "hidden"));
   copy.classList.add("still");
   Object.assign(copy.style, { position: "absolute", zIndex: "20", pointerEvents: "none", left: `${el.offsetLeft}px`, top: `${el.offsetTop}px`, width: `${el.offsetWidth}px`, height: `${el.offsetHeight}px` });
   // after it: its ids still find the live element
