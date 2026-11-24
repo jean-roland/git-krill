@@ -1923,7 +1923,9 @@ export async function showRev(i: number) {
     else (openSeq++, layOutView());
     if (hist !== m || m.at !== i) return;
     histPane(false);
-    return reveal(opening ? diffDrawn() : undefined);
+    // a page, an image or a submodule's card has no hunks to land
+    const text = !diffFile?.drawn && !diffFile?.sub;
+    return reveal(opening && text ? diffDrawn() : undefined);
   }
   $("diff-path").textContent = `${f.path} · ${short(c.hash)}`;
   // the file shows first, its blame (slower) fills the gutter when it comes
