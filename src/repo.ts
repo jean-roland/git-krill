@@ -225,7 +225,8 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
 const hookLine = (l: string) => l.match(/^(.+?)\.{3,}(?:\(.*\))?(Passed|Skipped)$/);
 
 function toastHooks(out: string) {
-  const hooks = out.split("\n").flatMap((l) => hookLine(l) ?? []);
+  // one match per hook: flatMap would spread each match into its strings
+  const hooks = out.split("\n").map(hookLine).filter((m) => m !== null);
   if (!hooks.length) return;
   const passed = hooks.filter((m) => m[2] === "Passed").length;
   const lines = hooks.map((m) => `${m[2] === "Passed" ? "✓" : "–"} ${m[1]}${m[2] === "Passed" ? "" : " (skipped)"}`);

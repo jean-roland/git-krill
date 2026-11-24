@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { demo, launch } from "./driver.mjs";
@@ -124,4 +125,22 @@ test("Push sends main's commits; a colleague's commit comes back with Fetch and 
   await k.until(() => document.getElementById("behind").textContent === "1");
   await k.click("#pull");
   await k.until(() => !document.getElementById("behind").textContent && document.querySelector("#graph .row.row-head")?.textContent.includes("chore: Eve was here"));
+});
+
+const refresh = () => k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
+
+test("a commit's hooks are counted in their toast, one line each", async () => {
+  const top = join(dir, "tidepool"), hook = join(top, ".git", "hooks", "pre-commit");
+  // as pre-commit reports them
+  writeFileSync(hook, "#!/bin/sh\necho 'trim trailing whitespace.................................................Passed'\necho 'check yaml...........................................(no files to check)Skipped'\n", { mode: 0o755 });
+  writeFileSync(join(top, "NOTES.md"), "hooks\n");
+  await refresh();
+  await k.click("#graph .row", "// WIP");
+  await k.click("#stage-all");
+  await k.until(() => !document.querySelector("#unstaged .file"));
+  await k.type("#summary", "docs: notes");
+  await k.click("#commit-btn");
+  await toast("Hooks passed: 1 ran, 1 skipped");
+  assert.equal(await k.js(() => [...document.querySelectorAll(".toast")].find((t) => t.textContent.includes("Hooks passed")).querySelector("pre").textContent), "✓ trim trailing whitespace\n– check yaml (skipped)");
+  rmSync(hook);
 });
