@@ -15,10 +15,14 @@ type Project = { path: string; branch: string; head: string; ahead: number | nul
 let projects: { top: string; list: Project[] | null; at: number } = { top: "", list: null, at: 0 };
 // the ask a refresh within 5 s of the last one put off
 let projectsLater = 0;
+// the newest ask of this tab's project alone: an older answer landing later is dropped
+let ownAsks = 0;
+// the last read of this tab's project alone applied, and when it began: a full ask begun before it keeps that row
+let ownRead = { path: "", at: 0 };
 // the checkouts whose Fetch every project runs: their button spins, sidebar repaints included
 const fetchingAll = new Set<string>();
 
-/** The repo tool checkout's projects, asked at most every 5 s: a refresh sooner is answered at the 5 s mark; the sidebar repaints when they changed. */
+/** The repo tool checkout's projects, asked at most every 5 s: a refresh sooner asks this tab's project alone at once, the others at the 5 s mark; the sidebar repaints when they changed. */
 export async function loadProjects() {
   const top = refs.repoTop;
   clearTimeout(projectsLater);
@@ -31,18 +35,27 @@ export async function loadProjects() {
   // another checkout's: asked now, the refreshes meanwhile wait for it
   if (top !== projects.top) projects = { top, list: null, at: 0 };
   projects.at = Date.now();
-  const r = repo, list = await invoke<Project[]>("repo_projects", { top }).catch(() => []);
-  if (r !== repo || top !== refs.repoTop || (top === projects.top && JSON.stringify(list) === JSON.stringify(projects.list))) return;
+  const r = repo, asked = projects.at, answer = await invoke<Project[]>("repo_projects", { top }).catch(() => []);
+  if (r !== repo || top !== refs.repoTop) return;
+  // this tab's project read alone since this ask began: that read is the newer
+  const own = ownRead.at > asked ? projects.list?.find((p) => p.path === ownRead.path) : undefined;
+  const list = own ? answer.map((p) => (p.path === own.path ? own : p)) : answer;
+  if (top === projects.top && JSON.stringify(list) === JSON.stringify(projects.list)) return;
   projects = { top, list, at: projects.at };
   renderSide();
 }
 
 /** This tab's own project, asked at once while the others wait for their 5 s mark: a checkout here shows on its row without delay. */
 async function loadOwnProject(top: string) {
-  const list = projects.list, i = list?.findIndex(isThisTab) ?? -1;
-  if (!list || i < 0) return;
-  const r = repo, p = await invoke<Project>("repo_project", { top, path: list[i].path });
-  if (r !== repo || list !== projects.list || JSON.stringify(p) === JSON.stringify(list[i])) return;
+  const path = projects.list?.find(isThisTab)?.path;
+  if (path === undefined) return;
+  const r = repo, ask = ++ownAsks, at = Date.now();
+  const p = await invoke<Project>("repo_project", { top, path }).catch(() => null);
+  // into the list as it is now: a full ask may have replaced it meanwhile
+  const list = projects.list, i = list?.findIndex((q) => q.path === path) ?? -1;
+  if (!p || !list || i < 0 || r !== repo || ask !== ownAsks || top !== projects.top) return;
+  ownRead = { path, at };
+  if (JSON.stringify(p) === JSON.stringify(list[i])) return;
   projects.list = list.map((q, k) => (k === i ? p : q));
   renderSide();
 }
