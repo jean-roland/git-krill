@@ -343,7 +343,7 @@ body.home main { grid-template-columns: 1fr; }
 #sidebar .item:hover { background-color: var(--hover); }
 #sidebar .item.current { background-color: var(--sel); }
 #sidebar summary .n { float: right; min-width: 2ch; text-align: right; font-weight: 700; color: var(--text); }
-/* a remote's branches: grey under the count of remotes */
+/* a sub-section's count, a remote's branches or a folder's projects: grey under its section's */
 #sidebar details details summary .n { color: var(--dim); }
 #sidebar summary .spinner, .t-actions .spinner { display: inline-block; width: 12px; height: 12px; border-width: 2px; vertical-align: -2px; }
 .t-actions .spinner { margin-right: 8px; }

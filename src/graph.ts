@@ -199,7 +199,7 @@ function sideItem(label: string, icon: string, hash: string, extra: string, cls:
 }
 
 export function renderSide() {
-  // what the user folded stays folded, per repository
+  // what the user folded stays folded, the same in every repository
   const r = repo, folds = sideFolds();
   updateHidden();
   // a null count: still being asked, a spinner in its place
@@ -323,7 +323,7 @@ export function renderSide() {
   // a repo tool checkout: its projects, one repository each, null until asked; none elsewhere
   let listed: Project[] | null = [];
   if (refs.repoTop) listed = projects.top === refs.repoTop ? projects.list : null;
-  // a sub-section per parent folder, like packages and products: one folder name may be in both; the manifest and top-level projects first
+  // a sub-section per parent folder, like packages and products: a project's folder name may be under both; the manifest and top-level projects first
   const workspaceRows = () => {
     const folders = new Map<string, Project[]>();
     for (const p of listed ?? []) {
