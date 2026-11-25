@@ -211,7 +211,11 @@ export function renderSide() {
     let filled = false;
     const fill = () => !filled && d.open && ((filled = true), d.append(...rows()));
     fill();
-    d.ontoggle = () => (fill(), r === repo && store(FOLDS_KEY, JSON.stringify({ ...sideFolds(), [key]: d.open })));
+    // a section made open fires toggle too: stored only when it changes what is kept, hundreds of folders otherwise write on every repaint
+    d.ontoggle = () => {
+      fill();
+      if (r === repo && (sideFolds()[key] ?? open) !== d.open) store(FOLDS_KEY, JSON.stringify({ ...sideFolds(), [key]: d.open }));
+    };
     d.dataset.key = key;
     return d;
   };
