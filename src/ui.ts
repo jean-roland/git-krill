@@ -44,6 +44,8 @@ export const ICONS: Record<string, string> = {
   folderOpen: "M3 18.5v-12A1.5 1.5 0 0 1 4.5 5H9l2 2.5h7A1.5 1.5 0 0 1 19.5 9v1.5M3 18.5l2.6-7A1.5 1.5 0 0 1 7 10.5h14l-2.8 8.5a1.5 1.5 0 0 1-1.4 1H4.5A1.5 1.5 0 0 1 3 18.5z",
   globe: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20z",
   home: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM9 22V12h6v10",
+  // a folder of the workspace's projects: as tall as the repo icon on the rows under it
+  projects: "M2 5a2 2 0 0 1 2-2h5l2.5 3H20a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z",
   repo: "M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z",
   close: "M6 6l12 12M18 6 6 18",
   up: "M12 19V5m-6 6 6-6 6 6",

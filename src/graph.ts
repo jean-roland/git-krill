@@ -291,7 +291,19 @@ export function renderSide() {
   // a repo tool checkout: its projects, one repository each, null until asked; none elsewhere
   let listed: Project[] | null = [];
   if (refs.repoTop) listed = projects.top === refs.repoTop ? projects.list : null;
-  const workspace = addButton(section("workspace", "Workspace", listed?.length ?? null, () => (listed ?? []).map(projectRow), !!refs.repoTop, "repo", "Repositories checked out together by the repo tool, with the branch and changes of each"), "Fetch every project", fetchAll, "sync");
+  // a sub-section per parent folder, like packages and products: one folder name may be in both; the manifest and top-level projects first
+  const workspaceRows = () => {
+    const folders = new Map<string, Project[]>();
+    for (const p of listed ?? []) {
+      const dir = p.path === MANIFEST ? "" : p.path.slice(0, Math.max(0, p.path.lastIndexOf("/")));
+      if (!folders.has(dir)) folders.set(dir, []);
+      folders.get(dir)!.push(p);
+    }
+    const top = folders.get("") ?? [];
+    folders.delete("");
+    return [...top.map(projectRow), ...[...folders].map(([dir, ps]) => section(`workspace/${dir}`, dir, ps.length, () => ps.map(projectRow), true, "projects", `Projects in ${dir}`))];
+  };
+  const workspace = addButton(section("workspace", "Workspace", listed?.length ?? null, workspaceRows, !!refs.repoTop, "repo", "Repositories checked out together by the repo tool, with the branch and changes of each"), "Fetch every project", fetchAll, "sync");
   // turning while Fetch every project runs; greyed outside a repo tool checkout
   const fetchButton = workspace.querySelector<HTMLElement>(".add")!;
   fetchButton.classList.toggle("busy", fetchingAll.has(refs.repoTop));

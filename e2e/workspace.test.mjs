@@ -43,9 +43,12 @@ test("a repo tool checkout lists its projects under Workspace, each with its bra
   assert.deepEqual(seen, [
     ["app", "main", false, true],
     ["radio", "pr-radio-tuning", true, false],
-    ["board", `detached at ${board}`, true, false],
     ["stack", "main", true, false],
+    ["board", `detached at ${board}`, true, false],
   ]);
+  // under their parent folder: a name alone may be in two
+  const folders = await k.js(() => [...document.querySelectorAll('#sidebar [data-key="workspace"] details > summary')].map((s) => s.lastChild.textContent));
+  assert.deepEqual(folders, ["packages", "products"]);
   // radio's other folder, named with its branch
   const linked = await k.js((rows) => [...document.querySelectorAll(rows)][1].querySelector(".ico[title^='Linked']").title, rows);
   assert.equal(linked, `Linked worktrees:\n${join(top, "wt", "radio-main")}: main`);
