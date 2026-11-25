@@ -1,7 +1,7 @@
 // Entry: wires the buttons and keys to the features, then reopens the tabs.
 import { invoke } from "@tauri-apps/api/core";
 import "@xterm/xterm/css/xterm.css";
-import { Mode, closeDiff, confirmDiscard, closeMerge, diffEditor, diffFile, editor, fitImages, goConflict, hist, histEd, histView, leaveHistory, leavingHistory, loadMerge, loadMonaco, merging, nextChange, openDiffFile, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setFileView, setFontSize, setMode, setWordWrap, setSvgView, showRev, warmDiff } from "./diff";
+import { Mode, closeDiff, confirmDiscard, closeMerge, diffEditor, diffFile, editor, findInText, fitImages, goConflict, hist, histEd, histView, leaveHistory, leavingHistory, loadMerge, loadMonaco, merging, nextChange, openDiffFile, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setFileView, setFontSize, setMode, setWordWrap, setSvgView, showRev, warmDiff } from "./diff";
 import { rebaseKey } from "./rebase";
 import { SORTS, amending, commit, conflictCount, emptyStep, fileLists, filterFiles, foldAll, getMsg, openFile, paintFileOpts, pathArg, pickedFiles, renderCommitBtn, renderPanel, setMsg } from "./panel";
 import { $, ICONS, ask, closeDialog, dismissToast, hideBanner, input, mod, onCtrlEnter, pickDir, popup, say, store, svg, warnNoGit } from "./ui";
@@ -334,7 +334,8 @@ addEventListener("keydown", (e) => {
     // nothing left open: the graph itself steps back out of a worktree or a submodule
     else if (tabs[active].parent && !(e.target as HTMLElement).closest?.("input, textarea")) stepBack();
   } else if ((e.target as HTMLElement).closest?.("input:not([type=checkbox]), textarea, #diff-editor, #merge, #hist-file") || !repo) return;
-  else if (mod(e) && key === "f") (e.preventDefault(), openFind());
+  // a text on screen is searched, not the commits the diff hides
+  else if (mod(e) && key === "f") (e.preventDefault(), findInText() || openFind());
   else if (mod(e) && key === "z") (e.preventDefault(), undoRedo(!e.shiftKey));
   else if (mod(e) && key === "y") (e.preventDefault(), undoRedo(false));
   else if (e.key.startsWith("Arrow") && !mod(e) && !e.altKey && !e.shiftKey) (e.preventDefault(), arrow(e.key));

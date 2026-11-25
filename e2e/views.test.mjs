@@ -223,3 +223,16 @@ test("a page read in the File view stays put when its old version lands beside i
   git("reset", "-q", "--hard", "HEAD~2");
 });
 
+test("Ctrl+F with a diff open finds in its text, not in the commits behind it", async () => {
+  await k.click("#graph .row", "fix(tide): round heights to the centimetre");
+  await k.click('#commit-files .file[data-path="src/tide.rs"]');
+  await k.until(() => document.querySelector("#diff-editor .editor.modified .view-line"));
+  await k.keys("\uE009", "f");
+  await k.until(() => document.querySelector("#diff-editor .editor.modified .find-widget.visible"));
+  assert.ok(await k.js(() => document.getElementById("find").hidden));
+  // the first Escape is the find box's
+  await k.keys("\uE00C");
+  await k.until(() => !document.querySelector("#diff-editor .find-widget.visible"));
+  await k.keys("\uE00C");
+  await k.until(() => document.getElementById("diff").hidden);
+});

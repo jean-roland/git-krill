@@ -855,6 +855,15 @@ let readAt: Spot | null = null;
 /** The text in sight: the history's File view, else the diff's new side. */
 const textEditor = () => (hist && !$("hist-file").hidden ? histEd : !$("diff-file").hidden ? fileEd : $("diff-editor").hidden ? null : editor().getModifiedEditor());
 
+/** Monaco's find in the text on screen, its editor focused: a merge's output, else the history's or the diff's text; false when no text shows. */
+export function findInText() {
+  const ed = merging ? mergeEds?.out : hist || diffFile ? textEditor() : null;
+  if (!ed) return false;
+  ed.focus();
+  void ed.getAction("actions.find")?.run();
+  return true;
+}
+
 /** Where the open file is read: the page's first block in sight, else the editor's top line. */
 function readingAt(): Spot | null {
   const page = $("diff-binary").hidden ? null : [...document.querySelectorAll<HTMLIFrameElement>("#diff-binary iframe")].pop()?.contentDocument?.scrollingElement;
