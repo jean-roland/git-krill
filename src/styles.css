@@ -895,9 +895,9 @@ textarea.msg-in { height: 104px; resize: vertical; }
 .monaco-editor.on-button * { cursor: pointer !important; }
 /* Monaco's deleted-lines menu: the line − / + replaces it */
 .monaco-editor .inline-deleted-margin-view-zone .lightbulb-glyph { display: none; }
-/* a whole line added or removed: its text tint as light as the line's, the two stacked hid the text; Monaco draws it left:0;width:100%, a part of a line in pixels */
-.monaco-editor .char-insert[style*="width:100%"] { background-color: var(--vscode-diffEditor-insertedLineBackground); }
-.monaco-editor .char-delete[style*="width:100%"] { background-color: var(--vscode-diffEditor-removedLineBackground); }
+/* a whole line added or removed: its text tint as light as the line's, the two stacked hid the text; Monaco draws it left:0 or left:0px with width:100%, a change from mid-line on past its end left:<n>px;width:100% */
+.monaco-editor .char-insert:is([style^="left:0;width:100%"], [style^="left:0px;width:100%"]) { background-color: var(--vscode-diffEditor-insertedLineBackground); }
+.monaco-editor .char-delete:is([style^="left:0;width:100%"], [style^="left:0px;width:100%"]) { background-color: var(--vscode-diffEditor-removedLineBackground); }
 /* the filler lining the old side up with added lines: no deleted line there */
 .monaco-editor .margin-view-zones .gutter-delete { background: none; }
 
