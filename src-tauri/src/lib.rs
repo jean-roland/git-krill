@@ -2151,7 +2151,7 @@ fn resolve_all(repo: &str) -> Result<String, String> {
 }
 
 // ops that need a clean tree: the local changes are kept aside around them
-const AUTOSTASH_OPS: [&str; 4] = ["pull", "merge", "rebase", "rebase-interactive"];
+const AUTOSTASH_OPS: [&str; 5] = ["pull", "merge", "merge-ff", "rebase", "rebase-interactive"];
 const AUTOSTASH: &str = "krill autostash";
 // told to the window: the changes would have come back with conflicts, they wait in the stash
 const KEPT: &str = "krill: changes kept in the stash";
@@ -2345,6 +2345,7 @@ fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         "restore-file" => vec!["restore", "--source", not_option(&arg)?, "--", &arg2],
         "checkout" => vec!["checkout", not_option(&arg)?],
         "merge" => vec!["merge", not_option(merged)?],
+        "merge-ff" => vec!["merge", "--ff-only", not_option(&arg)?],
         "rebase" => vec!["rebase", not_option(&arg)?],
         "cherry-pick" => vec!["cherry-pick", not_option(&arg)?],
         "branch-delete" => vec!["branch", "-d", not_option(&arg)?],

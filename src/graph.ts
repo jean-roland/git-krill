@@ -921,17 +921,20 @@ function commitMenu(e: MouseEvent, c: Commit) {
   // a reset undoes the branch's own commits or catches up with its remote one, nothing else
   const up = findRef(`refs/heads/${status?.branch}`)?.upstream, upHash = up ? (findRef(`refs/remotes/${up}`)?.hash ?? "") : "";
   const resettable = mine || (!!upHash && inHistory(c.hash, upHash)), range = mine && !isHead(c) ? rebaseRange(c) : null;
+  // ahead on HEAD's own line, a rebase onto it replays nothing: a fast-forward says what happens
+  let move: MenuItem[] = [];
+  if (!mine && inHistory(commits.find(isHead)?.hash ?? "", c.hash)) move = [[`Fast-forward ${branch} to this commit`, () => gitOp("merge-ff", c.hash)]];
+  else if (!mine)
+    move = [
+      [`Rebase ${branch} onto this commit`, () => gitOp("rebase", c.hash)],
+      [`Interactive rebase ${branch} onto this commit`, () => openRebase(c.hash, ontoRange(c.hash))],
+    ];
   const [newBranch, newTag] = createItems(c.hash);
   popup(e, [
     { title: `${short(c.hash)} ${c.subject}`, icon: ICONS.commit },
     ["Checkout (detached)", () => gitOp("checkout", c.hash)],
-    ...(mine
-      ? []
-      : ([
-          [`Rebase ${branch} onto this commit`, () => gitOp("rebase", c.hash)],
-          [`Interactive rebase ${branch} onto this commit`, () => openRebase(c.hash, ontoRange(c.hash))],
-          ["Cherry-pick", () => gitOp("cherry-pick", c.hash)],
-        ] as MenuItem[])),
+    ...move,
+    ...(mine ? [] : ([["Cherry-pick", () => gitOp("cherry-pick", c.hash)]] as MenuItem[])),
     ...(resettable ? ([[`Reset ${branch} to this commit`, resetItems(c.hash)]] as MenuItem[]) : []),
     ...(mine && !isHead(c) ? ([[range ? `Interactive rebase of the ${range.length} commits above` : "Interactive rebase from here", () => openRebase(c.hash, range)]] as MenuItem[]) : []),
     null,

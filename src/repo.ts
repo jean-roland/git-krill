@@ -37,7 +37,7 @@ export type Tab = { repo: string; parent: string; selected: string[]; msg: strin
 export const LOG_LIMIT = 3000;
 // ops that move HEAD, walked back with a reset or a checkout
 const UNDOABLE = new Set([
-  "commit", "amend", "reword", "checkout", "merge", "rebase", "rebase-interactive", "cherry-pick", "pull",
+  "commit", "amend", "reword", "checkout", "merge", "merge-ff", "rebase", "rebase-interactive", "cherry-pick", "pull",
   "branch-create", "checkout-reset", "pr-checkout", "reset-soft", "reset-mixed", "reset-hard", "revert",
 ]);
 const KEEP_INDEX = new Set(["commit", "amend", "reword", "reset-soft", "reset-mixed"]);
@@ -249,6 +249,7 @@ function forcePush(branch: string, behind: number) {
 
 // the Undo menu's words for an op, {} what it acted on; the others read as they are
 const STEP_NAMES: Record<string, string> = {
+  "merge-ff": "fast-forward to {}",
   rebase: "rebase onto {}",
   "rebase-interactive": "interactive rebase onto {}",
   "branch-create": "create branch {}",
