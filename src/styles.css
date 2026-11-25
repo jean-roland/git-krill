@@ -800,7 +800,9 @@ textarea.msg-in { height: 104px; resize: vertical; }
 .seg button:hover { position: relative; z-index: 2; }
 .seg button.on { position: relative; z-index: 1; background: var(--sel); border-color: var(--accent); }
 .seg button svg { width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; }
-.seg [data-mode] svg { margin-right: 0; }
+/* straight lines on whole pixels at 16 px, 1 px thick: 1.5 px straddles two rows and greys */
+.seg [data-mode] svg { width: 16px; height: 16px; margin-right: 0; vertical-align: -3px; }
+.seg [data-mode] svg path { stroke-width: 1px; stroke-linecap: butt; }
 #diff-editor, #diff-file { flex: 1; min-height: 0; }
 /* a long submodule card scrolls */
 #diff-binary { flex: 1; min-height: 0; overflow: auto; padding: 20px; color: var(--dim); }
