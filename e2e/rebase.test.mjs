@@ -53,3 +53,31 @@ test("a commit ahead on the branch's own line is fast-forwarded to, not rebased 
   await k.until(() => document.querySelector("#graph .row.row-head")?.textContent.includes("one"));
   assert.equal(readFileSync(join(dir, "notes.md"), "utf8"), "a\nb\nc\nd\nE\n");
 });
+
+test("a commit or branch ahead offers no fast-forward or merge while a rebase is stopped", async () => {
+  const dir = repo(({ git, commit, write }) => {
+    for (const [n, text] of [["one", "a\nb\n"], ["two", "A\nb\n"], ["three", "A\nB\n"]]) {
+      write("notes.md", text);
+      git("add", ".");
+      commit(n);
+    }
+    git("checkout", "-qb", "work", "HEAD~2");
+    write("notes.md", "X\nb\n");
+    git("add", ".");
+    commit("mine");
+    // stopped on a conflict over line one: HEAD is two, three is ahead of it
+    try {
+      git("rebase", "main~1");
+    } catch {}
+  });
+  await k.quit();
+  k = await launch(dir);
+  const items = () => k.js(() => [...document.querySelectorAll("#menu button")].map((b) => b.textContent));
+  await k.menu("#graph .row", "three");
+  const onThree = await items();
+  assert.ok(onThree.length && !onThree.some((t) => t.startsWith("Fast-forward")), onThree.join(", "));
+  await k.keys("\uE00C");
+  await k.menu('#sidebar [data-key="local"] .item', "main");
+  const onMain = await items();
+  assert.ok(onMain.length && !onMain.some((t) => t.startsWith("Fast-forward") || t.startsWith("Merge into")), onMain.join(", "));
+});

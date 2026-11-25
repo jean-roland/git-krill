@@ -893,13 +893,13 @@ function refMenu(name: string, remote: boolean): MenuItem[] {
   if (!remote && name === status?.branch) return [];
   // already in HEAD: nothing to merge, nothing to replay
   const merged = inHistory(sha, headHash());
-  // HEAD in its history, a rebase onto it replays nothing: a fast-forward says what happens
-  const interactive: MenuItem = [`Interactive rebase ${branch} onto this branch`, () => openRebase(sha, ontoRange(sha))];
+  // HEAD in its history, a rebase onto it replays nothing: a fast-forward says what happens; neither it nor a merge during an operation, git would move its HEAD
+  const busy = !!status?.state, interactive: MenuItem = [`Interactive rebase ${branch} onto this branch`, () => openRebase(sha, ontoRange(sha))];
   let move: MenuItem[] = [interactive];
-  if (!merged && inHistory(headHash(), sha)) move = [[`Fast-forward ${branch} to ${name}`, () => gitOp("merge-ff", ref)]];
+  if (!merged && !busy && inHistory(headHash(), sha)) move = [[`Fast-forward ${branch} to ${name}`, () => gitOp("merge-ff", ref)]];
   else if (!merged)
     move = [
-      [`Merge into ${branch}`, () => gitOp("merge", ref)],
+      ...(busy ? [] : ([[`Merge into ${branch}`, () => gitOp("merge", ref)]] as MenuItem[])),
       [`Rebase ${branch} onto this branch`, () => gitOp("rebase", ref)],
       interactive,
     ];
@@ -925,9 +925,9 @@ function commitMenu(e: MouseEvent, c: Commit) {
   // a reset undoes the branch's own commits or catches up with its remote one, nothing else
   const up = findRef(`refs/heads/${status?.branch}`)?.upstream, upHash = up ? (findRef(`refs/remotes/${up}`)?.hash ?? "") : "";
   const resettable = mine || (!!upHash && inHistory(c.hash, upHash)), range = mine && !isHead(c) ? rebaseRange(c) : null;
-  // ahead on HEAD's own line, a rebase onto it replays nothing: a fast-forward says what happens
+  // HEAD in its history, a rebase onto it replays nothing: a fast-forward says what happens; none during an operation, git would move its HEAD
   let move: MenuItem[] = [];
-  if (!mine && inHistory(commits.find(isHead)?.hash ?? "", c.hash)) move = [[`Fast-forward ${branch} to this commit`, () => gitOp("merge-ff", c.hash)]];
+  if (!mine && !status?.state && inHistory(commits.find(isHead)?.hash ?? "", c.hash)) move = [[`Fast-forward ${branch} to this commit`, () => gitOp("merge-ff", c.hash)]];
   else if (!mine)
     move = [
       [`Rebase ${branch} onto this commit`, () => gitOp("rebase", c.hash)],
