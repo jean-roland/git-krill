@@ -111,7 +111,7 @@ struct Submodule {
 
 #[derive(Serialize)]
 struct Project {
-    // its folder under the repo tool's top, as .repo/project.list names it
+    // its folder under the repo tool's top, as .repo/project.list names it; .repo/manifests for the manifest's checkout
     path: String,
     // empty when detached
     branch: String,
@@ -607,7 +607,8 @@ fn main_folder(listed: &str) -> (String, String) {
 /// \brief The projects of the repo tool's checkout at `top`, each with its branch and changes; asked in parallel.
 #[tauri::command(async)]
 fn repo_projects(top: String) -> Result<Vec<Project>, String> {
-    let list = std::fs::read_to_string(Path::new(&top).join(".repo/project.list")).map_err(|e| e.to_string())?;
+    // none before the first sync: the manifest's checkout alone
+    let list = std::fs::read_to_string(Path::new(&top).join(".repo/project.list")).unwrap_or_default();
     // the manifest's checkout first: the list leaves it out, `repo sync` updates it too
     let manifest = Path::new(&top).join(".repo/manifests/.git").exists().then_some(".repo/manifests");
     let (top, paths) = (&top, manifest.into_iter().chain(list.lines().filter(|l| !l.is_empty())).collect::<Vec<_>>());
