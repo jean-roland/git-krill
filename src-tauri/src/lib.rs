@@ -2150,8 +2150,8 @@ fn resolve_all(repo: &str) -> Result<String, String> {
     git_with_stderr(repo, &args)
 }
 
-// ops that need a clean tree: the local changes are kept aside around them
-const AUTOSTASH_OPS: [&str; 5] = ["pull", "merge", "merge-ff", "rebase", "rebase-interactive"];
+// ops that need a clean tree: the local changes are kept aside around them; reset-keep is Undo's and Redo's, refused over a changed file it moves
+const AUTOSTASH_OPS: [&str; 6] = ["pull", "merge", "merge-ff", "rebase", "rebase-interactive", "reset-keep"];
 const AUTOSTASH: &str = "krill autostash";
 // told to the window: the changes would have come back with conflicts, they wait in the stash
 const KEPT: &str = "krill: changes kept in the stash";

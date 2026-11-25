@@ -41,6 +41,9 @@ test("a commit ahead on the branch's own line is fast-forwarded to, not rebased 
   await k.click("#menu button", "Fast-forward work to this commit");
   await k.until(() => document.querySelector("#graph .row.row-head")?.textContent.includes("two"));
   // the edit was kept aside around it, then back
-  await k.until(() => document.querySelector('#unstaged .file[data-path="notes.md"]'));
   assert.equal(readFileSync(join(dir, "notes.md"), "utf8"), "A\nb\nc\nd\nE\n");
+  // and around its Undo too, which git alone refuses over a file the fast-forward changed
+  await k.click("#undo");
+  await k.until(() => document.querySelector("#graph .row.row-head")?.textContent.includes("one"));
+  assert.equal(readFileSync(join(dir, "notes.md"), "utf8"), "a\nb\nc\nd\nE\n");
 });
