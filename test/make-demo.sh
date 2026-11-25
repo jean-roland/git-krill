@@ -1,11 +1,15 @@
 #!/bin/sh
 # README screenshot repos in <dir>/demo: demo/tidepool (branches, tags, merges, a remote, a stash, WIP, an LFS chart when git-lfs is here, a submodule, a worktree, two pull requests for e2e/bin/gh in demo/gh) and demo/conflict/tidepool (merge stopped).
+# With `workspace`, demo is a repo tool checkout: tidepool beside two more projects.
 set -e
-cd "${1:?usage: make-demo.sh <dir>}" && rm -rf demo && mkdir -p demo && cd demo
-D=$(pwd)
+cd "${1:?usage: make-demo.sh <dir> [workspace]}" && rm -rf demo && mkdir -p demo && cd demo
+D=$(pwd) workspace=$2
+project() { # project <folder>: its git dir under .repo/projects, as the repo tool keeps it, the folder in its list
+  mkdir -p "$D/.repo/projects" && mv "$D/$1/.git" "$D/.repo/projects/$1.git" && ln -s "../.repo/projects/$1.git" "$D/$1/.git" && echo "$1" >> "$D/.repo/project.list"
+}
 git init -q --bare -b main origin.git
 git init -q --bare -b main tidecalc.git
-git init -q -b main tidepool && cd tidepool
+git init -q -b main tidepool && { [ -z "$workspace" ] || project tidepool; } && cd tidepool
 git config commit.gpgSign false; git config tag.gpgSign false
 # its submodule's URL is a local path
 git config protocol.file.allow always
@@ -239,6 +243,13 @@ git stash push -q -u -m "station search"
 sed -i 's/        "dover" => Constants { mean: 3.7, amplitude: 2.9, offset: 5 },/        "dover" => Constants { mean: 3.7, amplitude: 2.9, offset: 5 },\n        "saint-malo" => Constants { mean: 6.8, amplitude: 4.9, offset: 4 },/; s/^\/\/\/ Today'"'"'s high and low waters at `station`./\/\/\/ Today'"'"'s high and low waters at `station`, heights in metres above chart datum./' src/tide.rs
 printf '/// Metres to feet.\npub fn feet(metres: f64) -> f64 {\n    metres / 0.3048\n}\n' > src/units.rs
 sed -i 's/#7fc8e8/#16324f/; s|<circle cx="44" cy="20" r="8" fill="#f2c94c"/>|<path d="M44 11a9 9 0 1 0 9 9 7 7 0 0 1-9-9z" fill="#f4f1de"/>|; s/q6-5/q6-8/g; s/#1d6f8a/#7fc8e8/g' docs/logo.svg
+# the workspace: the harmonics library in step with its remote, the website on a branch with changes
+if [ -n "$workspace" ]; then
+  git clone -q "$D/tidecalc.git" "$D/tidecalc" && project tidecalc
+  git init -q -b main "$D/tide-web" && project tide-web
+  (cd "$D/tide-web" && printf '<h1>Tidepool</h1>\n' > index.html && as "Dev Raman" "feat: a landing page" && git checkout -q -b feature/station-map && printf '<ul id="stations"></ul>\n' >> index.html && printf '// the stations on a map\n' > map.js)
+  sort -o "$D/.repo/project.list" "$D/.repo/project.list"
+fi
 # the conflict copy: moon-phase merged into a main that changed the same loop
 cd "$D" && mkdir conflict && git clone -q origin.git conflict/tidepool && cd conflict/tidepool
 git config commit.gpgSign false

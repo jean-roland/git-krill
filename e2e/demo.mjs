@@ -129,7 +129,7 @@ async function scene() {
 /** The frame at `seek` seconds into the recording (negative: from its end) as a PNG. */
 const frame = (seek) => PNG.sync.read(execFileSync("ffmpeg", ["-v", "error", ...(seek < 0 ? ["-sseof", String(seek)] : ["-ss", String(seek)]), "-i", raw, "-frames:v", "1", "-f", "image2pipe", "-c:v", "png", "-"]));
 
-k = await launch(`${demo()}/tidepool`);
+k = await launch(`${demo("workspace")}/tidepool`);
 try {
   // the pointer, drawn in the page: WebDriver moves no pointer on the screen
   await k.js(() => {

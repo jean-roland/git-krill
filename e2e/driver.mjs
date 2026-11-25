@@ -24,10 +24,10 @@ const repoDir = () => {
   return dir;
 };
 
-/** A folder of its own with the README's demo repositories (demo/tidepool, demo/conflict/tidepool). */
-export function demo() {
+/** A folder of its own with the README's demo repositories (demo/tidepool, demo/conflict/tidepool); `opts` go to test/make-demo.sh after the folder. */
+export function demo(...opts) {
   const dir = repoDir();
-  execFileSync("sh", [join(ROOT, "test/make-demo.sh"), dir], { env: gitEnv(dir), stdio: "ignore" });
+  execFileSync("sh", [join(ROOT, "test/make-demo.sh"), dir, ...opts], { env: gitEnv(dir), stdio: "ignore" });
   return join(dir, "demo");
 }
 

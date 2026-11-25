@@ -3,7 +3,7 @@
 import { writeFileSync } from "node:fs";
 import { demo, launch } from "./driver.mjs";
 
-const out = new URL("../docs/screenshots/", import.meta.url).pathname, dir = demo();
+const out = new URL("../docs/screenshots/", import.meta.url).pathname, dir = demo("workspace");
 
 async function shot(k, name) {
   await k.js(() => document.activeElement?.blur());
