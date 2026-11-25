@@ -35,9 +35,15 @@ test("a commit ahead on the branch's own line is fast-forwarded to, not rebased 
   // one app at a time: the demo one gives way
   await k.quit();
   k = await launch(dir);
+  const items = () => k.js(() => [...document.querySelectorAll("#menu button")].map((b) => b.textContent));
+  // main's label, ahead too
+  await k.menu('#sidebar [data-key="local"] .item', "main");
+  const onMain = await items();
+  assert.ok(onMain.includes("Fast-forward work to main") && !onMain.some((t) => t.startsWith("Merge into") || t.includes("onto this branch")), onMain.join(", "));
+  await k.keys("\uE00C");
   await k.menu("#graph .row", "two");
-  const items = await k.js(() => [...document.querySelectorAll("#menu button")].map((b) => b.textContent));
-  assert.ok(items.includes("Fast-forward work to this commit") && !items.some((t) => t.includes("onto this commit")), items.join(", "));
+  const onTwo = await items();
+  assert.ok(onTwo.includes("Fast-forward work to this commit") && !onTwo.some((t) => t.includes("onto this commit")), onTwo.join(", "));
   await k.click("#menu button", "Fast-forward work to this commit");
   await k.until(() => document.querySelector("#graph .row.row-head")?.textContent.includes("two"));
   // the edit was kept aside around it, then back

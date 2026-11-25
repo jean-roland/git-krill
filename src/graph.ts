@@ -893,6 +893,16 @@ function refMenu(name: string, remote: boolean): MenuItem[] {
   if (!remote && name === status?.branch) return [];
   // already in HEAD: nothing to merge, nothing to replay
   const merged = inHistory(sha, headHash());
+  // HEAD in its history, a rebase onto it replays nothing: a fast-forward says what happens
+  const interactive: MenuItem = [`Interactive rebase ${branch} onto this branch`, () => openRebase(sha, ontoRange(sha))];
+  let move: MenuItem[] = [interactive];
+  if (!merged && inHistory(headHash(), sha)) move = [[`Fast-forward ${branch} to ${name}`, () => gitOp("merge-ff", ref)]];
+  else if (!merged)
+    move = [
+      [`Merge into ${branch}`, () => gitOp("merge", ref)],
+      [`Rebase ${branch} onto this branch`, () => gitOp("rebase", ref)],
+      interactive,
+    ];
   // a branch another worktree has: checkout opens that worktree, or the two trade branches
   const holder = worktreeOf(remote ? name.slice(name.indexOf("/") + 1) : name), from = status?.branch;
   const checkout: MenuItem = holder
@@ -903,13 +913,7 @@ function refMenu(name: string, remote: boolean): MenuItem[] {
     ...(holder && !remote && from
       ? ([[`Checkout, swap with {icon}${basename(holder.path)}`, () => gitOp("worktree-swap", [holder.path, name]), `${basename(holder.path)} gets ${from}; each folder keeps its uncommitted changes`, ICONS.worktree]] as MenuItem[])
       : []),
-    ...(merged
-      ? []
-      : ([
-          [`Merge into ${branch}`, () => gitOp("merge", ref)],
-          [`Rebase ${branch} onto this branch`, () => gitOp("rebase", ref)],
-        ] as MenuItem[])),
-    [`Interactive rebase ${branch} onto this branch`, () => openRebase(sha, ontoRange(sha))],
+    ...move,
   ];
 }
 
