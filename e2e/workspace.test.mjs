@@ -94,6 +94,18 @@ test("a project the manifest lists but that is not on disk says so", async () =>
   assert.deepEqual(row, [true, "not readable", true]);
 });
 
+test("a checkout in this tab shows on its row at once, not at the next ask of every project", async () => {
+  // a change in board seen: every project was just asked, the next ask waits 5 s
+  writeFileSync(join(top, "products/board/new.txt"), "new\n");
+  await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
+  await k.until((rows) => [...document.querySelectorAll(rows)].find((r) => r.textContent.includes("board"))?.querySelector(".sub-state.out"), rows);
+  git(join(top, "packages/radio"), "checkout", "-q", "-b", "pr-radio-quick");
+  const asked = Date.now();
+  await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
+  await k.until((rows) => [...document.querySelectorAll(rows)].find((r) => r.textContent.includes("radio"))?.querySelector("small").textContent === "pr-radio-quick", rows);
+  assert.ok(Date.now() - asked < 2500, `${Date.now() - asked} ms`);
+});
+
 test("the manifest's checkout heads Workspace and opens in a tab of the same workspace", async () => {
   // its git dir beside it, as the repo tool keeps it
   const dir = join(top, ".repo", "manifests");

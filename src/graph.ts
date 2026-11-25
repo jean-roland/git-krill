@@ -24,13 +24,26 @@ export async function loadProjects() {
   clearTimeout(projectsLater);
   if (!top) return;
   const wait = top === projects.top ? projects.at + 5000 - Date.now() : 0;
-  if (wait > 0) return void (projectsLater = setTimeout(loadProjects, wait));
+  if (wait > 0) {
+    projectsLater = setTimeout(loadProjects, wait);
+    return loadOwnProject(top);
+  }
   // another checkout's: asked now, the refreshes meanwhile wait for it
   if (top !== projects.top) projects = { top, list: null, at: 0 };
   projects.at = Date.now();
   const r = repo, list = await invoke<Project[]>("repo_projects", { top }).catch(() => []);
   if (r !== repo || top !== refs.repoTop || (top === projects.top && JSON.stringify(list) === JSON.stringify(projects.list))) return;
   projects = { top, list, at: projects.at };
+  renderSide();
+}
+
+/** This tab's own project, asked at once while the others wait for their 5 s mark: a checkout here shows on its row without delay. */
+async function loadOwnProject(top: string) {
+  const list = projects.list, i = list?.findIndex(isThisTab) ?? -1;
+  if (!list || i < 0) return;
+  const r = repo, p = await invoke<Project>("repo_project", { top, path: list[i].path });
+  if (r !== repo || list !== projects.list || JSON.stringify(p) === JSON.stringify(list[i])) return;
+  projects.list = list.map((q, k) => (k === i ? p : q));
   renderSide();
 }
 
@@ -101,6 +114,8 @@ function projectBranch(p: Project) {
 const MANIFEST = ".repo/manifests";
 /** A project's name on its row: its folder's, or "manifest". */
 const projectName = (p: Project) => (p.path === MANIFEST ? "manifest" : basename(p.path));
+/** Whether `p` is the project open in this tab. */
+const isThisTab = (p: Project) => `${projects.top}/${p.path}` === (refs.worktrees[0]?.path ?? repo);
 /** A project's uncommitted changes, in words. */
 const projectChanges = (p: Project) => (p.changed || p.untracked ? `Uncommitted changes: ${p.changed} changed, ${p.untracked} untracked` : "No uncommitted changes");
 
@@ -257,7 +272,7 @@ export function renderSide() {
     );
   };
   const projectRow = (p: Project) => {
-    const path = `${projects.top}/${p.path}`, here = path === (refs.worktrees[0]?.path ?? repo);
+    const path = `${projects.top}/${p.path}`, here = isThisTab(p);
     // listed by the manifest, not readable here: its folder gone, or not a repository
     if (p.error)
       return h(

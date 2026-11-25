@@ -635,6 +635,12 @@ fn repo_projects(top: String) -> Result<Vec<Project>, String> {
     Ok(found.into_iter().map(|(_, p)| p).collect())
 }
 
+/// \brief Project `path` of the repo tool's checkout at `top` alone: the open tab's, asked again between two asks of them all.
+#[tauri::command(async)]
+fn repo_project(top: String, path: String) -> Project {
+    project(&top, &path)
+}
+
 /// \brief Project `path` of the repo tool's checkout at `top`: its branch, its changes and its worktrees.
 fn project(top: &str, path: &str) -> Project {
     let dir = format!("{top}/{path}");
@@ -2449,7 +2455,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, gh_verified, gh, pr_base, remote_tags, submodule_change, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, worktree_main, lfs_patterns, version_ids, keeps_crlf,
-            is_merged, has_identity, revert_lines, index_tree, stash_print, clone_cancel, tracing, trace_line, open_default, open_version, file_bytes, binary_text, text_part, diff_hunks, tool_status, install_git, repo_projects, global_config, set_global_config, trust_folder, delete_file, open_url, remote_urls, edit_remote,
+            is_merged, has_identity, revert_lines, index_tree, stash_print, clone_cancel, tracing, trace_line, open_default, open_version, file_bytes, binary_text, text_part, diff_hunks, tool_status, install_git, repo_projects, repo_project, global_config, set_global_config, trust_folder, delete_file, open_url, remote_urls, edit_remote,
             pty::pty_spawn, pty::pty_write, pty::pty_resize, pty::pty_kill, askpass::askpass_reply
         ])
         .build(tauri::generate_context!())
