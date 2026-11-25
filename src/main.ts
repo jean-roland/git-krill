@@ -201,7 +201,9 @@ resizer($("sidebar-grip"), main, "sidebar-width", (m) => Math.min(480, Math.max(
 let peeking = 0;
 const peek = (on: boolean) => (clearTimeout(peeking), $("sidebar").classList.toggle("open", on), on && $("sidebar").classList.add("peek"));
 $("sidebar").onmouseenter = () => (peeking = setTimeout(() => peek(true), 250));
-$("sidebar").onmouseleave = () => peek(false);
+// out through the window's left edge, onto the frame a maximized window keeps there, the pointer still means the rail: what it is over next closes the peek
+$("sidebar").onmouseleave = (e) => e.clientX < 1 || peek(false);
+document.addEventListener("mouseover", (e) => $("sidebar").classList.contains("open") && !$("sidebar").contains(e.target as Node) && peek(false));
 $("sidebar").ontransitionend = (e) => e.target === $("sidebar") && e.propertyName === "width" && !$("sidebar").classList.contains("open") && $("sidebar").classList.remove("peek");
 $("sidebar").addEventListener("click", (e) => main.classList.contains("rail") && !$("sidebar").classList.contains("open") && (e.preventDefault(), e.stopPropagation(), peek(true)), true);
 // the text zoomed by steps from the diff's bar, the history's too: off 100% the button says how much

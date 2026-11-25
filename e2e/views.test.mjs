@@ -236,3 +236,18 @@ test("Ctrl+F with a diff open finds in its text, not in the commits behind it", 
   await k.keys("\uE00C");
   await k.until(() => document.getElementById("diff").hidden);
 });
+
+test("the rail's peek opens though the pointer left through the window's left edge, and closes over the diff", async () => {
+  await k.click('#commit-files .file[data-path="src/tide.rs"]');
+  await k.until(() => document.querySelector("main.rail"));
+  // a maximized window's frame holds the screen's last column: the pointer leaves the page there
+  await k.js(() => {
+    const s = document.getElementById("sidebar");
+    s.dispatchEvent(new MouseEvent("mouseenter"));
+    s.dispatchEvent(new MouseEvent("mouseleave", { clientX: -1, clientY: 300 }));
+  });
+  await k.until(() => document.getElementById("sidebar").classList.contains("open"));
+  await k.js(() => document.getElementById("diff").dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
+  await k.until(() => !document.getElementById("sidebar").classList.contains("open"));
+  await k.keys("\uE00C");
+});
