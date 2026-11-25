@@ -593,9 +593,10 @@ fn lfs_problem(repo: &str) -> &'static str {
 
 /// \brief The main worktree's folder from what `git worktree list` names, and the repo tool's top folder when it is one of its checkouts.
 fn main_folder(listed: &str) -> (String, String) {
-    // the repo tool's checkouts name their git dir <top>/.repo/projects/<path>.git: their folder is <top>/<path>
-    if let Some((top, rest)) = listed.split_once("/.repo/projects/") {
-        let folder = format!("{top}/{}", rest.trim_end_matches(".git"));
+    // the repo tool's checkouts name their git dir <top>/.repo/projects/<path>.git, its manifest's <top>/.repo/manifests.git: their folder is <top>/<path>, <top>/.repo/manifests
+    let project = listed.split_once("/.repo/projects/").map(|(top, rest)| (top, format!("{top}/{}", rest.trim_end_matches(".git"))));
+    let found = project.or_else(|| listed.strip_suffix("/.repo/manifests.git").map(|top| (top, format!("{top}/.repo/manifests"))));
+    if let Some((top, folder)) = found {
         if Path::new(&folder).join(".git").exists() {
             return (folder, top.to_string());
         }
@@ -607,7 +608,9 @@ fn main_folder(listed: &str) -> (String, String) {
 #[tauri::command(async)]
 fn repo_projects(top: String) -> Result<Vec<Project>, String> {
     let list = std::fs::read_to_string(Path::new(&top).join(".repo/project.list")).map_err(|e| e.to_string())?;
-    let (top, paths) = (&top, list.lines().filter(|l| !l.is_empty()).collect::<Vec<_>>());
+    // the manifest's checkout first: the list leaves it out, `repo sync` updates it too
+    let manifest = Path::new(&top).join(".repo/manifests/.git").exists().then_some(".repo/manifests");
+    let (top, paths) = (&top, manifest.into_iter().chain(list.lines().filter(|l| !l.is_empty())).collect::<Vec<_>>());
     // a few at a time: two git runs per project at once run out of file descriptors on a big manifest
     let workers = std::thread::available_parallelism().map_or(4, |n| n.get()).min(8);
     let next = AtomicUsize::new(0);

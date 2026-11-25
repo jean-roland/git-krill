@@ -78,7 +78,7 @@ async function fetchAll() {
 
 /** `git fetch --all --prune` in another project of the workspace, its row then asked again. */
 async function fetchProject(p: Project, path: string) {
-  const name = basename(p.path);
+  const name = projectName(p);
   say(`Fetching ${name}…`, false, true);
   const ok = await run<string>("git_op", { repo: path, op: "fetch", arg: "" }).then(
     () => true,
@@ -97,6 +97,10 @@ function projectBranch(p: Project) {
   return `${p.branch}, in step with its upstream`;
 }
 
+// the manifest's checkout, that repo_projects lists first
+const MANIFEST = ".repo/manifests";
+/** A project's name on its row: its folder's, or "manifest". */
+const projectName = (p: Project) => (p.path === MANIFEST ? "manifest" : basename(p.path));
 /** A project's uncommitted changes, in words. */
 const projectChanges = (p: Project) => (p.changed || p.untracked ? `Uncommitted changes: ${p.changed} changed, ${p.untracked} untracked` : "No uncommitted changes");
 
@@ -261,7 +265,7 @@ export function renderSide() {
         { className: "item project off", title: `${path}\nNot readable: ${p.error}`, oncontextmenu: (e: MouseEvent) => popup(e, [["Copy path", () => copy(path)]]) },
         h("span", { className: "ico sub-state out", innerHTML: svg(ICONS.warn) }),
         ico(ICONS.repo),
-        h("span", { className: "label", textContent: basename(p.path) }),
+        h("span", { className: "label", textContent: projectName(p) }),
         h("small", { textContent: "not readable" }),
       );
     // out of step: changes here, or commits on one side only
@@ -279,7 +283,7 @@ export function renderSide() {
       },
       h("span", { className: `ico sub-state ${out ? "out" : "ok"}`, innerHTML: svg(ICONS[out ? "sync" : "check"]) }),
       ico(ICONS.repo),
-      h("span", { className: "label", textContent: basename(p.path) }),
+      h("span", { className: "label", textContent: projectName(p) }),
       h("small", { textContent: where }),
       ...(p.worktrees.length ? [ico(ICONS.worktree, linked)] : []),
     );

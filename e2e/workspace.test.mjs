@@ -90,3 +90,18 @@ test("a project the manifest lists but that is not on disk says so", async () =>
   }, rows);
   assert.deepEqual(row, [true, "not readable", true]);
 });
+
+test("the manifest's checkout heads Workspace and opens in a tab of the same workspace", async () => {
+  // its git dir beside it, as the repo tool keeps it
+  const dir = join(top, ".repo", "manifests");
+  mkdirSync(dir);
+  git(dir, "init", "-q", "-b", "main");
+  git(dir, "commit", "-q", "--allow-empty", "-m", "first");
+  renameSync(join(dir, ".git"), `${dir}.git`);
+  symlinkSync(`${dir}.git`, join(dir, ".git"));
+  await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
+  await k.until((rows) => document.querySelector(rows)?.querySelector(".label").textContent === "manifest", rows);
+  await k.js((rows) => document.querySelector(rows).dispatchEvent(new MouseEvent("dblclick", { bubbles: true })), rows);
+  // the row it was opened from is this tab's: its folder, not its git dir
+  await k.until((rows) => document.getElementById("repo-name").textContent.includes("manifests") && document.querySelector(rows)?.classList.contains("current"), rows);
+});
