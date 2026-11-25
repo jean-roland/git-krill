@@ -78,7 +78,7 @@ test("Fetch every project, on the Workspace header, fetches them all", async () 
 
 test("a removed worktree leaves its project's row at once, though the last ask was just now", async () => {
   git(join(top, "packages/radio"), "worktree", "remove", join(top, "wt", "radio-main"));
-  // within 5 s of the fetch's ask: the read comes at the 5 s mark
+  // within 5 s of the fetch's ask: radio is this tab's, read alone at once
   await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
   await k.until((rows) => ![...document.querySelectorAll(rows)][1].querySelector(".ico[title^='Linked']"), rows);
 });
@@ -100,10 +100,13 @@ test("a checkout in this tab shows on its row at once, not at the next ask of ev
   await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
   await k.until((rows) => [...document.querySelectorAll(rows)].find((r) => r.textContent.includes("board"))?.querySelector(".sub-state.out"), rows);
   git(join(top, "packages/radio"), "checkout", "-q", "-b", "pr-radio-quick");
+  writeFileSync(join(top, "packages/stack/new.txt"), "new\n");
   const asked = Date.now();
   await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
   await k.until((rows) => [...document.querySelectorAll(rows)].find((r) => r.textContent.includes("radio"))?.querySelector("small").textContent === "pr-radio-quick", rows);
   assert.ok(Date.now() - asked < 2500, `${Date.now() - asked} ms`);
+  // another project waits for the 5 s mark, then shows too
+  await k.until((rows) => [...document.querySelectorAll(rows)].find((r) => r.textContent.includes("stack"))?.title.includes("1 untracked"), rows);
 });
 
 test("the manifest's checkout heads Workspace and opens in a tab of the same workspace", async () => {
