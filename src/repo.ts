@@ -43,6 +43,8 @@ const UNDOABLE = new Set([
 const KEEP_INDEX = new Set(["commit", "amend", "reword", "reset-soft", "reset-mixed"]);
 // ops named in the Undo menu by the commit they made
 const MAKE_COMMIT = new Set(["commit", "amend", "reword", "revert", "cherry-pick"]);
+// an op's name in its failure's title, where its own name is not words
+const FAIL_NAMES: Record<string, string> = { "push-upstream": "Push", "push-force": "Force push", "rebase-interactive": "Interactive rebase", "merge-ff": "Fast-forward" };
 // ops whose result is on a remote or gone from view: a toast confirms them, from (arg, arg2, branch, its upstream)
 const DONE: Record<string, (arg: string, arg2: string, branch: string, upstream: string) => string> = {
   push: (_a, _b, branch, upstream) => `Pushed ${branch} to ${upstream}`,
@@ -190,7 +192,7 @@ export async function gitOp(name: string, arg: string | [string, string] = "", r
     if (out.includes(KEPT)) toast("Changes kept in the stash", 'Your changes would have conflicted: they are now in the stash "krill autostash".', "info");
   } catch (e) {
     const msg = String(e);
-    const what = name === "push-upstream" ? "Push" : name === "push-force" ? "Force push" : name === "rebase-interactive" ? "Interactive rebase" : name[0].toUpperCase() + name.slice(1).replace(/-/g, " ");
+    const what = FAIL_NAMES[name] ?? name[0].toUpperCase() + name.slice(1).replace(/-/g, " ");
     const onBranch = /^(push|pull)/.test(name) && branch ? `: ${branch}` : "";
     // stopping on conflicts is no failure: the WIP panel takes over
     const conflicts = msg.split("\n").filter((l) => l.startsWith("CONFLICT"));
