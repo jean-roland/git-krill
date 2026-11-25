@@ -4,8 +4,8 @@
 set -e
 cd "${1:?usage: make-demo.sh <dir> [workspace]}" && rm -rf demo && mkdir -p demo && cd demo
 D=$(pwd) workspace=$2
-project() { # project <folder>: its git dir under .repo/projects, as the repo tool keeps it, the folder in its list
-  mkdir -p "$D/.repo/projects" && mv "$D/$1/.git" "$D/.repo/projects/$1.git" && ln -s "../.repo/projects/$1.git" "$D/$1/.git" && echo "$1" >> "$D/.repo/project.list"
+project() { # project <folder>: its git dir under .repo/projects, as the repo tool keeps it
+  mkdir -p "$D/.repo/projects" && mv "$D/$1/.git" "$D/.repo/projects/$1.git" && ln -s "../.repo/projects/$1.git" "$D/$1/.git"
 }
 git init -q --bare -b main origin.git
 git init -q --bare -b main tidecalc.git
@@ -247,8 +247,9 @@ sed -i 's/#7fc8e8/#16324f/; s|<circle cx="44" cy="20" r="8" fill="#f2c94c"/>|<pa
 if [ -n "$workspace" ]; then
   git clone -q "$D/tidecalc.git" "$D/tidecalc" && project tidecalc
   git init -q -b main "$D/tide-web" && project tide-web
-  (cd "$D/tide-web" && printf '<h1>Tidepool</h1>\n' > index.html && as "Dev Raman" "feat: a landing page" && git checkout -q -b feature/station-map && printf '<ul id="stations"></ul>\n' >> index.html && printf '// the stations on a map\n' > map.js)
-  sort -o "$D/.repo/project.list" "$D/.repo/project.list"
+  (cd "$D/tide-web" && git config commit.gpgSign false && printf '<h1>Tidepool</h1>\n' > index.html && as "Dev Raman" "feat: a landing page" && git checkout -q -b feature/station-map && printf '<ul id="stations"></ul>\n' >> index.html && printf '// the stations on a map\n' > map.js)
+  # the list in the screenshots' order, whatever the locale sorts
+  printf 'tidecalc\ntidepool\ntide-web\n' > "$D/.repo/project.list"
 fi
 # the conflict copy: moon-phase merged into a main that changed the same loop
 cd "$D" && mkdir conflict && git clone -q origin.git conflict/tidepool && cd conflict/tidepool
