@@ -649,7 +649,9 @@ export const oneGroupOpen = () => store("one-group") === "on";
 const picked = new Set<Tab>();
 /** One group open at a time, just turned on: the open tab's group stays open, else the group of the tab Settings came from, else the leftmost open one; the others fold. */
 export function foldToOneGroup() {
-  const keep = tabs[active].group ?? settingsFrom?.group ?? tabGroups().find((g) => !g.folded);
+  // the tab Settings came from, while it is still there in view
+  const from = settingsFrom && tabs.includes(settingsFrom) && !settingsFrom.group?.folded ? settingsFrom.group : null;
+  const keep = tabs[active].group ?? from ?? tabGroups().find((g) => !g.folded);
   for (const g of tabGroups()) if (g !== keep) g.folded = true;
   picked.clear();
   saveTabs();
@@ -798,7 +800,8 @@ function joinGroup(list: Tab[], g: TabGroup) {
 /** Tabs `list`, in tab order, in a new group of the first color no group wears, its name typed next. */
 function newGroup(list: Tab[]) {
   const worn = tabGroups().map((g) => g.color);
-  const g = { name: "", color: Math.max(0, TAB_COLORS.findIndex((_, c) => !worn.includes(c))), folded: false, last: null };
+  // one group open at a time, a group the open tab is not in starts folded
+  const g = { name: "", color: Math.max(0, TAB_COLORS.findIndex((_, c) => !worn.includes(c))), folded: oneGroupOpen() && !list.includes(tabs[active]), last: null };
   joinGroup(list, g);
   renameGroup(g);
 }
@@ -838,13 +841,14 @@ function regroup(t: Tab, g: TabGroup | null) {
 
 /** A new tab at the end of group `g`, opened. */
 async function newTabIn(g: TabGroup) {
-  // asked before the splice: a refused switch would leave a tab the bar does not show
+  // asked once, before the splice: a refused switch would leave a tab the bar does not show
   if (!(await dropEdits())) return;
+  keepTab();
   const at = groupEnd(g);
   tabs.splice(at, 0, Object.assign(newTab(""), { group: g }));
-  // the open tab moved right: switchTab keeps its state in it
+  // the open tab moved right
   if (at <= active) active++;
-  return switchTab(at);
+  return switchTab(at, false);
 }
 
 function ungroup(g: TabGroup) {
@@ -853,29 +857,44 @@ function ungroup(g: TabGroup) {
   renderTabs();
 }
 
+/** Close group `g`'s tabs at once, landing outside it, unsaved edits asked about once; Ctrl+Shift+T brings it back whole. */
 async function closeGroup(g: TabGroup) {
-  const before = closedTabs.length, focus = g.last?.group === g && g.last.repo ? closedRepo(g.last) : "";
-  for (const t of tabs.filter((o) => o.group === g)) {
-    // closed meanwhile, by a click during the last close
-    const i = tabs.indexOf(t);
-    if (i >= 0) await closeTab(i);
+  const own = tabs.filter((t) => t.group === g);
+  const focus = g.last && own.includes(g.last) && g.last.repo ? closedRepo(g.last) : "";
+  if (tabs[active].group === g) {
+    if (!(await dropEdits())) return;
+    // straight out to the next tab in view, else a new one: none of the group's is loaded on the way
+    const to = nextShown(active + 1, g);
+    if (to === undefined) tabs.push(newTab(""));
+    await switchTab(to ?? tabs.length - 1, false);
   }
-  // its tabs' entries become one: Ctrl+Shift+T brings the group back
-  const repos = closedTabs.splice(before) as string[];
+  const landed = tabs[active];
+  // another switch overtook this one: the tab shown is never closed
+  if (landed.group === g) return;
+  for (const t of own) dropTerm(t);
+  tabs = tabs.filter((t) => !own.includes(t));
+  active = tabs.indexOf(landed);
+  const repos = own.flatMap((t) => (t.repo ? [closedRepo(t)] : []));
   if (repos.length) closedTabs.push({ name: g.name, color: g.color, repos, focus });
+  saveTabs();
+  renderTabs();
 }
 
-/** Closed group `c` back in one go: its repositories still there, in tabs at the end, grouped again, then the tab shown last before, else its first; one open in another tab meanwhile stays there. */
+/** Closed group `c` back in one go: its repositories still there, in tabs at the end, grouped again, then the tab shown last before, else its first; one open in another tab meanwhile stays there. Refused for unsaved edits, it stays to reopen. */
 async function reopenGroup(c: ClosedGroup) {
   // every root first: the view changes once, all the tabs in
   const roots = await Promise.all(c.repos.map((r) => invoke<string>("repo_root", { path: r }).catch(() => "")));
-  const back = [...new Set(roots)].filter((r) => r && !tabs.some((t) => t.repo === r));
-  // asked before the push: a refused switch would leave tabs the bar does not show
-  if (!back.length || !(await dropEdits())) return;
+  const missing = () => [...new Set(roots)].filter((r) => r && !tabs.some((t) => t.repo === r));
+  if (!missing().length) return say(`Nothing of ${c.name || "the group"} to reopen: its repositories are open or gone`, true);
+  if (!(await dropEdits())) return void closedTabs.push(c);
+  // counted again: a tab may have opened during the question
+  const back = missing();
+  if (!back.length) return;
+  keepTab();
   const g: TabGroup = { name: c.name, color: c.color, folded: false, last: null };
   tabs.push(...back.map((r) => Object.assign(newTab(r), { group: g })));
   const shown = tabs.findIndex((t) => t.group === g && t.repo === roots[c.repos.indexOf(c.focus)]);
-  return switchTab(shown >= 0 ? shown : tabs.length - back.length);
+  return switchTab(shown >= 0 ? shown : tabs.length - back.length, false);
 }
 
 /** The tab `step` (1 or -1) away from the open one, past folded tabs. */
@@ -984,6 +1003,8 @@ export async function switchTab(i: number, save = true) {
   closeHistory();
   // its Push is for the tab it was asked in
   hideBanner();
+  // the Settings tab goes back to the tab it was shown from
+  if (tabs[i]?.settings && tabs[i] !== tabs[active]) settingsFrom = tabs[active];
   active = i;
   const t = tabs[active];
   showInGroup(t);
@@ -1152,10 +1173,11 @@ export function renderTabHits() {
 }
 
 export async function addTab() {
-  // asked before the push: a refused switch would leave a tab the bar does not show
+  // asked once, before the push: a refused switch would leave a tab the bar does not show
   if (!(await dropEdits())) return;
+  keepTab();
   tabs.push(newTab(""));
-  return switchTab(tabs.length - 1);
+  return switchTab(tabs.length - 1, false);
 }
 
 // the tab Settings was opened from: closing Settings goes back there
@@ -1164,7 +1186,6 @@ let settingsFrom: Tab | null = null;
 /** The Settings tab, opened once. */
 export function openSettings() {
   const i = tabs.findIndex((t) => t.settings);
-  if (i !== active) settingsFrom = tabs[active];
   if (i >= 0) return switchTab(i);
   tabs.push(settingsTab());
   switchTab(tabs.length - 1);
