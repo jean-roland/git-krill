@@ -2275,11 +2275,16 @@ fn branch_name<'a>(repo: &str, b: &'a str) -> Result<&'a str, String> {
 
 /// Where `git push` would send branch `b` were it checked out, its @{push} (push.default, pushRemote, pushDefault): (remote, full ref there), or None, as for an upstream of another name.
 fn push_target(repo: &str, b: &str) -> Option<(String, String)> {
-    let out = git(repo, &["for-each-ref", "--format=%(push:remotename)%00%(push)", &format!("refs/heads/{b}")]).ok()?;
-    let (remote, tracking) = out.trim_end().split_once('\0')?;
+    let out = git(repo, &["for-each-ref", "--format=%(push:remotename)%00%(push)%00%(upstream:remotename)", &format!("refs/heads/{b}")]).ok()?;
+    let mut fields = out.trim_end().split('\0');
+    let (remote, tracking, upstream) = (fields.next()?, fields.next()?, fields.next()?);
     // @{push} names the destination's remote-tracking branch; push:remoteref is set only by a remote's push refspec
-    let there = tracking.strip_prefix(&format!("refs/remotes/{remote}/"))?;
-    Some((remote.to_string(), format!("refs/heads/{there}")))
+    if let Some(there) = tracking.strip_prefix(&format!("refs/remotes/{remote}/")) {
+        return Some((remote.to_string(), format!("refs/heads/{there}")));
+    }
+    // git leaves @{push} empty for push.default simple to another remote than the upstream's, where `git push` sends the branch under its own name
+    let simple = git(repo, &["config", "push.default"]).map_or(true, |mode| mode.trim() == "simple");
+    (simple && !remote.is_empty() && !upstream.is_empty() && remote != upstream).then(|| (remote.to_string(), format!("refs/heads/{b}")))
 }
 
 /// Branch `b`'s upstream: (remote, full ref there), the remote "." for a local branch; or None.

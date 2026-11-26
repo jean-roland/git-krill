@@ -205,6 +205,16 @@ test("a branch not checked out pulls by fast-forward from its menu; its push, re
   await k.click("#menu button", "Push");
   await k.until((fix) => [...document.querySelectorAll("#toasts .toast.err pre")].some((p) => p.textContent.includes(`${fix} has nowhere to push to`)), fix);
   assert.equal(git(dir, "ls-remote", "origin.git", "refs/heads/main"), main);
+  // pushed to a fork of its own: git sends it there under its own name
+  git(dir, "init", "-q", "--bare", "fork.git");
+  git(top, "remote", "add", "fork", join(dir, "fork.git"));
+  git(top, "config", `branch.${fix}.pushRemote`, "fork");
+  await refresh();
+  await k.menu('#sidebar [data-key="local"] .item', fix);
+  await k.click("#menu button", "Push");
+  await toast(`Pushed ${fix}`);
+  assert.equal(git(dir, "ls-remote", "fork.git", `refs/heads/${fix}`).split("\t")[0], git(top, "rev-parse", fix).trim());
+  git(top, "remote", "remove", "fork");
 });
 
 test("a commit's hooks are counted in their toast, one line each", async () => {
