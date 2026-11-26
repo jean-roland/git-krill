@@ -859,8 +859,6 @@ function ungroup(g: TabGroup) {
 
 /** Close group `g`'s tabs at once, landing outside it, unsaved edits asked about once; Ctrl+Shift+T brings it back whole. */
 async function closeGroup(g: TabGroup) {
-  const own = tabs.filter((t) => t.group === g);
-  const focus = g.last && own.includes(g.last) && g.last.repo ? closedRepo(g.last) : "";
   if (tabs[active].group === g) {
     if (!(await dropEdits())) return;
     // straight out to the next tab in view, else a new one: none of the group's is loaded on the way
@@ -871,6 +869,10 @@ async function closeGroup(g: TabGroup) {
   const landed = tabs[active];
   // another switch overtook this one: the tab shown is never closed
   if (landed.group === g) return;
+  // read after the switch: a second Close group may have closed it meanwhile
+  const own = tabs.filter((t) => t.group === g);
+  if (!own.length) return;
+  const focus = g.last && own.includes(g.last) && g.last.repo ? closedRepo(g.last) : "";
   for (const t of own) dropTerm(t);
   tabs = tabs.filter((t) => !own.includes(t));
   active = tabs.indexOf(landed);
