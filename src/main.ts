@@ -259,9 +259,10 @@ const viewOpen = () => !!hist || !$("diff").hidden || !!merging || !$("pr").hidd
 
 /** Out of the file history, back to the diff it came from; Forward opens the history again. */
 async function backFromHistory() {
-  const tab = tabs[active], path = hist?.path;
+  const tab = tabs[active], path = hist?.path, c = hist?.c;
   await leaveHistory();
-  if (path && !hist) ahead = { tab, open: () => openHistory(path) };
+  // back on the graph only: from its diff, Forward is no way back into it
+  if (path && !viewOpen()) ahead = { tab, open: () => openHistory(path, c) };
   paintNav();
 }
 
@@ -294,7 +295,8 @@ async function goBack() {
 
 /** Forward to the view Back closed, from the graph of its tab. */
 function goForward() {
-  if (!ahead || ahead.tab !== tabs[active] || viewOpen()) return;
+  // a tab still loading has no status to find a working tree file in
+  if (!ahead || ahead.tab !== tabs[active] || viewOpen() || !status) return;
   const { open } = ahead;
   ahead = null;
   open();
@@ -304,17 +306,21 @@ function goForward() {
 /** The arrows greyed where they lead nowhere. */
 function paintNav() {
   $("nav-back").classList.toggle("off", !viewOpen() && !tabs[active]?.parent);
-  $("nav-forward").classList.toggle("off", !ahead || ahead.tab !== tabs[active] || viewOpen());
+  $("nav-forward").classList.toggle("off", !ahead || ahead.tab !== tabs[active] || viewOpen() || !status);
 }
 $("nav-back").onclick = () => goBack();
 $("nav-forward").onclick = () => goForward();
-// a view opening or closing, a tab switched: the arrows follow
-const navWatch = new MutationObserver(paintNav);
+// a view opening or closing, a tab switched: the arrows follow; any view opened is the way forward now
+const navWatch = new MutationObserver(() => {
+  if (viewOpen()) ahead = null;
+  paintNav();
+});
 for (const id of ["diff", "hist", "pr", "merge"]) navWatch.observe($(id), { attributes: true, attributeFilter: ["hidden"] });
 navWatch.observe($("tablist"), { childList: true });
 // a mouse's side buttons, as in a browser
 addEventListener("mouseup", (e) => {
-  if (e.button !== 3 && e.button !== 4) return;
+  // a dialog's answer acts on the view it was asked in
+  if (!$("dialog").hidden || (e.button !== 3 && e.button !== 4)) return;
   e.preventDefault();
   if (e.button === 3) goBack();
   else goForward();

@@ -1883,7 +1883,8 @@ function conflictBanner(f: Change) {
 
 type Blamed = { hash: string; author: string; time: number; summary: string };
 // the file's commits newest first, each with the file's name there, the one shown, its blame, whether its text is a hex dump, and the diff it was opened from
-export let hist: { path: string; revs: [Commit, Change][]; at: number; blame: Blamed[]; hex?: boolean; from?: { kind: DiffSource; f: Change; c?: Commit } } | null = null;
+// c: the commit it was opened from, whose own line it lists too
+export let hist: { path: string; c?: Commit; revs: [Commit, Change][]; at: number; blame: Blamed[]; hex?: boolean; from?: { kind: DiffSource; f: Change; c?: Commit } } | null = null;
 export let histEd: Monaco.editor.IStandaloneCodeEditor | null = null;
 // the diff's File view, and its bar to load the next part of a file shown in parts
 let fileEd: Monaco.editor.IStandaloneCodeEditor | null = null, fileMore = "";
@@ -1911,7 +1912,7 @@ export async function openHistory(path: string, c?: Commit) {
   if (wipFiles().some((f) => f.path === path))
     revs.unshift([fakeCommit("WORKTREE", ["HEAD"], "Uncommitted changes"), { path, old: null, code: "M" }]);
   if (!revs.length) return say(`${path} has no commits yet`);
-  hist = { path, revs, at: -1, blame: [], from };
+  hist = { path, c, revs, at: -1, blame: [], from };
   $("hist-path").textContent = `File history: ${path}`;
   $("hist-list").replaceChildren(
     ...revs.map(([r, f], i) =>
