@@ -642,7 +642,7 @@ const tabEls = () => $("tablist").querySelectorAll<HTMLElement>(".tab");
 /** The groups, in their tabs' order. */
 const tabGroups = () => [...new Set(tabs.flatMap((t) => (t.group ? [t.group] : [])))];
 // the colors a tab or a group is given, by name, in the resistor code's order: teal and pink set in by hue, white as beige
-const TAB_COLORS = [["Brown", "#9b5b31"], ["Red", "#e0524f"], ["Orange", "#e08a3c"], ["Yellow", "#d9ba5d"], ["Green", "#5bc78e"], ["Teal", "#46b1ab"], ["Blue", "#5d88d9"], ["Purple", "#9c5dd9"], ["Pink", "#d95dc0"], ["Grey", "#8e96a3"], ["Beige", "#e6d8b8"]];
+const TAB_COLORS = [["Brown", "#9b5b31"], ["Red", "#e0524f"], ["Orange", "#e08a3c"], ["Yellow", "#d9ba5d"], ["Green", "#5dbf4a"], ["Teal", "#46b1ab"], ["Blue", "#5d88d9"], ["Purple", "#9c5dd9"], ["Pink", "#d95dc0"], ["Grey", "#8e96a3"], ["Beige", "#e6d8b8"]];
 // Settings' "One group open at a time", off unless turned on
 export const oneGroupOpen = () => store("one-group") === "on";
 // tabs Ctrl+ or Shift+clicked besides the open one, which their menu groups with it; a switch, a plain click or a fold drops them
