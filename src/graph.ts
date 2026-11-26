@@ -2,7 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { layoutGraph } from "./core.js";
 import { closeRebase, ontoRange, openRebase, rebaseRange } from "./rebase";
-import { Commit, LOG_LIMIT, Stash, Status, Submodule, Worktree, active, closeTab, commits, dropEdits, fakeCommit, branchSpec, findRef, FOLDS_KEY, gitOp, headHash, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, keepTab, newTab, opInfo, openRepo, paintRepoName, pull, push, pushBranch, redraw, refresh, refs, remoteTags, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
+import { Commit, LOG_LIMIT, Stash, Status, Submodule, Worktree, active, closeTab, commits, dropEdits, fakeCommit, branchSpec, findRef, FOLDS_KEY, gitOp, headHash, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, keepTab, newTab, opInfo, openRepo, paintRepoName, pull, push, pushBranch, redraw, refresh, refs, replaceTab, remoteTags, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
 import { $, COLORS, ICONS, MenuItem, ask, askName, basename, copy, dateTimeText, dialog, h, hideBanner, ico, input, mod, plural, popup, say, short, showBanner, spriteId, store, svg, toast } from "./ui";
 import { dropTerm } from "./terminal";
 import { closePr, mergedHeads, newPr, prChip, prItems, prOf, prRows, pullsHere } from "./pr";
@@ -439,7 +439,7 @@ export async function openWorktree(path: string, parent = "") {
   dropTerm(tabs[active]);
   // the tab as it was comes back on the way out: its draft, undo steps, selection
   // newTab's own object: its worktree check fills it in later
-  tabs[active] = Object.assign(newTab(path, parent), { back: keepTab() });
+  replaceTab(Object.assign(newTab(path, parent), { back: keepTab() }));
   await switchTab(active, false);
 }
 
@@ -471,7 +471,7 @@ export async function stepBack() {
   const open = tabs.find((o) => o !== t && o.repo === parent);
   if (open) return closeTab(active).then(() => switchTab(tabs.indexOf(open)));
   dropTerm(t);
-  tabs[active] = t.back?.repo === parent ? t.back : newTab(parent);
+  replaceTab(t.back?.repo === parent ? t.back : newTab(parent));
   await switchTab(active, false);
 }
 

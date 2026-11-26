@@ -96,6 +96,14 @@ test("tabs gather under a group's chip, which folds them out of view and out of 
   await k.type("#tablist .tab-group input", "work");
   await k.keys("");
   await k.until(() => document.querySelector("#tablist .tab-group")?.textContent === "work");
+  // a worktree opened in a grouped tab, and the step back, stay in the group
+  const onGrouped = (name) => document.querySelector("#tablist .tab.on .tab-name")?.textContent.includes(name) && document.querySelector("#tablist .tab.on").classList.contains("grouped");
+  await k.click('#sidebar details[data-key="worktrees"] > summary');
+  await k.until(() => [...document.querySelectorAll('#sidebar [data-key="worktrees"] .item')].find((e) => e.textContent.includes("feature/moon-phase"))?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+  await k.until(onGrouped, "›");
+  await k.keys("\uE00A", "\uE012");
+  await k.until(onGrouped, "tidepool");
+  assert.equal(await k.js(() => document.querySelectorAll("#tablist .tab-group").length), 1);
   await k.menu("#tablist .tab-group");
   await k.click("#menu button", "New tab in group");
   // a tab dropped between two of the group's tabs joins it

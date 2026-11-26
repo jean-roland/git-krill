@@ -707,16 +707,23 @@ function groupChip(g: TabGroup) {
   );
 }
 
+/** The first tab in view from index `from` on, else the last one before; group `skip`'s tabs count as folded. */
+function nextShown(from: number, skip: TabGroup | null = null) {
+  const shown = tabs.flatMap((t, k) => (t.group?.folded || (skip && t.group === skip) ? [] : [k]));
+  return shown.find((k) => k >= from) ?? shown.pop();
+}
+
 /** Fold group `g`'s tabs away, or back; the open tab folded away hands over to the next tab in view, else to a new tab. */
 async function foldGroup(g: TabGroup) {
-  if (!g.folded && tabs[active].group === g) {
-    const shown = tabs.flatMap((t, k) => (t.group === g || t.group?.folded ? [] : [k]));
-    const to = shown.find((k) => k > active) ?? shown.pop();
+  // the state asked for: a second click during the switch asks the same
+  const fold = !g.folded;
+  if (fold && tabs[active].group === g) {
+    const to = nextShown(active + 1, g);
     await (to === undefined ? addTab() : switchTab(to));
     // unsaved edits kept it open
     if (tabs[active].group === g) return;
   }
-  g.folded = !g.folded;
+  g.folded = fold;
   saveTabs();
   renderTabs();
 }
@@ -762,6 +769,8 @@ function regroup(t: Tab, g: TabGroup | null) {
   let at = tabs.indexOf(t);
   tabs.splice(at, 1);
   t.group = g;
+  // the tab put in shows there
+  if (g) g.folded = false;
   const end = g ? groupEnd(g) : 0;
   if (end) at = end;
   else while (inGroup(tabs, at)) at++;
@@ -772,7 +781,9 @@ function regroup(t: Tab, g: TabGroup | null) {
 }
 
 /** A new tab at the end of group `g`, opened. */
-function newTabIn(g: TabGroup) {
+async function newTabIn(g: TabGroup) {
+  // asked before the splice: a refused switch would leave a tab the bar does not show
+  if (!(await dropEdits())) return;
   const at = groupEnd(g);
   tabs.splice(at, 0, Object.assign(newTab(""), { group: g }));
   // the open tab moved right: switchTab keeps its state in it
@@ -787,7 +798,11 @@ function ungroup(g: TabGroup) {
 }
 
 async function closeGroup(g: TabGroup) {
-  for (const t of tabs.filter((o) => o.group === g)) await closeTab(tabs.indexOf(t));
+  for (const t of tabs.filter((o) => o.group === g)) {
+    // closed meanwhile, by a click during the last close
+    const i = tabs.indexOf(t);
+    if (i >= 0) await closeTab(i);
+  }
 }
 
 /** The tab `step` (1 or -1) away from the open one, past folded tabs. */
@@ -808,8 +823,16 @@ const middle = (el: Element) => {
   return left + width / 2;
 };
 
+/** The group a lone tab placed at index `k` among the other tabs `rest` keeps until measured there: the one it is inside, else its own while beside it or alone in it. */
+function groupBeside(t: Tab, rest: Tab[], k: number) {
+  if (inGroup(rest, k)) return rest[k].group;
+  const g = t.group;
+  const kept = rest[k - 1]?.group === g || rest[k]?.group === g || !rest.some((o) => o.group === g);
+  return g && kept ? g : null;
+}
+
 /**
- * The group a lone tab dragged to index `k` among the other tabs `rest`, the pointer at `x`, belongs to: the one it lands inside;
+ * The group a lone tab at index `k` among the other tabs `rest`, laid out there, the pointer at `x`, belongs to: the one it is inside;
  * at an unfolded group's start, that group once past its chip's middle; at its end, that group within the tab's first quarter, or up to its last quarter when already in it;
  * else its own while alone in it.
  */
@@ -842,12 +865,18 @@ function dragTabs(e: PointerEvent, block: Tab[], g: TabGroup | null) {
     let to = rest.filter((t) => at(t) < m.clientX).length;
     // a group lands between groups, never inside one
     while (g && inGroup(rest, to)) to--;
-    const group = g ?? groupAt(block[0], rest, to, m.clientX);
-    if (tabs.indexOf(block[0]) !== to || block[0].group !== group) {
+    const lone = g ? null : block[0];
+    if (tabs.indexOf(block[0]) !== to) {
       const on = tabs[active];
       tabs = [...rest.slice(0, to), ...block, ...rest.slice(to)];
-      block[0].group = group;
+      if (lone) lone.group = groupBeside(lone, rest, to);
       active = tabs.indexOf(on);
+      renderTabs();
+    }
+    // measured where it now lies: the chip and the tab at their new places
+    const group = lone && groupAt(lone, rest, to, m.clientX);
+    if (lone && group !== lone.group) {
+      lone.group = group;
       renderTabs();
     }
     const first = tabEls()[tabs.indexOf(block[0])];
@@ -929,7 +958,7 @@ export async function closeTab(i: number) {
   const back = tabs[i].settings && settingsFrom ? tabs.indexOf(settingsFrom) : -1;
   tabs.splice(i, 1);
   if (!tabs.length) tabs.push(newTab(""));
-  if (i === active) return switchTab(back >= 0 ? back - Number(back > i) : Math.min(i, tabs.length - 1), false);
+  if (i === active) return switchTab(back >= 0 ? back - Number(back > i) : (nextShown(i) ?? Math.min(i, tabs.length - 1)), false);
   if (i < active) active--;
   saveTabs();
   renderTabs();
@@ -1097,10 +1126,16 @@ export async function openRepo(path: string): Promise<boolean> {
     tabs.push(newTab(root));
     await switchTab(tabs.length - 1);
   } else {
-    tabs[active] = newTab(root);
+    replaceTab(newTab(root));
     await switchTab(active, false);
   }
   return true;
+}
+
+/** Show `t` in the open tab's place: it keeps that tab's group. */
+export function replaceTab(t: Tab) {
+  t.group = tabs[active].group;
+  tabs[active] = t;
 }
 
 function renderRecent() {
