@@ -171,10 +171,10 @@ test("one group is open at a time: a folded group's chip opens it on the tab las
   await k.keys("");
   const open = () => k.js(() => [...document.querySelectorAll("#tablist .tab.grouped")].filter((e) => !e.hidden).length);
   const on = () => k.js(() => document.querySelector("#tablist .tab.on.grouped .tab-name")?.textContent ?? "");
+  // the open tab put in other: work folds
+  assert.equal(await open(), 1);
   await k.click("#tablist .tab-group", "work");
-  await k.until(() => [...document.querySelectorAll("#tablist .tab.grouped")].filter((e) => !e.hidden).length === 1);
-  await k.click("#tablist .tab-group", "work");
-  await k.until(() => document.querySelector("#tablist .tab.on.grouped"));
+  await k.until(() => document.querySelector("#tablist .tab.on.grouped .tab-name")?.textContent === "Home" && [...document.querySelectorAll("#tablist .tab.grouped")].filter((e) => !e.hidden).length === 2);
   assert.equal(await on(), "Home");
   assert.equal(await open(), 2);
   await k.click("#tablist .tab-group", "other");

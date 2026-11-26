@@ -695,8 +695,9 @@ function groupChip(g: TabGroup) {
       className: `tab-group${g.folded ? " folded" : ""}`,
       title: own.map(tabName).join("\n"),
       style: `--g: ${TAB_COLORS[g.color][1]}`,
-      onclick: () => {
-        if (!dragged) foldGroup(g);
+      // a double-click's second click would fold back what the first opened
+      onclick: (e: MouseEvent) => {
+        if (!dragged && e.detail < 2) foldGroup(g);
       },
       onpointerdown: (e: PointerEvent) => dragTabs(e, own, g),
       oncontextmenu: (e: MouseEvent) => popup(e, groupMenu(g)),
@@ -705,6 +706,14 @@ function groupChip(g: TabGroup) {
     // a click folds: the chevron of a tree's branch
     ico(ICONS.caret),
   );
+}
+
+/** Tab `t`, shown, opens its group and is the one the group opens on next; one group open at a time, the others fold. */
+function showInGroup(t: Tab) {
+  if (!t.group) return;
+  t.group.folded = false;
+  t.group.last = t;
+  if (oneGroupOpen()) for (const g of tabGroups()) if (g !== t.group) g.folded = true;
 }
 
 /** The first tab in view from index `from` on, else the last one before; group `skip`'s tabs count as folded. */
@@ -773,8 +782,9 @@ function regroup(t: Tab, g: TabGroup | null) {
   let at = tabs.indexOf(t);
   tabs.splice(at, 1);
   t.group = g;
-  // the tab put in shows there
-  if (g) g.folded = false;
+  // the open tab put in shows there, as switchTab shows it; another tab only with groups opening side by side
+  if (t === on) showInGroup(t);
+  else if (g && !oneGroupOpen()) g.folded = false;
   const end = g ? groupEnd(g) : 0;
   if (end) at = end;
   else while (inGroup(tabs, at)) at++;
@@ -855,7 +865,7 @@ function groupAt(t: Tab, rest: Tab[], k: number, x: number) {
 function dragTabs(e: PointerEvent, block: Tab[], g: TabGroup | null) {
   dragged = false;
   if (e.button !== 0 || (e.target as HTMLElement).closest(".x, input")) return;
-  const x0 = e.clientX;
+  const x0 = e.clientX, lone = g ? null : block[0];
   const move = (m: PointerEvent) => {
     if (!dragged && Math.abs(m.clientX - x0) < 5) return;
     dragged = true;
@@ -869,7 +879,6 @@ function dragTabs(e: PointerEvent, block: Tab[], g: TabGroup | null) {
     let to = rest.filter((t) => at(t) < m.clientX).length;
     // a group lands between groups, never inside one
     while (g && inGroup(rest, to)) to--;
-    const lone = g ? null : block[0];
     if (tabs.indexOf(block[0]) !== to) {
       const on = tabs[active];
       tabs = [...rest.slice(0, to), ...block, ...rest.slice(to)];
@@ -890,7 +899,11 @@ function dragTabs(e: PointerEvent, block: Tab[], g: TabGroup | null) {
   const up = () => {
     removeEventListener("pointermove", move);
     for (const el of $("tablist").querySelectorAll(".drag")) el.classList.remove("drag");
-    if (dragged) saveTabs();
+    if (!dragged) return;
+    // the open tab dropped in a group shows there, as switchTab shows it
+    if (lone === tabs[active]) showInGroup(lone);
+    saveTabs();
+    renderTabs();
   };
   addEventListener("pointermove", move);
   addEventListener("pointerup", up, { once: true });
@@ -913,12 +926,7 @@ export async function switchTab(i: number, save = true) {
   hideBanner();
   active = i;
   const t = tabs[active];
-  // a tab shown opens its group, and is the one it opens on next; one group open at a time, the others fold
-  if (t.group) {
-    t.group.folded = false;
-    t.group.last = t;
-    if (oneGroupOpen()) for (const g of tabGroups()) if (g !== t.group) g.folded = true;
-  }
+  showInGroup(t);
   repo = t.repo;
   selection.hashes = t.selected;
   selection.anchor = selection.hashes[0];
@@ -1077,7 +1085,9 @@ export function renderTabHits() {
   );
 }
 
-export function addTab() {
+export async function addTab() {
+  // asked before the push: a refused switch would leave a tab the bar does not show
+  if (!(await dropEdits())) return;
   tabs.push(newTab(""));
   return switchTab(tabs.length - 1);
 }
