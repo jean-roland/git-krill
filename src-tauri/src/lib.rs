@@ -2205,7 +2205,7 @@ fn git_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         autostash(&repo)?;
     }
     // a fetch runs beside the others: it would bring the changes back under a pull
-    let fetching = op.contains("fetch");
+    let fetching = op.contains("fetch") || op == "pull-branch";
     let switching = op == "checkout" || op == "branch-create" || op == "pr-checkout";
     let out = match run_op(repo.clone(), op.clone(), arg.clone(), arg2.clone()) {
         // a switch the changes in progress block, which made nothing: they are kept aside around it
@@ -2229,6 +2229,10 @@ fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
     let state = op_state(&repo)?;
     let arg2 = arg2.unwrap_or_default();
     let upstream = format!("HEAD:refs/heads/{arg2}");
+    // a branch not checked out, as "branch:its branch on the remote": git allows no ':' in a branch name
+    let (local, there) = arg2.split_once(':').unwrap_or_default();
+    let push_spec = format!("refs/heads/{local}:refs/heads/{there}");
+    let pull_spec = format!("refs/heads/{there}:refs/heads/{local}");
     let tag = format!("refs/tags/{arg2}");
     // git titles a merge with the name it is given: the short one when it reaches the same branch
     let short = arg.strip_prefix("refs/heads/").or_else(|| arg.strip_prefix("refs/remotes/")).unwrap_or(&arg);
@@ -2342,6 +2346,11 @@ fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         "fetch-remote" => vec!["fetch", "--prune", not_option(&arg)?],
         // first push of a branch: arg is the remote, arg2 the branch name there
         "push-upstream" => vec!["push", "-u", not_option(&arg)?, not_option(&arg2).map(|_| upstream.as_str())?],
+        // a branch not checked out: arg is the remote, arg2 "branch:its branch there"; -u: a first push sets the upstream
+        "push-branch" => vec!["push", "-u", not_option(&arg)?, &push_spec],
+        "push-branch-force" => vec!["push", "-u", "--force-with-lease", "--force-if-includes", not_option(&arg)?, &push_spec],
+        // fetched into the branch itself: git only fast-forwards it, and refuses one a worktree has checked out
+        "pull-branch" => vec!["fetch", not_option(&arg)?, &pull_spec],
         // worktree only: the restored file shows up unstaged, for review
         "restore-file" => vec!["restore", "--source", not_option(&arg)?, "--", &arg2],
         "checkout" => vec!["checkout", not_option(&arg)?],

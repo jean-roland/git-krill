@@ -2,7 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { layoutGraph } from "./core.js";
 import { closeRebase, ontoRange, openRebase, rebaseRange } from "./rebase";
-import { Commit, LOG_LIMIT, Stash, Status, Submodule, Worktree, active, closeTab, commits, dropEdits, fakeCommit, findRef, FOLDS_KEY, gitOp, headHash, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, keepTab, newTab, opInfo, openRepo, paintRepoName, pull, push, redraw, refresh, refs, remoteTags, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
+import { Commit, LOG_LIMIT, Stash, Status, Submodule, Worktree, active, closeTab, commits, dropEdits, fakeCommit, branchSpec, findRef, FOLDS_KEY, gitOp, headHash, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, keepTab, newTab, opInfo, openRepo, paintRepoName, pull, push, pushBranch, redraw, refresh, refs, remoteTags, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
 import { $, COLORS, ICONS, MenuItem, ask, askName, basename, copy, dateTimeText, dialog, h, hideBanner, ico, input, mod, plural, popup, say, short, showBanner, spriteId, store, svg, toast } from "./ui";
 import { dropTerm } from "./terminal";
 import { closePr, mergedHeads, newPr, prChip, prItems, prOf, prRows, pullsHere } from "./pr";
@@ -1020,6 +1020,16 @@ function inHistory(hash: string, from: string) {
   return false;
 }
 
+/** Pull for branch `name`, not checked out, `up` its upstream, `track` how they compare: git only fast-forwards it, fetched first. */
+function pullItem(name: string, up: string, track: string): MenuItem {
+  const holder = worktreeOf(name);
+  if (!up) return ["Pull", null, `${name} has no upstream to pull from`];
+  if (holder) return ["Pull", null, `${name} is checked out in the worktree ${basename(holder.path)}: pull it there`];
+  if (track === "[gone]") return ["Pull", null, `${up} is gone from its remote`];
+  if (track.includes("ahead")) return ["Pull", null, `${name} has commits ${up} has not: check it out to pull`];
+  return ["Pull", () => gitOp("pull-branch", branchSpec(name, up)), `Fast-forwards ${name} to ${up}, fetched first`];
+}
+
 /** Branch `name` (a remote one as "remote/branch"): the same menu in the sidebar and on graph labels. */
 function branchMenu(name: string, remote: boolean): MenuItem[] {
   const ref = findRef(remote ? `refs/remotes/${name}` : `refs/heads/${name}`);
@@ -1030,11 +1040,15 @@ function branchMenu(name: string, remote: boolean): MenuItem[] {
   const slash = onRemote.indexOf("/"), rem = onRemote.slice(0, slash), remBranch = onRemote.slice(slash + 1);
   // a remote branch checks out as the local one of the same name
   const local = remote ? remBranch : name, [newBranch, newTag] = createItems(sha);
+  // Pull and Push: the checked out branch's as on the toolbar; another local one's by name, its pull a fast-forward only
+  let sync: MenuItem[] = [];
+  if (current) sync = [["Pull", pull], ["Push", push], null];
+  else if (!remote) sync = [pullItem(name, up, ref?.track ?? ""), ["Push", () => pushBranch(name)], null];
   return [
     { title: name, icon: ICONS.branch },
     ...refMenu(name, remote),
     null,
-    ...(current ? ([["Pull", pull], ["Push", push], null] as MenuItem[]) : []),
+    ...sync,
     // the commit's own actions (reset, revert) are on its row
     newBranch,
     // git checks a branch out in one worktree only: a busy one starts a new branch from its tip

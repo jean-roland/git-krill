@@ -166,6 +166,38 @@ test("a push refused as protected moves the commits to a new branch and pushes t
   rmSync(hook);
 });
 
+test("a branch not checked out pulls by fast-forward from its menu; its push, refused, offers a force push", async () => {
+  const top = join(dir, "tidepool"), other = join(dir, "eve"), b = "feature/full-moon";
+  const greyed = (label) => k.js((label) => [...document.querySelectorAll("#menu button.off")].find((e) => e.textContent === label)?.title ?? "", label);
+  // a branch another worktree has is pulled there
+  await k.menu('#sidebar [data-key="local"] .item', "feature/moon-phase");
+  assert.match(await greyed("Pull"), /checked out in the worktree tidepool-moon/);
+  await k.keys("\uE00C");
+  git(other, "checkout", "-q", "-b", b);
+  git(other, "commit", "-q", "--allow-empty", "-m", "feat: the full moon");
+  git(other, "push", "-q", "origin", b);
+  git(top, "fetch", "-q", "origin");
+  git(top, "branch", "-q", "--track", b, `origin/${b}`);
+  git(other, "commit", "-q", "--allow-empty", "-m", "feat: the full moon's tides");
+  git(other, "push", "-q", "origin", b);
+  await refresh();
+  await k.menu('#sidebar [data-key="local"] .item', b);
+  await k.click("#menu button", "Pull");
+  await toast(`Fast-forwarded ${b} to origin/${b}`);
+  assert.equal(git(top, "rev-parse", b), git(other, "rev-parse", b));
+  // rewritten here: it has a commit its upstream has not, and lacks one
+  const rewritten = git(top, "commit-tree", "--no-gpg-sign", "-p", `${b}~1`, "-m", "feat: the moon rewritten", `${b}^{tree}`).trim();
+  git(top, "update-ref", `refs/heads/${b}`, rewritten);
+  await refresh();
+  await k.menu('#sidebar [data-key="local"] .item', b);
+  assert.match(await greyed("Pull"), /has commits origin\/feature\/full-moon has not/);
+  await k.click("#menu button", "Push");
+  await k.until((b) => !document.getElementById("banner").hidden && document.getElementById("banner").textContent.includes(`Push rejected: origin/${b} has 1 commit that ${b} has not`), b);
+  await k.click("#banner button.primary", "Force push");
+  await toast(`Force pushed ${b} to origin/${b}`);
+  assert.match(git(dir, "ls-remote", "origin.git", `refs/heads/${b}`), new RegExp(`^${rewritten}`));
+});
+
 test("a commit's hooks are counted in their toast, one line each", async () => {
   const top = join(dir, "tidepool"), hook = join(top, ".git", "hooks", "pre-commit");
   // as pre-commit reports them
