@@ -762,28 +762,35 @@ function tabMenu(i: number): MenuItem[] {
 const reopenItem = (): MenuItem => ["Reopen closed tab", closedTabs.length ? reopenTab : null];
 export const newTabMenu = (): MenuItem[] => [["New tab", addTab], reopenItem()];
 
-/** Rename a tab in place: Enter or leaving the field keeps it, Esc cancels, empty resets. */
-function renameTab(i: number) {
-  const t = tabs[i];
-  let done = false;
-  const box = h("input", { className: "tab-alias", value: repoLabel(t.repo), spellcheck: false, onclick: (e: Event) => e.stopPropagation() });
+/** Edit `value` in a field filling `el`: Enter or leaving the field hands `done` the trimmed text, Esc hands it null. */
+function editInPlace(el: HTMLElement, value: string, done: (text: string | null) => void) {
+  let over = false;
+  const box = h("input", { className: "tab-alias", value, spellcheck: false, onclick: (e: Event) => e.stopPropagation() });
   const finish = (keep: boolean) => {
-    if (done) return;
-    done = true;
-    const all = aliases(), name = box.value.trim();
-    if (keep && name && name !== basename(t.repo)) all[t.repo] = name;
-    else if (keep) delete all[t.repo];
-    store("aliases", JSON.stringify(all));
-    renderTabs();
-    if (t === tabs[active]) paintRepoName();
+    if (over) return;
+    over = true;
+    done(keep ? box.value.trim() : null);
   };
   box.onkeydown = (e) => {
     e.stopPropagation();
     if (e.key === "Enter" || e.key === "Escape") finish(e.key === "Enter");
   };
   box.onblur = () => finish(true);
-  ($("tablist").children[i] as HTMLElement).replaceChildren(box);
+  el.replaceChildren(box);
   box.select();
+}
+
+/** Rename a tab in place: empty resets. */
+function renameTab(i: number) {
+  const t = tabs[i];
+  editInPlace($("tablist").children[i] as HTMLElement, repoLabel(t.repo), (name) => {
+    const all = aliases();
+    if (name && name !== basename(t.repo)) all[t.repo] = name;
+    else if (name !== null) delete all[t.repo];
+    store("aliases", JSON.stringify(all));
+    renderTabs();
+    if (t === tabs[active]) paintRepoName();
+  });
 }
 
 export function reopenTab() {
