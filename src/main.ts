@@ -6,7 +6,7 @@ import { rebaseKey } from "./rebase";
 import { SORTS, amending, commit, conflictCount, emptyStep, fileLists, filterFiles, foldAll, getMsg, openFile, paintFileOpts, pathArg, pickedFiles, renderCommitBtn, renderPanel, setMsg } from "./panel";
 import { $, ICONS, ask, closeDialog, dismissToast, hideBanner, input, mod, onCtrlEnter, pickDir, popup, say, store, svg, warnNoGit } from "./ui";
 import { closeFind, drawRows, findStep, findTyped, stepBack, laneBarScrolled, openFind, paintSelection, scrollLanes, showRow, shown, wheelLanes } from "./graph";
-import { Change, active, addTab, autoFetch, cloneDialog, closeTab, fetchMinutes, gitOp, opInfo, newTabMenu, openPicked, openRepo, openSettings, paintPull, pull, pullMenu, push, refresh, renderTabHits, reopenTab, repo, restoreTabs, run, selection, switchTab, tabs, undoMenu, undoRedo } from "./repo";
+import { Change, active, addTab, autoFetch, cloneDialog, closeTab, fetchMinutes, gitOp, opInfo, newTabMenu, nextTab, openPicked, openRepo, openSettings, paintPull, pull, pullMenu, push, refresh, renderTabHits, reopenTab, repo, restoreTabs, run, selection, switchTab, tabs, undoMenu, undoRedo } from "./repo";
 import { askIdentity, checkTools, noIdentity } from "./settings";
 import { terms, toggleTerm } from "./terminal";
 import { closePr, followPrLink, loadPrs } from "./pr";
@@ -300,7 +300,7 @@ addEventListener("keydown", (e) => {
   else if (mod(e) && zoomShown() && (key === "=" || key === "+" || e.code === "NumpadAdd")) (e.preventDefault(), zoomBy(1));
   else if (mod(e) && zoomShown() && (key === "-" || e.code === "NumpadSubtract")) (e.preventDefault(), zoomBy(-1));
   else if (mod(e) && zoomShown() && (e.code === "Digit0" || e.code === "Numpad0")) (e.preventDefault(), zoom(1));
-  else if (e.ctrlKey && e.code === "Tab") (e.preventDefault(), asking || switchTab((active + (e.shiftKey ? tabs.length - 1 : 1)) % tabs.length));
+  else if (e.ctrlKey && e.code === "Tab") (e.preventDefault(), asking || switchTab(nextTab(e.shiftKey ? -1 : 1)));
   // the shell owns every other key
   else if ((e.target as HTMLElement).closest?.("#term")) return;
   // back from a worktree or a submodule to its repository, from anywhere but the shell

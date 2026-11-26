@@ -33,7 +33,9 @@ type UndoStep = { op: string; what: string; branch: [string, string]; head: [str
 // limit: how many commits the graph loads, raised by "Load more"
 // parent: what this tab steps back to, the main checkout of a worktree or the repository a submodule was opened from in it; one level only
 // settings: the Settings tab, which has no repository either; back: the tab as it was before stepping into a worktree or submodule
-export type Tab = { repo: string; parent: string; selected: string[]; msg: string; scroll: number; undo: UndoStep[]; redo: UndoStep[]; worktree: boolean; limit: number; settings: boolean; back?: Tab };
+// side-by-side tabs behind one chip: an empty name shows a dot, color indexes COLORS, folded hides the tabs
+export type TabGroup = { name: string; color: number; folded: boolean };
+export type Tab = { repo: string; parent: string; selected: string[]; msg: string; scroll: number; undo: UndoStep[]; redo: UndoStep[]; worktree: boolean; limit: number; settings: boolean; group: TabGroup | null; back?: Tab };
 export const LOG_LIMIT = 3000;
 // ops that move HEAD, walked back with a reset or a checkout
 const UNDOABLE = new Set([
@@ -571,6 +573,9 @@ const closedRepo = (t: Tab) => (t.worktree ? t.repo : t.parent || t.repo);
 export async function restoreTabs(ready: Promise<unknown>) {
   // a submodule opened in its parent's tab is saved as [parent, submodule]
   tabs = (JSON.parse(store("tabs") ?? "[]") as (string | string[])[]).map((x) => (Array.isArray(x) ? newTab(x[1], x[0]) : x === SETTINGS ? settingsTab() : newTab(x)));
+  // of: each saved tab's index in groups, -1 for none
+  const saved: { groups: TabGroup[]; of: number[] } = JSON.parse(store("tab-groups") ?? '{"groups":[],"of":[]}');
+  tabs.forEach((t, i) => (t.group = saved.groups[saved.of[i]] ?? null));
   if (!tabs.length) tabs.push(newTab(""));
   active = Math.min(Number(store("active-tab")) || 0, tabs.length - 1);
   const arg = await invoke<string>("initial_repo");
@@ -590,11 +595,13 @@ const settingsTab = () => Object.assign(newTab(""), { settings: true });
 
 function saveTabs() {
   store("tabs", JSON.stringify(tabs.map((t) => (t.settings ? SETTINGS : t.parent ? [t.parent, t.repo] : t.repo))));
+  const groups = tabGroups();
+  store("tab-groups", JSON.stringify({ groups, of: tabs.map((t) => (t.group ? groups.indexOf(t.group) : -1)) }));
   store("active-tab", String(active));
 }
 
 export function newTab(repo: string, parent = ""): Tab {
-  const t: Tab = { repo, parent, selected: ["WIP"], msg: "", scroll: 0, undo: [], redo: [], worktree: false, limit: LOG_LIMIT, settings: false };
+  const t: Tab = { repo, parent, selected: ["WIP"], msg: "", scroll: 0, undo: [], redo: [], worktree: false, limit: LOG_LIMIT, settings: false, group: null };
   // a linked worktree leads back to its main checkout, however it was opened
   if (repo)
     invoke<string>("worktree_main", { repo }).then((main) => {
@@ -608,16 +615,26 @@ export function newTab(repo: string, parent = ""): Tab {
 const recentRepos = (): string[] => JSON.parse(store("recent") ?? "[]");
 const forgetRecent = (r: string) => store("recent", JSON.stringify(recentRepos().filter((x) => x !== r)));
 
+const tabEls = () => $("tablist").querySelectorAll<HTMLElement>(".tab");
+/** The groups, in their tabs' order. */
+const tabGroups = () => [...new Set(tabs.flatMap((t) => (t.group ? [t.group] : [])))];
+// COLORS by name, for the group menu
+const COLOR_NAMES = ["Teal", "Blue", "Purple", "Green", "Yellow", "Pink", "Orange", "Red"];
+const groupLabel = (g: TabGroup) => g.name || `${COLOR_NAMES[g.color]} group`;
+
 function renderTabs() {
   $("tablist").replaceChildren(
-    ...tabs.map((t, i) =>
-      h(
+    ...tabs.flatMap((t, i) => {
+      const g = t.group;
+      const el = h(
         "div",
         {
-          className: `tab${i === active ? " on" : ""}`,
+          className: `tab${i === active ? " on" : ""}${g ? " grouped" : ""}`,
           title: t.repo,
+          hidden: !!g?.folded,
+          style: g ? `--g: ${COLORS[g.color]}` : "",
           onclick: () => i !== active && switchTab(i),
-          onpointerdown: (e: PointerEvent) => dragTab(e, i),
+          onpointerdown: (e: PointerEvent) => dragTabs(e, [t], null),
           onauxclick: (e: MouseEvent) => e.button === 1 && closeTab(i),
           oncontextmenu: (e: MouseEvent) => popup(e, tabMenu(i)),
         },
@@ -628,35 +645,183 @@ function renderTabs() {
           : ico(t.settings ? ICONS.settings : ICONS.home),
         h("span", { className: "tab-name", textContent: tabName(t) }),
         h("button", { className: "x", textContent: "×", title: "Close (Ctrl+W)", onclick: (e: Event) => (e.stopPropagation(), closeTab(i)) }),
-      ),
-    ),
+      );
+      // a group's chip leads its first tab
+      return g && g !== tabs[i - 1]?.group ? [groupChip(g), el] : [el];
+    }),
   );
-  $("tablist").children[active]?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  tabEls()[active]?.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
-/** Drag tab `i` sideways to move it: it swaps with a neighbour once the pointer passes that neighbour's middle. */
-function dragTab(e: PointerEvent, i: number) {
+/** Group `g`'s chip: a click folds its tabs away or back, a drag moves them all, its menu edits the group. */
+function groupChip(g: TabGroup) {
+  const own = tabs.filter((t) => t.group === g);
+  return h(
+    "div",
+    {
+      className: "tab-group",
+      title: own.map(tabName).join("\n"),
+      style: `--g: ${COLORS[g.color]}`,
+      onclick: () => {
+        if (!dragged) foldGroup(g);
+      },
+      onpointerdown: (e: PointerEvent) => dragTabs(e, own, g),
+      oncontextmenu: (e: MouseEvent) => popup(e, groupMenu(g)),
+    },
+    h("span", { textContent: g.name }),
+  );
+}
+
+/** Fold group `g`'s tabs away, or back; the open tab folded away hands over to the next tab in view, else to a new tab. */
+async function foldGroup(g: TabGroup) {
+  if (!g.folded && tabs[active].group === g) {
+    const shown = tabs.flatMap((t, k) => (t.group === g || t.group?.folded ? [] : [k]));
+    const to = shown.find((k) => k > active) ?? shown.pop();
+    await (to === undefined ? addTab() : switchTab(to));
+    // unsaved edits kept it open
+    if (tabs[active].group === g) return;
+  }
+  g.folded = !g.folded;
+  saveTabs();
+  renderTabs();
+}
+
+function groupMenu(g: TabGroup): MenuItem[] {
+  const paint = (c: number) => ((g.color = c), saveTabs(), renderTabs());
+  return [
+    ["Rename group", () => renameGroup(g)],
+    ["Color", COLOR_NAMES.map((name, c): MenuItem => [name, c === g.color ? null : () => paint(c), "", undefined, COLORS[c]])],
+    ["New tab in group", () => newTabIn(g)],
+    ["Ungroup", () => ungroup(g)],
+    ["Close group", () => closeGroup(g)],
+  ];
+}
+
+/** Tab `t` in a new group of the first color no group wears, its name typed next. */
+function newGroup(t: Tab) {
+  const worn = tabGroups().map((g) => g.color);
+  const g = { name: "", color: Math.max(0, COLORS.findIndex((_, c) => !worn.includes(c))), folded: false };
+  regroup(t, g);
+  renameGroup(g);
+}
+
+const chipOf = (g: TabGroup) => $("tablist").querySelectorAll<HTMLElement>(".tab-group")[tabGroups().indexOf(g)];
+
+function renameGroup(g: TabGroup) {
+  editInPlace(chipOf(g), g.name, (name) => {
+    if (name !== null) g.name = name;
+    saveTabs();
+    renderTabs();
+  });
+}
+
+// where group g's next tab goes: after its last, 0 when it has none
+const groupEnd = (g: TabGroup) => tabs.map((t) => t.group).lastIndexOf(g) + 1;
+/** Whether index `k` of `list` falls between two tabs of one group. */
+const inGroup = (list: Tab[], k: number) => !!list[k - 1]?.group && list[k - 1].group === list[k]?.group;
+
+/** Put tab `t` in group `g`, or in none: at the group's end, else where it is, past any group it would split. */
+function regroup(t: Tab, g: TabGroup | null) {
+  const on = tabs[active];
+  let at = tabs.indexOf(t);
+  tabs.splice(at, 1);
+  t.group = g;
+  const end = g ? groupEnd(g) : 0;
+  if (end) at = end;
+  else while (inGroup(tabs, at)) at++;
+  tabs.splice(at, 0, t);
+  active = tabs.indexOf(on);
+  saveTabs();
+  renderTabs();
+}
+
+/** A new tab at the end of group `g`, opened. */
+function newTabIn(g: TabGroup) {
+  const at = groupEnd(g);
+  tabs.splice(at, 0, Object.assign(newTab(""), { group: g }));
+  // the open tab moved right: switchTab keeps its state in it
+  if (at <= active) active++;
+  return switchTab(at);
+}
+
+function ungroup(g: TabGroup) {
+  for (const t of tabs) if (t.group === g) t.group = null;
+  saveTabs();
+  renderTabs();
+}
+
+async function closeGroup(g: TabGroup) {
+  for (const t of tabs.filter((o) => o.group === g)) await closeTab(tabs.indexOf(t));
+}
+
+/** The tab `step` (1 or -1) away from the open one, past folded tabs. */
+export function nextTab(step: number) {
+  const n = tabs.length;
+  for (let k = 1; k < n; k++) {
+    const i = (((active + step * k) % n) + n) % n;
+    if (!tabs[i].group?.folded) return i;
+  }
+  return active;
+}
+
+// the last press on a tab or a chip dragged it: the click ending it is no click
+let dragged = false;
+
+const middle = (el: Element) => {
+  const { left, width } = el.getBoundingClientRect();
+  return left + width / 2;
+};
+
+/**
+ * The group a lone tab dragged to index `k` among the other tabs `rest`, the pointer at `x`, belongs to: the one it lands inside;
+ * at an unfolded group's start, that group once past its chip's middle; at its end, that group within the tab's first quarter, or up to its last quarter when already in it;
+ * else its own while alone in it.
+ */
+function groupAt(t: Tab, rest: Tab[], k: number, x: number) {
+  if (inGroup(rest, k)) return rest[k].group;
+  const next = rest[k]?.group, prev = rest[k - 1]?.group;
+  if (next && !next.folded && x > middle(chipOf(next))) return next;
+  const { left, width } = tabEls()[tabs.indexOf(t)].getBoundingClientRect();
+  // a group's end is the same spot in or out of it: a margin keeps the tab as it is
+  const reach = t.group === prev ? (width * 3) / 4 : width / 4;
+  if (prev && !prev.folded && x < left + reach) return prev;
+  return t.group && !rest.some((o) => o.group === t.group) ? t.group : null;
+}
+
+/** Drag `block`, one tab or group `g`'s tabs, sideways: it moves once the pointer passes another tab's middle. */
+function dragTabs(e: PointerEvent, block: Tab[], g: TabGroup | null) {
+  dragged = false;
   if (e.button !== 0 || (e.target as HTMLElement).closest(".x, input")) return;
   const x0 = e.clientX;
-  let at = i, moved = false;
   const move = (m: PointerEvent) => {
-    if (!moved && Math.abs(m.clientX - x0) < 5) return;
-    moved = true;
-    const els = [...$("tablist").children] as HTMLElement[];
-    const to = els.filter((el, k) => k !== at && (({ left, width }) => left + width / 2 < m.clientX)(el.getBoundingClientRect())).length;
-    if (to !== at) {
+    if (!dragged && Math.abs(m.clientX - x0) < 5) return;
+    dragged = true;
+    const els = tabEls(), rest = tabs.filter((t) => !block.includes(t));
+    // a folded tab sits at its chip
+    const at = (t: Tab) => {
+      let el = els[tabs.indexOf(t)];
+      while (el.hidden) el = el.previousElementSibling as HTMLElement;
+      return middle(el);
+    };
+    let to = rest.filter((t) => at(t) < m.clientX).length;
+    // a group lands between groups, never inside one
+    while (g && inGroup(rest, to)) to--;
+    const group = g ?? groupAt(block[0], rest, to, m.clientX);
+    if (tabs.indexOf(block[0]) !== to || block[0].group !== group) {
       const on = tabs[active];
-      tabs.splice(to, 0, ...tabs.splice(at, 1));
+      tabs = [...rest.slice(0, to), ...block, ...rest.slice(to)];
+      block[0].group = group;
       active = tabs.indexOf(on);
-      at = to;
       renderTabs();
     }
-    $("tablist").children[at].classList.add("drag");
+    const first = tabEls()[tabs.indexOf(block[0])];
+    // a group's chip leads its tabs
+    for (const el of [...(g ? [first.previousElementSibling!] : []), ...block.map((t) => tabEls()[tabs.indexOf(t)])]) el.classList.add("drag");
   };
   const up = () => {
     removeEventListener("pointermove", move);
-    $("tablist").children[at]?.classList.remove("drag");
-    if (moved) saveTabs();
+    for (const el of $("tablist").querySelectorAll(".drag")) el.classList.remove("drag");
+    if (dragged) saveTabs();
   };
   addEventListener("pointermove", move);
   addEventListener("pointerup", up, { once: true });
@@ -679,6 +844,8 @@ export async function switchTab(i: number, save = true) {
   hideBanner();
   active = i;
   const t = tabs[active];
+  // a tab shown unfolds its group
+  if (t.group) t.group.folded = false;
   repo = t.repo;
   selection.hashes = t.selected;
   selection.anchor = selection.hashes[0];
@@ -750,7 +917,11 @@ async function closeTabs(i: number, keep: (k: number) => boolean) {
 
 function tabMenu(i: number): MenuItem[] {
   const t = tabs[i];
+  const others = tabGroups().filter((g) => g !== t.group);
   const items: MenuItem[] = [
+    others.length ? ["Add tab to group", [["New group", () => newGroup(t)], null, ...others.map((g): MenuItem => [groupLabel(g), () => regroup(t, g)])]] : ["Add tab to new group", () => newGroup(t)],
+    t.group ? ["Remove from group", () => regroup(t, null)] : null,
+    null,
     ["Close tab", () => closeTab(i)],
     ["Close other tabs", () => closeTabs(i, (k) => k === i)],
     ["Close tabs to the right", () => closeTabs(i, (k) => k <= i)],
@@ -783,7 +954,7 @@ function editInPlace(el: HTMLElement, value: string, done: (text: string | null)
 /** Rename a tab in place: empty resets. */
 function renameTab(i: number) {
   const t = tabs[i];
-  editInPlace($("tablist").children[i] as HTMLElement, repoLabel(t.repo), (name) => {
+  editInPlace(tabEls()[i], repoLabel(t.repo), (name) => {
     const all = aliases();
     if (name && name !== basename(t.repo)) all[t.repo] = name;
     else if (name !== null) delete all[t.repo];
@@ -819,7 +990,7 @@ export function renderTabHits() {
 
 export function addTab() {
   tabs.push(newTab(""));
-  switchTab(tabs.length - 1);
+  return switchTab(tabs.length - 1);
 }
 
 // the tab Settings was opened from: closing Settings goes back there

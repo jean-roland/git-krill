@@ -8,7 +8,7 @@ A lean desktop git client for Linux, Windows and macOS: a clean interface, power
 
 - **Git Workflow**: explore the commit graph, manage branches, stashes and rebases in a click. Stage down to a single line.
 - **Diffs**: inspect changes by hunk, inline or side by side, or the whole file alone, and edit uncommitted ones in place.
-- **Tabs**: work across multiple repositories in dedicated tabs, each paired with a built-in terminal.
+- **Tabs**: work across multiple repositories in dedicated tabs, each paired with a built-in terminal, and gather them in named groups that fold away.
 - **Conflicts**: resolve tricky merges in a three-pane editor, picking changes by the hunk or down to the individual line.
 - **History**: step through past revisions of a file with inline blame so you know who changed what and why.
 - **Rebase**: clean up commit history visually by reordering, rewording, squashing or dropping commits, individually or in bulk.

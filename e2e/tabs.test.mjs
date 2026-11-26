@@ -87,3 +87,55 @@ test("an identity the repository's own config gives opens no Settings at startup
   assert.ok(await k.js(() => document.getElementById("settings").hidden));
   assert.ok(!(await k.js(() => [...document.querySelectorAll("#toasts .toast.err b")].some((b) => b.textContent === "Git identity missing"))));
 });
+
+test("tabs gather under a group's chip, which folds them out of view and out of Ctrl+Tab, and comes back after a restart", async () => {
+  await k.click("#tablist .tab", "tidepool");
+  await k.menu("#tablist .tab", "tidepool");
+  await k.click("#menu button", "Add tab to new group");
+  // a new group's name is typed in its chip
+  await k.type("#tablist .tab-group input", "work");
+  await k.keys("");
+  await k.until(() => document.querySelector("#tablist .tab-group")?.textContent === "work");
+  await k.menu("#tablist .tab-group");
+  await k.click("#menu button", "New tab in group");
+  // a tab dropped between two of the group's tabs joins it
+  await k.keys("", "t");
+  // a drag from tab `i` through the window's `xs`, each reached twice: a pointer moving on lands on the layout its last move made
+  const drag = async (i, ...xs) => {
+    const el = await k.until((i) => document.querySelectorAll("#tablist .tab")[i], i);
+    const y = await k.js((el) => Math.round(el.getBoundingClientRect().top + 10), el);
+    const moves = xs.flatMap((x) => [x, x + 1].map((x) => ({ type: "pointerMove", origin: "viewport", x: Math.round(x), y })));
+    const actions = [{ type: "pointerMove", origin: el, x: 0, y: 0 }, { type: "pointerDown", button: 0 }, ...moves, { type: "pointerUp", button: 0 }];
+    await k.cmd("POST", "actions", { actions: [{ type: "pointer", id: "mouse", parameters: { pointerType: "mouse" }, actions }] });
+    await k.cmd("DELETE", "actions");
+  };
+  const tideEnd = () => k.js(() => [...document.querySelectorAll("#tablist .tab")].find((e) => e.textContent.includes("tidepool")).getBoundingClientRect().right);
+  await drag((await tabs()).length - 1, await tideEnd());
+  const grouped = () => k.js(() => [...document.querySelectorAll("#tablist .tab")].flatMap((e, i) => (e.classList.contains("grouped") ? [i] : [])));
+  const [first, ...more] = await grouped();
+  assert.deepEqual(more, [first + 1, first + 2]);
+  // folded, the open tab hands over to one in view, and Ctrl+Tab passes the folded ones by
+  await k.click("#tablist .tab-group");
+  await k.until(() => [...document.querySelectorAll("#tablist .tab.grouped")].every((e) => e.hidden) && !document.querySelector("#tablist .tab.on.grouped"));
+  for (const _ of await grouped()) {
+    await k.keys("", "");
+    assert.ok(await k.js(() => !document.querySelector("#tablist .tab.on.grouped")));
+  }
+  // a restart lands on a repository or Settings
+  await k.click("#settings-btn:not([hidden]), #settings-home");
+  const was = k.home;
+  await k.quit(true);
+  k = await launch(undefined, {}, was);
+  await k.until(() => document.querySelector("#tablist .tab-group")?.textContent === "work" && [...document.querySelectorAll("#tablist .tab.grouped")].filter((e) => e.hidden).length === 3);
+  await k.click("#tablist .tab-group");
+  await k.until(() => [...document.querySelectorAll("#tablist .tab.grouped")].every((e) => !e.hidden));
+  // a tab leaving the middle of its group goes past its end
+  await k.menu("#tablist .tab.grouped + .tab.grouped");
+  await k.click("#menu button", "Remove from group");
+  await k.until((first) => !document.querySelectorAll("#tablist .tab")[first + 2].classList.contains("grouped"), first);
+  assert.deepEqual(await grouped(), [first, first + 1]);
+  // a tab in the group leaves it on the left past its chip's middle, the group leftmost
+  assert.equal(first, 0);
+  await drag(2, await tideEnd(), await k.js(() => document.getElementById("tablist").getBoundingClientRect().left + 1));
+  assert.deepEqual(await grouped(), [1, 2]);
+});
