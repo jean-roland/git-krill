@@ -254,6 +254,8 @@ header {
 .tab-hit { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
 .tab-hit:hover { background: var(--hover); }
 .tab-hit.on b { color: var(--accent); }
+.tab-hit-group { flex: none; align-self: center; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 6px; border-radius: 6px; font-size: 11px; font-weight: 600; line-height: 16px; color: var(--bg); background: var(--g); }
+.tab-hit-group:empty { width: 10px; height: 10px; padding: 0; border-radius: 50%; }
 .tab-hit small { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); font-family: var(--mono); }
 .tab-hit button { border: none; background: none; color: var(--dim); padding: 0 4px; }
 

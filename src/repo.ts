@@ -1155,17 +1155,19 @@ export function reopenTab() {
   else if (r) reopenGroup(r);
 }
 
+/** The tab search's list: the tabs whose name, path or group's name hold the query, folded ones included, each with its group's chip. */
 export function renderTabHits() {
   const q = input("tab-q").value.toLowerCase();
   $("tab-hits").replaceChildren(
     ...tabs.flatMap((t, i) =>
-      q && !`${tabName(t)} ${t.repo}`.toLowerCase().includes(q)
+      q && !`${tabName(t)} ${t.repo} ${t.group ? groupLabel(t.group) : ""}`.toLowerCase().includes(q)
         ? []
         : [
             h(
               "div",
               { className: `tab-hit${i === active ? " on" : ""}`, onclick: () => (($("tab-search").hidden = true), i !== active && switchTab(i)) },
               h("b", { textContent: tabName(t) }),
+              ...(t.group ? [h("span", { className: "tab-hit-group", textContent: t.group.name, title: groupLabel(t.group), style: `--g: ${TAB_COLORS[t.group.color][1]}` })] : []),
               h("small", { textContent: t.repo }),
               h("button", { textContent: "×", title: "Close", onclick: (e: Event) => (e.stopPropagation(), closeTab(i).then(renderTabHits)) }),
             ),

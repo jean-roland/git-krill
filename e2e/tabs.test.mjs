@@ -135,8 +135,16 @@ test("tabs gather under a group's chip, which folds them out of view and out of 
   await k.quit(true);
   k = await launch(undefined, {}, was);
   await k.until(() => document.querySelector("#tablist .tab-group")?.textContent === "work" && [...document.querySelectorAll("#tablist .tab.grouped")].filter((e) => e.hidden).length === 3);
-  await k.click("#tablist .tab-group");
-  await k.until(() => [...document.querySelectorAll("#tablist .tab.grouped")].every((e) => !e.hidden));
+  // the tab search finds a folded group's tabs by its name, each with its chip, and opens one
+  await k.click("#tab-find");
+  await k.type("#tab-q", "work");
+  const chips = await k.until(() => {
+    const hits = [...document.querySelectorAll("#tab-hits .tab-hit")];
+    return hits.length && hits.every((e) => e.querySelector(".tab-hit-group")) && hits.map((e) => e.querySelector(".tab-hit-group").textContent);
+  });
+  assert.deepEqual(chips, ["work", "work", "work"]);
+  await k.click("#tab-hits .tab-hit");
+  await k.until(() => [...document.querySelectorAll("#tablist .tab.grouped")].every((e) => !e.hidden) && document.querySelector("#tablist .tab.on.grouped"));
   // a tab leaving the middle of its group goes past its end
   await k.menu("#tablist .tab.grouped + .tab.grouped");
   await k.click("#menu button", "Remove from group");
