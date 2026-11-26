@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { chmodSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { demo, launch, repo } from "./driver.mjs";
@@ -80,4 +80,70 @@ test("a commit or branch ahead offers no fast-forward or merge while a rebase is
   await k.menu('#sidebar [data-key="local"] .item', "main");
   const onMain = await items();
   assert.ok(onMain.length && !onMain.some((t) => t.startsWith("Fast-forward") || t.startsWith("Merge into")), onMain.join(", "));
+});
+
+test("an interactive rebase onto a branch drops the oldest commits it already holds, as after a squash merge: only the new one is replayed", async () => {
+  const dir = repo(({ git, commit, write }) => {
+    write("notes.md", "a\nb\nc\nd\ne\n");
+    git("add", ".");
+    commit("base");
+    git("checkout", "-qb", "work");
+    // a pull request in two steps, the second redoing the first's line, then new work on top
+    for (const [n, f, text] of [["pr: X", "notes.md", "a\nX\nc\nd\ne\n"], ["pr: B", "notes.md", "a\nB\nc\nD\ne\n"], ["new: todo", "todo.md", "x\n"]]) {
+      write(f, text);
+      git("add", ".");
+      commit(n);
+    }
+    git("checkout", "-q", "main");
+    // the pull request squash-merged, main going on after it with the line between the two it changed
+    for (const [n, text] of [["pr (#1)", "a\nB\nc\nD\ne\n"], ["main: C", "a\nB\nC\nD\ne\n"]]) {
+      write("notes.md", text);
+      git("add", ".");
+      commit(n);
+    }
+    git("checkout", "-q", "work");
+  });
+  await k.quit();
+  k = await launch(dir);
+  await k.menu('#sidebar [data-key="local"] .item', "main");
+  await k.click("#menu button", "Interactive rebase work onto this branch");
+  await k.until(() => document.querySelectorAll("#rebase-rows .rb-row.drop").length === 2);
+  const rows = await k.js(() => [...document.querySelectorAll("#rebase-rows .rb-row")].map((r) => [r.querySelector(".rb-subject").textContent, r.classList.contains("drop"), r.querySelector(".rb-already")?.textContent ?? ""]));
+  assert.deepEqual(rows, [["new: todo", false, ""], ["pr: B", true, "already in main"], ["pr: X", true, "already in main"]]);
+  await k.click("#rebase-start");
+  // new: todo was the head already: the files tell when the rebase is through
+  for (let i = 0; i < 50 && readFileSync(join(dir, "notes.md"), "utf8") !== "a\nB\nC\nD\ne\n"; i++) await new Promise((r) => setTimeout(r, 100));
+  assert.equal(readFileSync(join(dir, "notes.md"), "utf8"), "a\nB\nC\nD\ne\n");
+  assert.equal(readFileSync(join(dir, "todo.md"), "utf8"), "x\n");
+});
+
+test("an interactive rebase keeps a whitespace fix, a partial revert, a deletion and a mode change made after a squash-merged pull request", async () => {
+  const dir = repo(({ dir, git, commit, write }) => {
+    write("f.c", "a\nb\nc\nd\ne\nf\n");
+    git("add", ".");
+    commit("base");
+    git("checkout", "-qb", "work");
+    for (const [n, text] of [["pr: B, with a debug line", "a\nB\nc\nd\ne\nf\nDEBUG\n"], ["indent B", "a\n  B\nc\nd\ne\nf\nDEBUG\n"], ["drop the debug line", "a\n  B\nc\nd\ne\nf\n"], ["delete d", "a\n  B\nc\ne\nf\n"]]) {
+      write("f.c", text);
+      git("add", ".");
+      commit(n);
+    }
+    chmodSync(join(dir, "f.c"), 0o755);
+    git("add", ".");
+    commit("make it executable");
+    git("checkout", "-q", "main");
+    write("f.c", "a\nB\nc\nd\ne\nf\nDEBUG\n");
+    git("add", ".");
+    commit("pr (#1)");
+    git("checkout", "-q", "work");
+  });
+  await k.quit();
+  k = await launch(dir);
+  await k.menu('#sidebar [data-key="local"] .item', "main");
+  await k.click("#menu button", "Interactive rebase work onto this branch");
+  // one answer flips every row it drops at once
+  await k.until(() => document.querySelectorAll("#rebase-rows .rb-row.drop").length);
+  const rows = await k.js(() => [...document.querySelectorAll("#rebase-rows .rb-row")].map((r) => [r.querySelector(".rb-subject").textContent, r.classList.contains("drop")]));
+  assert.deepEqual(rows, [["make it executable", false], ["delete d", false], ["drop the debug line", false], ["indent B", false], ["pr: B, with a debug line", true]]);
+  await k.click("#rebase-cancel");
 });

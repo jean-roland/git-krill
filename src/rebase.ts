@@ -1,4 +1,4 @@
-import { Commit, commits, gitOp, headHash, isHead, opInfo, repo, selection } from "./repo";
+import { Commit, commits, gitOp, headHash, isHead, opInfo, repo, selection, run } from "./repo";
 import { paintSelection } from "./graph";
 import { $, ICONS, MenuItem, avatar, h, ico, mod, popup, say, short, showDialog, showMenu, hideDialog, onCtrlEnter, svg } from "./ui";
 import { countLeft, joinMsg, renderPanel, splitMsg } from "./panel";
@@ -7,7 +7,8 @@ import { closePr } from "./pr";
 type Action = "pick" | "reword" | "squash" | "drop";
 // one commit of the plan; message is the reworded one, empty while unchanged
 // fixup: a squash whose message is dropped
-type Row = { c: Commit; action: Action; message: string; fixup?: boolean };
+// already: the target holds its change, as after a squash merge: dropped when the plan opens
+type Row = { c: Commit; action: Action; message: string; fixup?: boolean; already?: boolean };
 
 const ACTIONS: [Action, string, string][] = [
   ["pick", "Pick", ICONS.check],
@@ -17,7 +18,8 @@ const ACTIONS: [Action, string, string][] = [
 ];
 // the plan on screen: the commits replayed onto `base`, newest first, the picked row `at`, made in `repo` with HEAD at `head`
 // picked: the rows an action goes to, by hash: a Ctrl or Shift click picks several, a drag keeps them
-let plan: { base: string; rows: Row[]; at: number; repo: string; head: string; picked: Set<string> } | null = null;
+// onto: the target's name for a rebase onto another branch or commit, "" for the branch's own commits
+let plan: { base: string; onto: string; rows: Row[]; at: number; repo: string; head: string; picked: Set<string> } | null = null;
 
 const message = (c: Commit) => joinMsg(c.subject, c.body);
 
@@ -53,18 +55,30 @@ export function ontoRange(target: string) {
   return last?.parents.length && !theirs.has(last.parents[0]) ? undefined : rows;
 }
 
-/** Open the plan replaying `range` onto commit `base`. */
-export function openRebase(base: string, range: Commit[] | null | undefined) {
+/** Open the plan replaying `range` onto commit `base`, `onto` its name when it is another branch or commit. */
+export function openRebase(base: string, range: Commit[] | null | undefined, onto = "") {
   if (opInfo) return say("Interactive rebase: finish or abort the operation in progress first", true);
   if (range === undefined) return say("Interactive rebase: the commits to replay go past the loaded ones, load more commits first", true);
   if (!range) return say("Interactive rebase: the commits to replay include a merge", true);
   if (!range.length) return say("Interactive rebase: nothing to replay, the branch has no commit this one lacks", true);
   // its rows own the panel: a pull request's page goes
   closePr(false);
-  plan = { base, rows: range.map((c) => ({ c, action: "pick", message: "" })), at: 0, repo, head: headHash(), picked: new Set() };
+  plan = { base, onto, rows: range.map((c) => ({ c, action: "pick", message: "" })), at: 0, repo, head: headHash(), picked: new Set() };
   $("rebase").hidden = false;
   paint();
   pick(0);
+  if (onto) dropAlready(plan);
+}
+
+/** Drop the oldest rows plan `p`'s target already holds together, as after a squash merge of them: replayed, they would only conflict. */
+async function dropAlready(p: NonNullable<typeof plan>) {
+  const oldest = [...p.rows].reverse().map((r) => r.c.hash);
+  const held = await run<number>("already_in", { base: p.base, commits: oldest }).catch(() => 0);
+  // closed meanwhile, or already edited: the plan as set stands
+  if (plan !== p || !held || p.rows.some((r) => r.action !== "pick")) return;
+  const gone = new Set(oldest.slice(0, held));
+  for (const r of p.rows) if (gone.has(r.c.hash) && r.action === "pick") Object.assign(r, { action: "drop", already: true });
+  paint();
 }
 
 export const planOpen = () => !!plan;
@@ -134,6 +148,7 @@ function paint() {
         ...(r.action === "squash" ? [h("span", { className: "rb-into", innerHTML: svg(ICONS.into) })] : []),
         avatar(r.c.author),
         h("span", { className: "rb-subject", textContent: subject }),
+        ...(r.already ? [h("small", { className: "rb-already", textContent: `already in ${p.onto}` })] : []),
         ...(into >= 0 ? [h("small", { textContent: `into ${short(p.rows[into].c.hash)}` }), keepBox(r, p.rows[into])] : []),
       );
     }),
@@ -321,7 +336,7 @@ $("rebase-rows").onclick = $("rebase-rows").oncontextmenu = (e) => void (e.targe
 $("rebase-reset").onclick = () => {
   if (!plan) return;
   const at = new Map(commits.map((c, k) => [c.hash, k]));
-  plan.rows = plan.rows.sort((a, b) => at.get(a.c.hash)! - at.get(b.c.hash)!).map((r) => ({ ...r, action: "pick", message: "", fixup: false }));
+  plan.rows = plan.rows.sort((a, b) => at.get(a.c.hash)! - at.get(b.c.hash)!).map((r) => ({ ...r, action: r.already ? "drop" : "pick", message: "", fixup: false }));
   paint();
   pick(0);
 };

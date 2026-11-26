@@ -293,6 +293,48 @@ fn tracing() -> bool {
     trace_file().is_some()
 }
 
+/// \brief A diff as compared across commits, byte for byte: whitespace, line endings, context lines and modes exact; without the hunks' line numbers and the blob ids, which shift with what came before.
+fn change_key(diff: &[u8]) -> Vec<u8> {
+    let mut key = Vec::new();
+    // a diff's own lines are never empty: an empty one is a separator
+    for line in diff.split(|&b| b == b'\n').filter(|l| !l.is_empty() && !l.starts_with(b"index ")) {
+        key.extend_from_slice(if line.starts_with(b"@@ ") { b"@@" } else { line });
+        key.push(b'\n');
+    }
+    key
+}
+
+/// \brief How many of the oldest of `commits` (oldest first) `base` already holds together: a commit of base's since the branch left it makes exactly their combined change, context and whitespace included, as a squash merge of them does. A deletion, a mode change, a move or a partial revert on top makes another change; a squash made after base changed the lines around is missed, nothing dropped. The most that do: a later commit may redo an earlier one's line.
+#[tauri::command(async)]
+fn already_in(repo: String, base: String, commits: Vec<String>) -> Result<usize, String> {
+    let base = not_option(&base)?;
+    let Some(last) = commits.last() else { return Ok(0) };
+    let fork = git(&repo, &["merge-base", base, "HEAD"])?.trim().to_string();
+    let diff = ["diff-tree", "-p", "--binary", "--no-renames"];
+    // base's commits on the branch's files only: a long-lived base has many others
+    let paths = git(&repo, &["diff-tree", "-r", "-z", "--name-only", "--no-renames", &fork, not_option(last)?])?;
+    let range = format!("{fork}..{base}");
+    let mut list = vec!["rev-list", "--no-merges", range.as_str(), "--"];
+    list.extend(paths.split('\0').filter(|p| !p.is_empty()));
+    let theirs = git(&repo, &list)?;
+    if theirs.trim().is_empty() {
+        return Ok(0);
+    }
+    // a NUL ahead of each commit's diff
+    let made = git_bytes(&repo, &[&diff[..], &["--stdin", "--format=%x00"]].concat(), Some(theirs.as_bytes()))?;
+    let keys: HashSet<Vec<u8>> = made.split(|&b| b == 0).map(change_key).filter(|k| !k.is_empty()).collect();
+    let (mut held, mut before) = (0, Vec::new());
+    for (k, c) in commits.iter().enumerate() {
+        let key = change_key(&git_bytes(&repo, &[&diff[..], &[fork.as_str(), not_option(c)?]].concat(), None)?);
+        // a commit changing nothing more is no part of what base holds
+        if !key.is_empty() && key != before && keys.contains(&key) {
+            held = k + 1;
+        }
+        before = key;
+    }
+    Ok(held)
+}
+
 /// \brief A line of the window's timings into the trace.
 #[tauri::command]
 fn trace_line(line: String) {
@@ -2508,6 +2550,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            already_in,
             initial_repo, init, clone, repo_root, log, status, refs, op_info, conflict_text, commit_info, blob, file_log, blame, stop_blame, gh_verified, gh, pr_base, remote_tags, submodule_change, write_file, stage_text, git_op, tree_files, open_in_editor, on_disk, worktree_main, lfs_patterns, version_ids, keeps_crlf,
             is_merged, has_identity, revert_lines, index_tree, stash_print, clone_cancel, tracing, trace_line, open_default, open_version, file_bytes, binary_text, text_part, diff_hunks, tool_status, install_git, repo_projects, repo_project, global_config, set_global_config, trust_folder, delete_file, open_url, remote_urls, edit_remote,
             pty::pty_spawn, pty::pty_write, pty::pty_resize, pty::pty_kill, askpass::askpass_reply

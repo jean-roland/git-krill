@@ -911,7 +911,7 @@ function refMenu(name: string, remote: boolean): MenuItem[] {
   // already in HEAD: nothing to merge, nothing to replay
   const merged = inHistory(sha, headHash());
   // HEAD in its history, a rebase onto it replays nothing: a fast-forward says what happens; neither it nor a merge during an operation, git would move its HEAD
-  const busy = !!status?.state, interactive: MenuItem = [`Interactive rebase ${branch} onto this branch`, () => openRebase(sha, ontoRange(sha))];
+  const busy = !!status?.state, interactive: MenuItem = [`Interactive rebase ${branch} onto this branch`, () => openRebase(sha, ontoRange(sha), name)];
   let move: MenuItem[] = [interactive];
   if (!merged && !busy && inHistory(headHash(), sha)) move = [[`Fast-forward ${branch} to ${name}`, () => gitOp("merge-ff", ref)]];
   else if (!merged)
@@ -948,7 +948,7 @@ function commitMenu(e: MouseEvent, c: Commit) {
   else if (!mine)
     move = [
       [`Rebase ${branch} onto this commit`, () => gitOp("rebase", c.hash)],
-      [`Interactive rebase ${branch} onto this commit`, () => openRebase(c.hash, ontoRange(c.hash))],
+      [`Interactive rebase ${branch} onto this commit`, () => openRebase(c.hash, ontoRange(c.hash), short(c.hash))],
     ];
   const [newBranch, newTag] = createItems(c.hash);
   popup(e, [
