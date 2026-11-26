@@ -33,7 +33,7 @@ type UndoStep = { op: string; what: string; branch: [string, string]; head: [str
 // limit: how many commits the graph loads, raised by "Load more"
 // parent: what this tab steps back to, the main checkout of a worktree or the repository a submodule was opened from in it; one level only
 // settings: the Settings tab, which has no repository either; back: the tab as it was before stepping into a worktree or submodule
-// side-by-side tabs behind one chip: an empty name shows a dot, color indexes COLORS, folded hides the tabs
+// side-by-side tabs behind one chip: an empty name shows a dot, color indexes TAB_COLORS, folded hides the tabs
 export type TabGroup = { name: string; color: number; folded: boolean };
 export type Tab = { repo: string; parent: string; selected: string[]; msg: string; scroll: number; undo: UndoStep[]; redo: UndoStep[]; worktree: boolean; limit: number; settings: boolean; group: TabGroup | null; back?: Tab };
 export const LOG_LIMIT = 3000;
@@ -572,7 +572,7 @@ export function paintRepoName() {
     const back = `Back to ${repoLabel(t.parent)} (Esc, Alt+←)`;
     $("repo-name").replaceChildren(
       // in the colour of its tab badge: the repository this tab belongs to
-      h("span", { className: "back", textContent: repoLabel(t.parent), title: back, onclick: stepBack, style: `color: ${COLORS[colorIndex(t.parent)]}` }),
+      h("span", { className: "back", textContent: repoLabel(t.parent), title: back, onclick: stepBack, style: `color: ${badgeColor(t.parent)}` }),
       ` › ${childLabel(t)}`,
       h("button", { className: "icon sub-close", title: back, innerHTML: svg(ICONS.close), onclick: stepBack }),
     );
@@ -641,9 +641,19 @@ const forgetRecent = (r: string) => store("recent", JSON.stringify(recentRepos()
 const tabEls = () => $("tablist").querySelectorAll<HTMLElement>(".tab");
 /** The groups, in their tabs' order. */
 const tabGroups = () => [...new Set(tabs.flatMap((t) => (t.group ? [t.group] : [])))];
-// COLORS by name, for the group menu
-const COLOR_NAMES = ["Teal", "Blue", "Purple", "Green", "Yellow", "Pink", "Orange", "Red"];
-const groupLabel = (g: TabGroup) => g.name || `${COLOR_NAMES[g.color]} group`;
+// the colors a tab or a group is given, by name, in the resistor code's order: teal and pink set in by hue, white as cream
+const TAB_COLORS = [["Brown", "#9b5b31"], ["Red", "#e0524f"], ["Orange", "#e08a3c"], ["Yellow", "#d9ba5d"], ["Green", "#5bc78e"], ["Teal", "#46b1ab"], ["Blue", "#5d88d9"], ["Purple", "#9c5dd9"], ["Pink", "#d95dc0"], ["Grey", "#8e96a3"], ["Cream", "#e6d8b8"]];
+const groupLabel = (g: TabGroup) => g.name || `${TAB_COLORS[g.color][0]} group`;
+// a repository's tab color picked in its menu, by path: an index in TAB_COLORS
+const tabColors = (): Record<string, number> => JSON.parse(store("tab-colors") ?? "{}");
+// a repository's badge: its picked color, else one from its path
+const badgeColor = (path: string) => TAB_COLORS[tabColors()[path]]?.[1] ?? COLORS[colorIndex(path)];
+
+/** The palette as menu items, `current` greyed, `first` leading it. */
+const paletteMenu = (current: number, pick: (c: number) => void, first: MenuItem[] = []): MenuItem[] => [
+  ...first,
+  ...TAB_COLORS.map(([name, color], c): MenuItem => [name, c === current ? null : () => pick(c), "", undefined, color]),
+];
 
 function renderTabs() {
   $("tablist").replaceChildren(
@@ -655,7 +665,7 @@ function renderTabs() {
           className: `tab${i === active ? " on" : ""}${g ? " grouped" : ""}`,
           title: t.repo,
           hidden: !!g?.folded,
-          style: g ? `--g: ${COLORS[g.color]}` : "",
+          style: g ? `--g: ${TAB_COLORS[g.color][1]}` : "",
           onclick: () => i !== active && switchTab(i),
           onpointerdown: (e: PointerEvent) => dragTabs(e, [t], null),
           onauxclick: (e: MouseEvent) => e.button === 1 && closeTab(i),
@@ -664,7 +674,7 @@ function renderTabs() {
         // a repo's initial on a colour of its own, so tabs tell apart at a glance
         // a worktree or a submodule wears its repository's badge
         t.repo
-          ? h("span", { className: "tab-badge", textContent: tabName(t)[0]?.toUpperCase() ?? "", style: `--c: ${COLORS[colorIndex(t.parent || t.repo)]}` })
+          ? h("span", { className: "tab-badge", textContent: tabName(t)[0]?.toUpperCase() ?? "", style: `--c: ${badgeColor(t.parent || t.repo)}` })
           : ico(t.settings ? ICONS.settings : ICONS.home),
         h("span", { className: "tab-name", textContent: tabName(t) }),
         h("button", { className: "x", textContent: "×", title: "Close (Ctrl+W)", onclick: (e: Event) => (e.stopPropagation(), closeTab(i)) }),
@@ -684,7 +694,7 @@ function groupChip(g: TabGroup) {
     {
       className: "tab-group",
       title: own.map(tabName).join("\n"),
-      style: `--g: ${COLORS[g.color]}`,
+      style: `--g: ${TAB_COLORS[g.color][1]}`,
       onclick: () => {
         if (!dragged) foldGroup(g);
       },
@@ -713,17 +723,18 @@ function groupMenu(g: TabGroup): MenuItem[] {
   const paint = (c: number) => ((g.color = c), saveTabs(), renderTabs());
   return [
     ["Rename group", () => renameGroup(g)],
-    ["Color", COLOR_NAMES.map((name, c): MenuItem => [name, c === g.color ? null : () => paint(c), "", undefined, COLORS[c]])],
     ["New tab in group", () => newTabIn(g)],
     ["Ungroup", () => ungroup(g)],
     ["Close group", () => closeGroup(g)],
+    null,
+    ["Color", paletteMenu(g.color, paint)],
   ];
 }
 
 /** Tab `t` in a new group of the first color no group wears, its name typed next. */
 function newGroup(t: Tab) {
   const worn = tabGroups().map((g) => g.color);
-  const g = { name: "", color: Math.max(0, COLORS.findIndex((_, c) => !worn.includes(c))), folded: false };
+  const g = { name: "", color: Math.max(0, TAB_COLORS.findIndex((_, c) => !worn.includes(c))), folded: false };
   regroup(t, g);
   renameGroup(g);
 }
@@ -950,7 +961,9 @@ function tabMenu(i: number): MenuItem[] {
     ["Close tabs to the right", () => closeTabs(i, (k) => k <= i)],
   ];
   if (t.repo) items.push(["Rename tab", () => renameTab(i)]);
-  return [...items, reopenItem()];
+  items.push(reopenItem());
+  if (t.repo) items.push(null, ["Color", tabColorMenu(t.parent || t.repo)]);
+  return items;
 }
 
 const reopenItem = (): MenuItem => ["Reopen closed tab", closedTabs.length ? reopenTab : null];
@@ -972,6 +985,20 @@ function editInPlace(el: HTMLElement, value: string, done: (text: string | null)
   box.onblur = () => finish(true);
   el.replaceChildren(box);
   box.select();
+}
+
+/** A repository's tab colors: Automatic, the one from its path, or one of the palette. */
+function tabColorMenu(path: string): MenuItem[] {
+  const picked = tabColors()[path] ?? -1;
+  const paint = (c: number) => {
+    const all = tabColors();
+    if (c < 0) delete all[path];
+    else all[path] = c;
+    store("tab-colors", JSON.stringify(all));
+    renderTabs();
+    paintRepoName();
+  };
+  return paletteMenu(picked, paint, [["Automatic", picked < 0 ? null : () => paint(-1), "Picked from the repository's path", undefined, COLORS[colorIndex(path)]], null]);
 }
 
 /** Rename a tab in place: empty resets. */

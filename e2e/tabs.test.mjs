@@ -139,3 +139,15 @@ test("tabs gather under a group's chip, which folds them out of view and out of 
   await drag(2, await tideEnd(), await k.js(() => document.getElementById("tablist").getBoundingClientRect().left + 1));
   assert.deepEqual(await grouped(), [1, 2]);
 });
+
+test("a repository's tab takes the color picked in its menu; Automatic gives its own back", async () => {
+  const badge = () => k.js(() => [...document.querySelectorAll("#tablist .tab")].find((e) => e.textContent.includes("tidepool")).querySelector(".tab-badge").style.getPropertyValue("--c").trim());
+  const own = await badge();
+  for (const [pick, color] of [["Red", "#e0524f"], ["Automatic", own]]) {
+    await k.menu("#tablist .tab", "tidepool");
+    await k.click("#menu button", "Color");
+    await k.click("#submenu button", pick);
+    await k.until((color) => [...document.querySelectorAll("#tablist .tab")].find((e) => e.textContent.includes("tidepool")).querySelector(".tab-badge").style.getPropertyValue("--c").trim() === color, color);
+  }
+  assert.equal(await badge(), own);
+});

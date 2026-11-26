@@ -1022,6 +1022,8 @@ svg.blame-av { cursor: pointer; }
 .menu button .ico { margin-right: 8px; vertical-align: -2px; color: var(--dim); }
 .menu button .ico svg { width: 14px; height: 14px; }
 .menu button .swatch { display: inline-block; width: 10px; height: 10px; margin-right: 10px; border-radius: 50%; background: var(--c); }
+/* the current color: its name greyed, its swatch as it is */
+.menu button.off:has(.swatch) { opacity: 1; color: var(--dim); }
 /* inside its label, where it says {icon} */
 .menu button .ico.mid { margin: 0 2px; }
 .menu-title { display: flex; justify-content: center; align-items: center; gap: 7px; max-width: 380px; padding: 5px 14px 8px; margin-bottom: 4px; white-space: nowrap; font-weight: 700; color: var(--text); border-bottom: 1px solid var(--border); }
