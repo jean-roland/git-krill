@@ -195,3 +195,33 @@ test("one group open at a time, turned on in Settings: a folded group's chip ope
   await k.until(() => [...document.querySelectorAll("#tablist .tab.grouped")].filter((e) => !e.hidden).length === 2);
   await oneGroup();
 });
+
+test("tabs Ctrl+clicked go into a new group with the open one, from their menu", async () => {
+  for (let i = 0; i < 3; i++) await k.keys("\uE009", "t");
+  const n = (await tabs()).length;
+  // the two before the open one
+  await k.js((n) => [n - 3, n - 2].forEach((i) => document.querySelectorAll("#tablist .tab")[i].dispatchEvent(new MouseEvent("click", { ctrlKey: true, bubbles: true }))), n);
+  assert.equal(await k.js(() => document.querySelectorAll("#tablist .tab.picked").length), 2);
+  await k.menu("#tablist .tab.picked");
+  await k.click("#menu button", "Add 3 tabs to group");
+  await k.click("#submenu button", "New group");
+  await k.type("#tablist .tab-group input", "trio");
+  await k.keys("\uE007");
+  await k.until(() => [...document.querySelectorAll("#tablist .tab-group")].some((c) => c.textContent === "trio"));
+  const after = await k.js(() => {
+    const els = [...document.querySelectorAll("#tablist > *")], at = els.findIndex((c) => c.classList.contains("tab-group") && c.textContent === "trio");
+    return els.slice(at + 1).map((e) => e.classList.contains("grouped"));
+  });
+  assert.deepEqual(after, [true, true, true]);
+  assert.equal(await k.js(() => document.querySelectorAll("#tablist .tab.picked").length), 0);
+});
+
+test("Shift+click picks the tabs in view from the open one to the one clicked; a plain click drops them", async () => {
+  for (let i = 0; i < 3; i++) await k.keys("\uE009", "t");
+  const n = (await tabs()).length;
+  await k.js((n) => document.querySelectorAll("#tablist .tab")[n - 3].dispatchEvent(new MouseEvent("click", { shiftKey: true, bubbles: true })), n);
+  const picked = () => k.js(() => [...document.querySelectorAll("#tablist .tab")].flatMap((e, i) => (e.classList.contains("picked") ? [i] : [])));
+  assert.deepEqual(await picked(), [n - 3, n - 2]);
+  await k.click("#tablist .tab.on");
+  assert.deepEqual(await picked(), []);
+});

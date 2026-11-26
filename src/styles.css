@@ -189,6 +189,8 @@ header {
 .tab-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .tab:hover { background: var(--hover); }
 .tab.drag { cursor: grabbing; background: var(--sel); }
+/* Ctrl+clicked, for a group made of them all */
+.tab.picked { background: var(--sel); color: var(--text); }
 /* a line between two tabs, and before + */
 #new-tab { position: relative; }
 .tab + .tab::before, #new-tab::before { content: ""; position: absolute; left: -2px; top: 9px; bottom: 9px; width: 2px; border-radius: 1px; background: color-mix(in srgb, var(--dim) 55%, transparent); }

@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { repoName } from "./core.js";
-import { $, COLORS, ICONS, MenuItem, ask, basename, colorIndex, dialog, h, hideBanner, hideDialog, hint, ico, input, noGit, pickDir, pickDirs, plural, popup, say, short, showBanner, showDialog, showMenu, store, svg, toast, warnOnce } from "./ui";
+import { $, COLORS, ICONS, MenuItem, ask, basename, colorIndex, dialog, h, hideBanner, hideDialog, hint, ico, input, mod, noGit, pickDir, pickDirs, plural, popup, say, short, showBanner, showDialog, showMenu, store, svg, toast, warnOnce } from "./ui";
 import { cancelOpen, closeHistory, closeMerge, closeResolvedMerge, confirmDrop, diffFile, openRow, reloadDiff } from "./diff";
 import { conflictCount, getMsg, panelData, renderPanel, setMsg } from "./panel";
 import { loadProjects, offerGone, offerMove, stepBack, paintSelection, paintWipRow, renderGraph, renderSide, resetGraph, showRow } from "./graph";
@@ -643,14 +643,19 @@ const tabGroups = () => [...new Set(tabs.flatMap((t) => (t.group ? [t.group] : [
 const TAB_COLORS = [["Brown", "#9b5b31"], ["Red", "#e0524f"], ["Orange", "#e08a3c"], ["Yellow", "#d9ba5d"], ["Green", "#5bc78e"], ["Teal", "#46b1ab"], ["Blue", "#5d88d9"], ["Purple", "#9c5dd9"], ["Pink", "#d95dc0"], ["Grey", "#8e96a3"], ["Beige", "#e6d8b8"]];
 // Settings' "One group open at a time", off unless turned on
 export const oneGroupOpen = () => store("one-group") === "on";
+// tabs Ctrl+ or Shift+clicked besides the open one, which their menu groups with it; a switch, a plain click or a fold drops them
+const picked = new Set<Tab>();
 /** One group open at a time, just turned on: the open tab's group stays open, else the group of the tab Settings came from, else the leftmost open one; the others fold. */
 export function foldToOneGroup() {
   const keep = tabs[active].group ?? settingsFrom?.group ?? tabGroups().find((g) => !g.folded);
   for (const g of tabGroups()) if (g !== keep) g.folded = true;
+  picked.clear();
   saveTabs();
   renderTabs();
 }
 
+/** The picked tabs and the open one, in tab order; none picked: none. */
+const pickedTabs = () => (picked.size ? tabs.filter((t) => picked.has(t) || t === tabs[active]) : []);
 const groupLabel = (g: TabGroup) => g.name || `${TAB_COLORS[g.color][0]} group`;
 // a repository's tab color picked in its menu, by path: an index in TAB_COLORS
 const tabColors = (): Record<string, number> => JSON.parse(store("tab-colors") ?? "{}");
@@ -670,11 +675,11 @@ function renderTabs() {
       const el = h(
         "div",
         {
-          className: `tab${i === active ? " on" : ""}${g ? " grouped" : ""}`,
+          className: `tab${i === active ? " on" : ""}${g ? " grouped" : ""}${picked.has(t) ? " picked" : ""}`,
           title: t.repo,
           hidden: !!g?.folded,
           style: g ? `--g: ${TAB_COLORS[g.color][1]}` : "",
-          onclick: () => i !== active && switchTab(i),
+          onclick: (e: MouseEvent) => pickOrSwitch(e, i),
           onpointerdown: (e: PointerEvent) => dragTabs(e, [t], null),
           onauxclick: (e: MouseEvent) => e.button === 1 && closeTab(i),
           oncontextmenu: (e: MouseEvent) => popup(e, tabMenu(i)),
@@ -745,6 +750,8 @@ async function foldGroup(g: TabGroup) {
     if (tabs[active].group === g) return;
   }
   g.folded = fold;
+  // a picked tab folded away would be grouped unseen
+  picked.clear();
   saveTabs();
   renderTabs();
 }
@@ -761,11 +768,36 @@ function groupMenu(g: TabGroup): MenuItem[] {
   ];
 }
 
-/** Tab `t` in a new group of the first color no group wears, its name typed next. */
-function newGroup(t: Tab) {
+/** Ctrl+click on tab `i` picks it or drops it; Shift+click picks the tabs in view from the open one to it; a plain click drops the picks and switches to it. */
+function pickOrSwitch(e: MouseEvent, i: number) {
+  const t = tabs[i];
+  if (e.shiftKey && i !== active) {
+    picked.clear();
+    for (let k = Math.min(i, active); k <= Math.max(i, active); k++) if (k !== active && !tabs[k].group?.folded) picked.add(tabs[k]);
+    return renderTabs();
+  }
+  if (mod(e) && i !== active) {
+    if (picked.has(t)) picked.delete(t);
+    else picked.add(t);
+    return renderTabs();
+  }
+  if (i !== active) return switchTab(i);
+  picked.clear();
+  renderTabs();
+}
+
+/** Tabs `list`, in tab order, in group `g`: side by side at its end, the first one where it is for a new group; the picks drop. */
+function joinGroup(list: Tab[], g: TabGroup) {
+  for (const t of list) regroup(t, g);
+  picked.clear();
+  renderTabs();
+}
+
+/** Tabs `list`, in tab order, in a new group of the first color no group wears, its name typed next. */
+function newGroup(list: Tab[]) {
   const worn = tabGroups().map((g) => g.color);
   const g = { name: "", color: Math.max(0, TAB_COLORS.findIndex((_, c) => !worn.includes(c))), folded: false, last: null };
-  regroup(t, g);
+  joinGroup(list, g);
   renameGroup(g);
 }
 
@@ -926,6 +958,7 @@ export const keepTab = () => Object.assign(tabs[active], { selected: selection.h
 export async function switchTab(i: number, save = true) {
   if (save && !(await dropEdits())) return;
   if (save) keepTab();
+  picked.clear();
   // the op that asked for it ran in the tab left
   reveal = false;
   cancelOpen();
@@ -1006,10 +1039,15 @@ async function closeTabs(i: number, keep: (k: number) => boolean) {
 
 function tabMenu(i: number): MenuItem[] {
   const t = tabs[i];
-  const others = tabGroups().filter((g) => g !== t.group);
+  // a picked tab's menu groups every picked tab and the open one
+  const many = pickedTabs(), these = many.length > 1 && many.includes(t) ? many : [t];
+  const what = these.length > 1 ? `${these.length} tabs` : "tab";
+  const others = tabGroups().filter((g) => !these.every((o) => o.group === g));
   const items: MenuItem[] = [
-    others.length ? ["Add tab to group", [["New group", () => newGroup(t)], null, ...others.map((g): MenuItem => [groupLabel(g), () => regroup(t, g)])]] : ["Add tab to new group", () => newGroup(t)],
-    t.group ? ["Remove from group", () => regroup(t, null)] : null,
+    others.length
+      ? [`Add ${what} to group`, [["New group", () => newGroup(these)], null, ...others.map((g): MenuItem => [groupLabel(g), () => joinGroup(these, g)])]]
+      : [`Add ${what} to new group`, () => newGroup(these)],
+    these.length === 1 && t.group ? ["Remove from group", () => regroup(t, null)] : null,
     null,
     ["Close tab", () => closeTab(i)],
     ["Close other tabs", () => closeTabs(i, (k) => k === i)],
