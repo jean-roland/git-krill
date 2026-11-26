@@ -159,3 +159,29 @@ test("a repository's tab takes the color picked in its menu; Automatic gives its
   }
   assert.equal(await badge(), own);
 });
+
+test("one group is open at a time: a folded group's chip opens it on the tab last shown in it", async () => {
+  // work holds tidepool, then a Home tab: its second one is shown last
+  await k.click("#tablist .tab.grouped", "Home");
+  await k.keys("", "t");
+  await k.menu("#tablist .tab.on");
+  await k.click("#menu button", "Add tab to group");
+  await k.click("#submenu button", "New group");
+  await k.type("#tablist .tab-group input", "other");
+  await k.keys("");
+  const open = () => k.js(() => [...document.querySelectorAll("#tablist .tab.grouped")].filter((e) => !e.hidden).length);
+  const on = () => k.js(() => document.querySelector("#tablist .tab.on.grouped .tab-name")?.textContent ?? "");
+  await k.click("#tablist .tab-group", "work");
+  await k.until(() => [...document.querySelectorAll("#tablist .tab.grouped")].filter((e) => !e.hidden).length === 1);
+  await k.click("#tablist .tab-group", "work");
+  await k.until(() => document.querySelector("#tablist .tab.on.grouped"));
+  assert.equal(await on(), "Home");
+  assert.equal(await open(), 2);
+  await k.click("#tablist .tab-group", "other");
+  await k.until(() => [...document.querySelectorAll("#tablist .tab.grouped")].filter((e) => !e.hidden).length === 1);
+  assert.equal(await on(), "Home");  // turned off in Settings, a group opens beside the others
+  await k.click("#settings-btn:not([hidden]), #settings-home");
+  await k.js(() => [...document.querySelectorAll("#settings-box label")].find((l) => l.textContent.includes("One group open at a time")).querySelector("input").click());
+  await k.click("#tablist .tab-group", "work");
+  await k.until(() => [...document.querySelectorAll("#tablist .tab.grouped")].filter((e) => !e.hidden).length === 3);
+});

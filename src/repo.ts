@@ -34,7 +34,8 @@ type UndoStep = { op: string; what: string; branch: [string, string]; head: [str
 // parent: what this tab steps back to, the main checkout of a worktree or the repository a submodule was opened from in it; one level only
 // settings: the Settings tab, which has no repository either; back: the tab as it was before stepping into a worktree or submodule
 // side-by-side tabs behind one chip: an empty name shows a dot, color indexes TAB_COLORS, folded hides the tabs
-export type TabGroup = { name: string; color: number; folded: boolean };
+// last: its tab shown last, which a click on its folded chip opens; null, or gone from it since: its first tab
+export type TabGroup = { name: string; color: number; folded: boolean; last: Tab | null };
 export type Tab = { repo: string; parent: string; selected: string[]; msg: string; scroll: number; undo: UndoStep[]; redo: UndoStep[]; worktree: boolean; limit: number; settings: boolean; group: TabGroup | null; back?: Tab };
 export const LOG_LIMIT = 3000;
 // ops that move HEAD, walked back with a reset or a checkout
@@ -591,9 +592,10 @@ const closedRepo = (t: Tab) => (t.worktree ? t.repo : t.parent || t.repo);
 export async function restoreTabs(ready: Promise<unknown>) {
   // a submodule opened in its parent's tab is saved as [parent, submodule]
   tabs = (JSON.parse(store("tabs") ?? "[]") as (string | string[])[]).map((x) => (Array.isArray(x) ? newTab(x[1], x[0]) : x === SETTINGS ? settingsTab() : newTab(x)));
-  // of: each saved tab's index in groups, -1 for none
-  const saved: { groups: TabGroup[]; of: number[] } = JSON.parse(store("tab-groups") ?? '{"groups":[],"of":[]}');
-  tabs.forEach((t, i) => (t.group = saved.groups[saved.of[i]] ?? null));
+  // of: each saved tab's index in groups, -1 for none; last: each group's last tab, as an index in tabs
+  const saved: { groups: Omit<TabGroup, "last">[]; of: number[]; last?: number[] } = JSON.parse(store("tab-groups") ?? '{"groups":[],"of":[]}');
+  const groups = saved.groups.map((g, k): TabGroup => ({ ...g, last: tabs[saved.last?.[k] ?? -1] ?? null }));
+  tabs.forEach((t, i) => (t.group = groups[saved.of[i]] ?? null));
   if (!tabs.length) tabs.push(newTab(""));
   active = Math.min(Number(store("active-tab")) || 0, tabs.length - 1);
   const arg = await invoke<string>("initial_repo");
@@ -614,7 +616,8 @@ const settingsTab = () => Object.assign(newTab(""), { settings: true });
 function saveTabs() {
   store("tabs", JSON.stringify(tabs.map((t) => (t.settings ? SETTINGS : t.parent ? [t.parent, t.repo] : t.repo))));
   const groups = tabGroups();
-  store("tab-groups", JSON.stringify({ groups, of: tabs.map((t) => (t.group ? groups.indexOf(t.group) : -1)) }));
+  const of = tabs.map((t) => (t.group ? groups.indexOf(t.group) : -1));
+  store("tab-groups", JSON.stringify({ groups: groups.map(({ name, color, folded }) => ({ name, color, folded })), of, last: groups.map((g) => tabs.findIndex((t) => t === g.last)) }));
   store("active-tab", String(active));
 }
 
@@ -638,6 +641,8 @@ const tabEls = () => $("tablist").querySelectorAll<HTMLElement>(".tab");
 const tabGroups = () => [...new Set(tabs.flatMap((t) => (t.group ? [t.group] : [])))];
 // the colors a tab or a group is given, by name, in the resistor code's order: teal and pink set in by hue, white as cream
 const TAB_COLORS = [["Brown", "#9b5b31"], ["Red", "#e0524f"], ["Orange", "#e08a3c"], ["Yellow", "#d9ba5d"], ["Green", "#5bc78e"], ["Teal", "#46b1ab"], ["Blue", "#5d88d9"], ["Purple", "#9c5dd9"], ["Pink", "#d95dc0"], ["Grey", "#8e96a3"], ["Cream", "#e6d8b8"]];
+// Settings' "One group open at a time", on unless turned off
+export const oneGroupOpen = () => store("one-group") !== "off";
 const groupLabel = (g: TabGroup) => g.name || `${TAB_COLORS[g.color][0]} group`;
 // a repository's tab color picked in its menu, by path: an index in TAB_COLORS
 const tabColors = (): Record<string, number> => JSON.parse(store("tab-colors") ?? "{}");
@@ -708,10 +713,14 @@ function nextShown(from: number, skip: TabGroup | null = null) {
   return shown.find((k) => k >= from) ?? shown.pop();
 }
 
-/** Fold group `g`'s tabs away, or back; the open tab folded away hands over to the next tab in view, else to a new tab. */
+/** Fold group `g`'s tabs away, or back; one group open at a time, it opens on its last tab, the others folding. The open tab folded away hands over to the next tab in view, else to a new tab. */
 async function foldGroup(g: TabGroup) {
   // the state asked for: a second click during the switch asks the same
   const fold = !g.folded;
+  if (!fold && oneGroupOpen()) {
+    const last = g.last && g.last.group === g ? tabs.indexOf(g.last) : -1;
+    return switchTab(last >= 0 ? last : tabs.findIndex((t) => t.group === g));
+  }
   if (fold && tabs[active].group === g) {
     const to = nextShown(active + 1, g);
     await (to === undefined ? addTab() : switchTab(to));
@@ -738,7 +747,7 @@ function groupMenu(g: TabGroup): MenuItem[] {
 /** Tab `t` in a new group of the first color no group wears, its name typed next. */
 function newGroup(t: Tab) {
   const worn = tabGroups().map((g) => g.color);
-  const g = { name: "", color: Math.max(0, TAB_COLORS.findIndex((_, c) => !worn.includes(c))), folded: false };
+  const g = { name: "", color: Math.max(0, TAB_COLORS.findIndex((_, c) => !worn.includes(c))), folded: false, last: null };
   regroup(t, g);
   renameGroup(g);
 }
@@ -904,8 +913,12 @@ export async function switchTab(i: number, save = true) {
   hideBanner();
   active = i;
   const t = tabs[active];
-  // a tab shown unfolds its group
-  if (t.group) t.group.folded = false;
+  // a tab shown opens its group, and is the one it opens on next; one group open at a time, the others fold
+  if (t.group) {
+    t.group.folded = false;
+    t.group.last = t;
+    if (oneGroupOpen()) for (const g of tabGroups()) if (g !== t.group) g.folded = true;
+  }
   repo = t.repo;
   selection.hashes = t.selected;
   selection.anchor = selection.hashes[0];

@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { homeDir } from "@tauri-apps/api/path";
-import { DEFAULT_EDITOR, fetchMinutes, openSettings, repo, run } from "./repo";
+import { DEFAULT_EDITOR, fetchMinutes, oneGroupOpen, openSettings, repo, run } from "./repo";
 import { $, ICONS, dateTimeText, h, ico, pickDir, say, showMenu, store, svg, toast } from "./ui";
 
 type Tools = { git: string; lfs: string; gh: string; lfsSetUp: boolean; lfsInUse: boolean; ghHosts: string[]; gitHelp: string };
@@ -30,7 +30,7 @@ const note = (text: string) => h("small", { className: "set-note", textContent: 
 const version = (line: string) => line.match(/\d+(\.\d+)+/)?.[0] ?? line;
 const state = (ok: boolean, text: string) => h("span", { className: ok ? "set-ok" : "set-bad", textContent: `${ok ? "✓" : "✗"} ${text}` });
 
-/** The Settings tab: the tools krill leans on, background fetch, the editor, the folder pickers' start, the global git identity, conflict replay and this build. */
+/** The Settings tab: the tools krill leans on, background fetch, tab groups, the editor, the folder pickers' start, the global git identity, conflict replay and this build. */
 export function renderSettings() {
   const tools = h("div", {}, ...checking()), global = globalRows();
   $("settings-box").replaceChildren(
@@ -39,6 +39,8 @@ export function renderSettings() {
     tools,
     h("div", { className: "head", textContent: "Background fetch" }),
     ...fetchRows(),
+    h("div", { className: "head", textContent: "Tabs" }),
+    groupRow(),
     h("div", { className: "head", textContent: "Editor and folders" }),
     editorRow(),
     openDirRow(),
@@ -97,6 +99,11 @@ function fetchRows() {
     row("Fetch", h("label", {}, on, " Fetch the remotes of the open repository in the background")),
     row("Every", every, note("Also when the window or a tab comes back, at most once a minute.")),
   ];
+}
+
+function groupRow() {
+  const one = h("input", { type: "checkbox", checked: oneGroupOpen(), onchange: () => store("one-group", one.checked ? "on" : "off") });
+  return row("Groups", h("label", {}, one, " One group open at a time: opening one folds the others"));
 }
 
 function editorRow() {
