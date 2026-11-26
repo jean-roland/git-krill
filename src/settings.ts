@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { homeDir } from "@tauri-apps/api/path";
-import { DEFAULT_EDITOR, fetchMinutes, oneGroupOpen, openSettings, repo, run } from "./repo";
+import { DEFAULT_EDITOR, fetchMinutes, foldToOneGroup, oneGroupOpen, openSettings, repo, run } from "./repo";
 import { $, ICONS, dateTimeText, h, ico, pickDir, say, showMenu, store, svg, toast } from "./ui";
 
 type Tools = { git: string; lfs: string; gh: string; lfsSetUp: boolean; lfsInUse: boolean; ghHosts: string[]; gitHelp: string };
@@ -102,7 +102,11 @@ function fetchRows() {
 }
 
 function groupRow() {
-  const one = h("input", { type: "checkbox", checked: oneGroupOpen(), onchange: () => store("one-group", one.checked ? "on" : "off") });
+  const one = h("input", { type: "checkbox", checked: oneGroupOpen() });
+  one.onchange = () => {
+    store("one-group", one.checked ? "on" : "off");
+    if (one.checked) foldToOneGroup();
+  };
   return row("Groups", h("label", {}, one, " One group open at a time: opening one folds the others"));
 }
 

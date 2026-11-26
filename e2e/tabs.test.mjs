@@ -160,9 +160,15 @@ test("a repository's tab takes the color picked in its menu; Automatic gives its
   assert.equal(await badge(), own);
 });
 
-test("one group is open at a time: a folded group's chip opens it on the tab last shown in it", async () => {
-  // work holds tidepool, then a Home tab: its second one is shown last
+test("one group open at a time, turned on in Settings: a folded group's chip opens it on the tab last shown in it", async () => {
+  // flipped on the Settings tab, opened if another tab is in front
+  const oneGroup = async () => {
+    if (await k.js(() => document.getElementById("settings").hidden)) await k.click("#settings-btn:not([hidden]), #settings-home");
+    await k.js(() => [...document.querySelectorAll("#settings-box label")].find((l) => l.textContent.includes("One group open at a time")).querySelector("input").click());
+  };
+  // work holds tidepool, then a Home tab: its second one is shown last, then Settings opened from it keep work open
   await k.click("#tablist .tab.grouped", "Home");
+  await oneGroup();
   await k.keys("", "t");
   await k.menu("#tablist .tab.on");
   await k.click("#menu button", "Add tab to group");
@@ -180,8 +186,12 @@ test("one group is open at a time: a folded group's chip opens it on the tab las
   await k.click("#tablist .tab-group", "other");
   await k.until(() => [...document.querySelectorAll("#tablist .tab.grouped")].filter((e) => !e.hidden).length === 1);
   assert.equal(await on(), "Home");  // turned off in Settings, a group opens beside the others
-  await k.click("#settings-btn:not([hidden]), #settings-home");
-  await k.js(() => [...document.querySelectorAll("#settings-box label")].find((l) => l.textContent.includes("One group open at a time")).querySelector("input").click());
+  await oneGroup();
   await k.click("#tablist .tab-group", "work");
   await k.until(() => [...document.querySelectorAll("#tablist .tab.grouped")].filter((e) => !e.hidden).length === 3);
+  // turned back on from a tab outside the groups, the leftmost open group stays open: work's two tabs
+  await k.click("#tablist .tab:not(.grouped)", "Home");
+  await oneGroup();
+  await k.until(() => [...document.querySelectorAll("#tablist .tab.grouped")].filter((e) => !e.hidden).length === 2);
+  await oneGroup();
 });

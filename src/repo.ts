@@ -641,8 +641,16 @@ const tabEls = () => $("tablist").querySelectorAll<HTMLElement>(".tab");
 const tabGroups = () => [...new Set(tabs.flatMap((t) => (t.group ? [t.group] : [])))];
 // the colors a tab or a group is given, by name, in the resistor code's order: teal and pink set in by hue, white as beige
 const TAB_COLORS = [["Brown", "#9b5b31"], ["Red", "#e0524f"], ["Orange", "#e08a3c"], ["Yellow", "#d9ba5d"], ["Green", "#5bc78e"], ["Teal", "#46b1ab"], ["Blue", "#5d88d9"], ["Purple", "#9c5dd9"], ["Pink", "#d95dc0"], ["Grey", "#8e96a3"], ["Beige", "#e6d8b8"]];
-// Settings' "One group open at a time", on unless turned off
-export const oneGroupOpen = () => store("one-group") !== "off";
+// Settings' "One group open at a time", off unless turned on
+export const oneGroupOpen = () => store("one-group") === "on";
+/** One group open at a time, just turned on: the open tab's group stays open, else the group of the tab Settings came from, else the leftmost open one; the others fold. */
+export function foldToOneGroup() {
+  const keep = tabs[active].group ?? settingsFrom?.group ?? tabGroups().find((g) => !g.folded);
+  for (const g of tabGroups()) if (g !== keep) g.folded = true;
+  saveTabs();
+  renderTabs();
+}
+
 const groupLabel = (g: TabGroup) => g.name || `${TAB_COLORS[g.color][0]} group`;
 // a repository's tab color picked in its menu, by path: an index in TAB_COLORS
 const tabColors = (): Record<string, number> => JSON.parse(store("tab-colors") ?? "{}");
