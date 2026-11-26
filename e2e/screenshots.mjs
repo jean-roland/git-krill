@@ -1,7 +1,7 @@
 // The README's screenshots in docs/screenshots, from the demo repositories: node e2e/screenshots.mjs
 // Needs what the e2e tests need: a display, tauri-driver, the debug build.
 import { writeFileSync } from "node:fs";
-import { demo, launch } from "./driver.mjs";
+import { demo, groupWorkspace, launch } from "./driver.mjs";
 
 const out = new URL("../docs/screenshots/", import.meta.url).pathname, dir = demo("workspace");
 
@@ -14,6 +14,7 @@ async function shot(k, name) {
 
 let k = await launch(`${dir}/tidepool`);
 try {
+  await groupWorkspace(k);
   // the overview: every section of the sidebar open, a commit with its picture stored in LFS
   for (const key of ["worktrees", "submodules"]) await k.click(`#sidebar details[data-key="${key}"] > summary`);
   await k.click("#graph .row", "docs: chart Dover beside Brest");

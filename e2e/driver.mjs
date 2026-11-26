@@ -31,6 +31,23 @@ export function demo(...opts) {
   return join(dir, "demo");
 }
 
+/** The workspace demo's other two projects opened from the Workspace section, the three tabs in a group "tides", tidepool's open. */
+export async function groupWorkspace(k) {
+  for (const p of ["tidecalc", "tide-web"]) {
+    await k.menu('#sidebar [data-key="workspace"] .item', p);
+    await k.click("#menu button", "Open");
+    await k.until((p) => document.querySelector("#tablist .tab.on .tab-name")?.textContent === p, p);
+  }
+  await k.click("#tablist .tab", "tidepool");
+  // a pick redraws the tabs: each found anew
+  for (let i = 0; i < 2; i++) await k.js(() => document.querySelector("#tablist .tab:not(.on):not(.picked)").dispatchEvent(new MouseEvent("click", { ctrlKey: true, bubbles: true })));
+  await k.menu("#tablist .tab.picked");
+  await k.click("#menu button", "Add 3 tabs to new group");
+  await k.type("#tablist .tab-group input", "tides");
+  await k.keys("");
+  await k.until(() => document.querySelector("#tablist .tab-group")?.textContent === "tides");
+}
+
 /** A repository made by `make({ dir, git, commit, write })` in a folder of its own: each commit a day after the last, from 2026-01-01. */
 export function repo(make) {
   const top = repoDir(), dir = join(top, "repo"), env = gitEnv(top);

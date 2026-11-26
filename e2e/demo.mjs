@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
-import { demo, launch } from "./driver.mjs";
+import { demo, groupWorkspace, launch } from "./driver.mjs";
 
 const out = new URL("../docs/screenshots/", import.meta.url).pathname, raw = join(tmpdir(), "krill-demo.mkv");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -131,6 +131,7 @@ const frame = (seek) => PNG.sync.read(execFileSync("ffmpeg", ["-v", "error", ...
 
 k = await launch(`${demo("workspace")}/tidepool`);
 try {
+  await groupWorkspace(k);
   // the pointer, drawn in the page: WebDriver moves no pointer on the screen
   await k.js(() => {
     const p = document.createElement("div");
