@@ -115,8 +115,9 @@ header {
 .top-side .icon { flex: none; padding: 3px; border: none; background: none; line-height: 0; color: var(--text); }
 .top-side .icon svg { width: 18px; height: 18px; }
 .top-side .icon:hover:not(.off) { color: var(--accent); }
-#nav-forward { margin: 0 6px 0 -6px; }
-#repo-ico { margin-right: -2px; color: var(--dim); }
+#nav-forward { margin: 0 4px 0 -6px; }
+/* the same bar as before the branch: Back and Forward apart from the repository */
+#repo-ico { margin-right: -2px; padding: 2px 0 2px 12px; border-left: 1px solid color-mix(in srgb, var(--dim) 50%, transparent); color: var(--dim); }
 #branch-ico { margin: 0 -2px 0 4px; padding: 2px 0 2px 12px; border-left: 1px solid color-mix(in srgb, var(--dim) 50%, transparent); color: var(--accent); }
 /* a krill branch: the logo flips round every few seconds */
 /* 16px off the 32px icon: whole pixels at 1x and 2x, a bigger one aliases */
