@@ -183,6 +183,8 @@ test("one group open at a time, turned on in Settings: a folded group's chip ope
   await k.click("#submenu button", "New group");
   await k.type("#tablist .tab-group input", "other");
   await k.keys("");
+  // the first group takes krill's teal, the next the next color free: blue
+  assert.deepEqual(await k.js(() => [...document.querySelectorAll("#tablist .tab-group")].map((c) => c.style.getPropertyValue("--g").trim())), ["#46b1ab", "#5d88d9"]);
   const open = () => k.js(() => [...document.querySelectorAll("#tablist .tab.grouped")].filter((e) => !e.hidden).length);
   const on = () => k.js(() => document.querySelector("#tablist .tab.on.grouped .tab-name")?.textContent ?? "");
   // the open tab put in other: work folds

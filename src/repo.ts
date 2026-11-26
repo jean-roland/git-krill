@@ -643,6 +643,8 @@ const tabEls = () => $("tablist").querySelectorAll<HTMLElement>(".tab");
 const tabGroups = () => [...new Set(tabs.flatMap((t) => (t.group ? [t.group] : [])))];
 // the colors a tab or a group is given, by name, in the resistor code's order: teal and pink set in by hue, white as beige
 const TAB_COLORS = [["Brown", "#9b5b31"], ["Red", "#e0524f"], ["Orange", "#e08a3c"], ["Yellow", "#d9ba5d"], ["Green", "#5dbf4a"], ["Teal", "#46b1ab"], ["Blue", "#5d88d9"], ["Purple", "#9c5dd9"], ["Pink", "#d95dc0"], ["Grey", "#8e96a3"], ["Beige", "#e6d8b8"]];
+// krill's own: a new group takes the first color unused from it on
+const TEAL = TAB_COLORS.findIndex(([name]) => name === "Teal");
 // Settings' "One group open at a time", off unless turned on
 export const oneGroupOpen = () => store("one-group") === "on";
 // tabs Ctrl+ or Shift+clicked besides the open one, which their menu groups with it; a switch, a plain click or a fold drops them
@@ -800,8 +802,9 @@ function joinGroup(list: Tab[], g: TabGroup) {
 /** Tabs `list`, in tab order, in a new group of the first color no group wears, its name typed next. */
 function newGroup(list: Tab[]) {
   const worn = tabGroups().map((g) => g.color);
+  const color = TAB_COLORS.map((_, c) => (TEAL + c) % TAB_COLORS.length).find((c) => !worn.includes(c)) ?? TEAL;
   // one group open at a time, a group the open tab is not in starts folded
-  const g = { name: "", color: Math.max(0, TAB_COLORS.findIndex((_, c) => !worn.includes(c))), folded: oneGroupOpen() && !list.includes(tabs[active]), last: null };
+  const g = { name: "", color, folded: oneGroupOpen() && !list.includes(tabs[active]), last: null };
   joinGroup(list, g);
   renameGroup(g);
 }
