@@ -251,3 +251,24 @@ test("the rail's peek opens though the pointer left through the window's left ed
   await k.until(() => !document.getElementById("sidebar").classList.contains("open"));
   await k.keys("\uE00C");
 });
+
+test("Back closes the file view and Forward opens it again, from the arrows, the mouse's side buttons or Alt+arrows", async () => {
+  await k.click("#graph .row", "docs: chart Dover beside Brest");
+  await k.click("#commit-files .file");
+  await k.until(() => !document.getElementById("diff").hidden);
+  const path = await k.js(() => document.getElementById("diff-path").textContent);
+  const shown = () => k.js(() => !document.getElementById("diff").hidden);
+  await k.click("#nav-back");
+  await k.until(() => document.getElementById("diff").hidden && !document.getElementById("nav-forward").classList.contains("off"));
+  await k.click("#nav-forward");
+  await k.until((path) => !document.getElementById("diff").hidden && document.getElementById("diff-path").textContent === path, path);
+  await k.js(() => document.dispatchEvent(new MouseEvent("mouseup", { button: 3, bubbles: true })));
+  await k.until(() => document.getElementById("diff").hidden);
+  await k.js(() => document.dispatchEvent(new MouseEvent("mouseup", { button: 4, bubbles: true })));
+  await k.until(() => !document.getElementById("diff").hidden);
+  await k.keys("", "");
+  await k.until(() => document.getElementById("diff").hidden);
+  assert.equal(await shown(), false);
+  // nothing left to go back to: Back is greyed
+  assert.ok(await k.js(() => document.getElementById("nav-back").classList.contains("off")));
+});

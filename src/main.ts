@@ -1,12 +1,12 @@
 // Entry: wires the buttons and keys to the features, then reopens the tabs.
 import { invoke } from "@tauri-apps/api/core";
 import "@xterm/xterm/css/xterm.css";
-import { Mode, closeDiff, confirmDiscard, closeMerge, diffEditor, diffFile, editor, findInText, fitImages, goConflict, hist, histEd, histView, leaveHistory, leavingHistory, loadMerge, loadMonaco, merging, nextChange, openDiffFile, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setFileView, setFontSize, setMode, setWordWrap, setSvgView, showRev, warmDiff } from "./diff";
+import { Mode, closeDiff, confirmDiscard, closeMerge, diffEditor, diffFile, editor, findInText, fitImages, goConflict, hist, histEd, histView, leaveHistory, leavingHistory, loadMerge, loadMonaco, merging, nextChange, openDiff, openDiffFile, openHistory, paintBlame, paintBlameBtn, pickAll, relayout, save, saveMerge, setFileView, setFontSize, setMode, setWordWrap, setSvgView, showRev, warmDiff } from "./diff";
 import { rebaseKey } from "./rebase";
 import { SORTS, amending, commit, conflictCount, emptyStep, fileLists, filterFiles, foldAll, getMsg, openFile, paintFileOpts, pathArg, pickedFiles, renderCommitBtn, renderPanel, setMsg } from "./panel";
 import { $, ICONS, ask, closeDialog, dismissToast, hideBanner, input, mod, onCtrlEnter, pickDir, popup, say, store, svg, warnNoGit } from "./ui";
 import { closeFind, drawRows, findStep, findTyped, stepBack, laneBarScrolled, openFind, paintSelection, scrollLanes, showRow, shown, wheelLanes } from "./graph";
-import { Change, active, addTab, autoFetch, cloneDialog, closeTab, fetchMinutes, gitOp, opInfo, newTabMenu, nextTab, openPicked, openRepo, openSettings, paintPull, pull, pullMenu, push, refresh, renderTabHits, reopenTab, repo, restoreTabs, run, selection, switchTab, tabs, undoMenu, undoRedo } from "./repo";
+import { Change, Tab, active, addTab, autoFetch, cloneDialog, closeTab, fetchMinutes, gitOp, opInfo, newTabMenu, nextTab, openPicked, openRepo, openSettings, paintPull, pull, pullMenu, push, refresh, renderTabHits, reopenTab, repo, restoreTabs, run, selection, status, switchTab, tabs, undoMenu, undoRedo } from "./repo";
 import { askIdentity, checkTools, noIdentity } from "./settings";
 import { terms, toggleTerm } from "./terminal";
 import { closePr, followPrLink, loadPrs } from "./pr";
@@ -252,9 +252,76 @@ addEventListener("wheel", (e) => {
 }, { capture: true, passive: false });
 resizer($("details-grip"), main, "details-width", (m) => Math.min(innerWidth * 0.5, Math.max(300, innerWidth - m.clientX)), "--details-w");
 new ResizeObserver(() => terms.get(tabs[active])?.fit.fit()).observe($("term"));
-$("diff-close").onclick = () => closeDiff();
+
+// the file view Back closed, in its tab: Forward opens it again from the graph
+let ahead: { tab: Tab; open: () => unknown } | null = null;
+const viewOpen = () => !!hist || !$("diff").hidden || !!merging || !$("pr").hidden;
+
+/** Out of the file history, back to the diff it came from; Forward opens the history again. */
+async function backFromHistory() {
+  const tab = tabs[active], path = hist?.path;
+  await leaveHistory();
+  if (path && !hist) ahead = { tab, open: () => openHistory(path) };
+  paintNav();
+}
+
+/** Out of the diff, back to the graph; Forward opens it again, a working tree file only while it still has its changes. */
+async function backFromDiff() {
+  const tab = tabs[active], was = diffFile;
+  await closeDiff();
+  // unsaved edits kept
+  if (diffFile || !was) return;
+  const { kind, f, c } = was;
+  ahead = {
+    tab,
+    open: () => {
+      const now = kind === "commit" ? f : status?.[kind].find((x) => x.path === f.path);
+      return now ? openDiff(kind, now, c) : say(`${f.path} has no ${kind} changes left`, true);
+    },
+  };
+  paintNav();
+}
+
+/** Back one screen: out of a file's history to its diff, out of a diff, a merge or a pull request to the graph, out of a worktree or a submodule to its parent. */
+async function goBack() {
+  if (hist || leavingHistory) await backFromHistory();
+  else if (!$("diff").hidden) await backFromDiff();
+  else if (merging) await closeMerge();
+  else if (!$("pr").hidden) closePr();
+  else if (tabs[active].parent) await stepBack();
+  paintNav();
+}
+
+/** Forward to the view Back closed, from the graph of its tab. */
+function goForward() {
+  if (!ahead || ahead.tab !== tabs[active] || viewOpen()) return;
+  const { open } = ahead;
+  ahead = null;
+  open();
+  paintNav();
+}
+
+/** The arrows greyed where they lead nowhere. */
+function paintNav() {
+  $("nav-back").classList.toggle("off", !viewOpen() && !tabs[active]?.parent);
+  $("nav-forward").classList.toggle("off", !ahead || ahead.tab !== tabs[active] || viewOpen());
+}
+$("nav-back").onclick = () => goBack();
+$("nav-forward").onclick = () => goForward();
+// a view opening or closing, a tab switched: the arrows follow
+const navWatch = new MutationObserver(paintNav);
+for (const id of ["diff", "hist", "pr", "merge"]) navWatch.observe($(id), { attributes: true, attributeFilter: ["hidden"] });
+navWatch.observe($("tablist"), { childList: true });
+// a mouse's side buttons, as in a browser
+addEventListener("mouseup", (e) => {
+  if (e.button !== 3 && e.button !== 4) return;
+  e.preventDefault();
+  if (e.button === 3) goBack();
+  else goForward();
+});
+$("diff-close").onclick = () => backFromDiff();
 $("diff-history").onclick = () => diffFile && openHistory(diffFile.f.path, diffFile.c);
-$("hist-close").onclick = () => leaveHistory();
+$("hist-close").onclick = () => backFromHistory();
 document.querySelectorAll<HTMLElement>("[data-hview]").forEach((b) => (b.onclick = () => histView(b.dataset.hview!)));
 histView(store("hist-view") ?? "file");
 resizer($("hist-grip"), $("hist"), "hist-width", (m) => Math.min(innerWidth * 0.6, Math.max(220, m.clientX - $("hist").getBoundingClientRect().left)), "--hist-list-w");
@@ -304,7 +371,12 @@ addEventListener("keydown", (e) => {
   // the shell owns every other key
   else if ((e.target as HTMLElement).closest?.("#term")) return;
   // back from a worktree or a submodule to its repository, from anywhere but the shell
-  else if (e.altKey && e.key === "ArrowLeft" && tabs[active].parent && !asking) (e.preventDefault(), stepBack());
+  // in a field or the editor, Alt+arrows move the caret (Option+arrows by word on macOS)
+  else if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight") && !asking && !(e.target as HTMLElement).closest?.("input, textarea")) {
+    e.preventDefault();
+    if (e.key === "ArrowLeft") goBack();
+    else goForward();
+  }
   else if (e.altKey && !mod(e) && key === "z" && $("wrap").offsetParent) (e.preventDefault(), $("wrap").click());
   // the rebase plan's keys, unless a dialog, a menu, a diff over it or a field has them
   else if ($("dialog").hidden && $("menu").hidden && $("diff").hidden && !(e.target as HTMLElement).closest?.("select, input, textarea") && rebaseKey(e)) e.preventDefault();
@@ -328,8 +400,8 @@ addEventListener("keydown", (e) => {
     else if (!$("dialog").hidden) closeDialog();
     else if (!$("tab-search").hidden) $("tab-search").hidden = true;
     else if (!$("find").hidden && !openFile()) closeFind();
-    else if (hist || leavingHistory) leaveHistory();
-    else if (!$("diff").hidden) closeDiff();
+    else if (hist || leavingHistory) backFromHistory();
+    else if (!$("diff").hidden) backFromDiff();
     else if (merging) closeMerge();
     else if (!$("pr").hidden) closePr();
     else if (dismissToast()) e.preventDefault();
