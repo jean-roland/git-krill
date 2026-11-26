@@ -203,6 +203,8 @@ fn git_command(repo: &str, args: &[&str], ask: bool) -> Command {
         .env("GIT_TERMINAL_PROMPT", "0")
         // paths from the UI are names, not globs: `f[12].c` must not also match f1.c
         .env("GIT_LITERAL_PATHSPECS", "1")
+        // a status read in the background takes no index.lock: a git commit run meanwhile in a terminal would fail on it
+        .env("GIT_OPTIONAL_LOCKS", "0")
         // its messages are read here: in English whatever the user's language
         .env_remove("LC_ALL")
         .env("LC_MESSAGES", "C");
