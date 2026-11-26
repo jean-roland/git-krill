@@ -2,7 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { layoutGraph } from "./core.js";
 import { closeRebase, ontoRange, openRebase, rebaseRange } from "./rebase";
-import { Commit, LOG_LIMIT, Stash, Status, Submodule, Worktree, active, closeTab, commits, dropEdits, fakeCommit, branchSpec, findRef, FOLDS_KEY, gitOp, headHash, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, keepTab, newTab, opInfo, openRepo, paintRepoName, pull, push, pushBranch, redraw, refresh, refs, replaceTab, remoteTags, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
+import { Commit, LOG_LIMIT, Stash, Status, Submodule, Worktree, active, closeTab, commits, dropEdits, fakeCommit, findRef, FOLDS_KEY, gitOp, headHash, hiddenRemotes, hiddenSet, hideItem, isHead, isRepo, keepTab, newTab, opInfo, openRepo, paintRepoName, pull, push, pushBranch, redraw, refresh, refs, replaceTab, remoteTags, repo, run, selection, sideFolds, status, switchTab, tabs, thisWorktree, toggleHidden, toggleRemote, updateHidden } from "./repo";
 import { $, COLORS, ICONS, MenuItem, ask, askName, basename, copy, dateTimeText, dialog, h, hideBanner, ico, input, mod, plural, popup, say, short, showBanner, spriteId, store, svg, toast } from "./ui";
 import { dropTerm } from "./terminal";
 import { closePr, mergedHeads, newPr, prChip, prItems, prOf, prRows, pullsHere } from "./pr";
@@ -1027,7 +1027,7 @@ function pullItem(name: string, up: string, track: string): MenuItem {
   if (holder) return ["Pull", null, `${name} is checked out in the worktree ${basename(holder.path)}: pull it there`];
   if (track === "[gone]") return ["Pull", null, `${up} is gone from its remote`];
   if (track.includes("ahead")) return ["Pull", null, `${name} has commits ${up} has not: check it out to pull`];
-  return ["Pull", () => gitOp("pull-branch", branchSpec(name, up)), `Fast-forwards ${name} to ${up}, fetched first`];
+  return ["Pull", () => gitOp("pull-branch", name), `Fast-forwards ${name} to ${up}, fetched first`];
 }
 
 /** Branch `name` (a remote one as "remote/branch"): the same menu in the sidebar and on graph labels. */

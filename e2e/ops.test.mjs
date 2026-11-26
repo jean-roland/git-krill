@@ -183,7 +183,7 @@ test("a branch not checked out pulls by fast-forward from its menu; its push, re
   await refresh();
   await k.menu('#sidebar [data-key="local"] .item', b);
   await k.click("#menu button", "Pull");
-  await toast(`Fast-forwarded ${b} to origin/${b}`);
+  await toast(`Pulled ${b}`);
   assert.equal(git(top, "rev-parse", b), git(other, "rev-parse", b));
   // rewritten here: it has a commit its upstream has not, and lacks one
   const rewritten = git(top, "commit-tree", "--no-gpg-sign", "-p", `${b}~1`, "-m", "feat: the moon rewritten", `${b}^{tree}`).trim();
@@ -194,8 +194,17 @@ test("a branch not checked out pulls by fast-forward from its menu; its push, re
   await k.click("#menu button", "Push");
   await k.until((b) => !document.getElementById("banner").hidden && document.getElementById("banner").textContent.includes(`Push rejected: origin/${b} has 1 commit that ${b} has not`), b);
   await k.click("#banner button.primary", "Force push");
-  await toast(`Force pushed ${b} to origin/${b}`);
+  await toast(`Force pushed ${b}`);
   assert.match(git(dir, "ls-remote", "origin.git", `refs/heads/${b}`), new RegExp(`^${rewritten}`));
+  // an upstream of another name, as a branch started from origin/main: git would not push it there, nor does its menu
+  const fix = "fix/tide-table", main = git(dir, "ls-remote", "origin.git", "refs/heads/main");
+  git(top, "branch", "-q", "--track", fix, "origin/main");
+  git(top, "update-ref", `refs/heads/${fix}`, git(top, "commit-tree", "--no-gpg-sign", "-p", fix, "-m", "fix: the tide table", `${fix}^{tree}`).trim());
+  await refresh();
+  await k.menu('#sidebar [data-key="local"] .item', fix);
+  await k.click("#menu button", "Push");
+  await k.until((fix) => [...document.querySelectorAll("#toasts .toast.err pre")].some((p) => p.textContent.includes(`${fix} has nowhere to push to`)), fix);
+  assert.equal(git(dir, "ls-remote", "origin.git", "refs/heads/main"), main);
 });
 
 test("a commit's hooks are counted in their toast, one line each", async () => {

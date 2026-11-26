@@ -2223,16 +2223,59 @@ fn git_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
     }
 }
 
+/// `b` if git takes it as a branch name as given: no `*` or `..`, and no `@{-1}`, which it would expand.
+fn branch_name<'a>(repo: &str, b: &'a str) -> Result<&'a str, String> {
+    match git(repo, &["check-ref-format", "--branch", not_option(b)?]) {
+        Ok(name) if name.trim() == b => Ok(b),
+        _ => Err(format!("Not a branch name: {b}")),
+    }
+}
+
+/// Where `git push` would send branch `b` were it checked out, its @{push} (push.default, pushRemote, pushDefault): (remote, full ref there), or None, as for an upstream of another name.
+fn push_target(repo: &str, b: &str) -> Option<(String, String)> {
+    let out = git(repo, &["for-each-ref", "--format=%(push:remotename)%00%(push)", &format!("refs/heads/{b}")]).ok()?;
+    let (remote, tracking) = out.trim_end().split_once('\0')?;
+    // @{push} names the destination's remote-tracking branch; push:remoteref is set only by a remote's push refspec
+    let there = tracking.strip_prefix(&format!("refs/remotes/{remote}/"))?;
+    Some((remote.to_string(), format!("refs/heads/{there}")))
+}
+
+/// Branch `b`'s upstream: (remote, full ref there), the remote "." for a local branch; or None.
+fn upstream_target(repo: &str, b: &str) -> Option<(String, String)> {
+    let out = git(repo, &["for-each-ref", "--format=%(upstream:remotename)%00%(upstream:remoteref)", &format!("refs/heads/{b}")]).ok()?;
+    let (remote, there) = out.trim_end().split_once('\0')?;
+    (!remote.is_empty() && !there.is_empty()).then(|| (remote.to_string(), there.to_string()))
+}
+
+/// Push branch `b` where `git push` would, were it checked out; `flags` go first. None there, as for `git push` with an upstream of another name: refused.
+fn push_branch(repo: &str, b: &str, flags: &[&str]) -> Result<String, String> {
+    let b = branch_name(repo, b)?;
+    let (remote, there) = push_target(repo, b).ok_or(format!("{b} has nowhere to push to: its upstream has another name, or it has none. Check it out and push from there"))?;
+    let spec = format!("refs/heads/{b}:{there}");
+    let args: Vec<&str> = ["push"].into_iter().chain(flags.iter().copied()).chain([not_option(&remote)?, spec.as_str()]).collect();
+    git_with_stderr(repo, &args)
+}
+
+/// Fast-forward branch `b` to its upstream, fetched first: git refuses any other move, and a branch a worktree has checked out.
+fn pull_branch(repo: &str, b: &str) -> Result<String, String> {
+    let b = branch_name(repo, b)?;
+    let (remote, there) = upstream_target(repo, b).ok_or(format!("{b} has no upstream to pull from"))?;
+    git_with_stderr(repo, &["fetch", not_option(&remote)?, &format!("{there}:refs/heads/{b}")])
+}
+
+/// Push branch `b` to `remote` as `there` (`spec` is "b:there"), set as its upstream: the branch named, whichever is checked out.
+fn push_branch_upstream(repo: &str, remote: &str, spec: &str) -> Result<String, String> {
+    let (b, there) = spec.split_once(':').ok_or("A branch's first push names it and its name on the remote")?;
+    let refspec = format!("refs/heads/{}:refs/heads/{}", branch_name(repo, b)?, branch_name(repo, there)?);
+    git_with_stderr(repo, &["push", "-u", not_option(remote)?, &refspec])
+}
+
 fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result<String, String> {
     // a typed folder
     let arg = if op.starts_with("worktree-add") { home_path(&arg) } else { arg };
     let state = op_state(&repo)?;
     let arg2 = arg2.unwrap_or_default();
     let upstream = format!("HEAD:refs/heads/{arg2}");
-    // a branch not checked out, as "branch:its branch on the remote": git allows no ':' in a branch name
-    let (local, there) = arg2.split_once(':').unwrap_or_default();
-    let push_spec = format!("refs/heads/{local}:refs/heads/{there}");
-    let pull_spec = format!("refs/heads/{there}:refs/heads/{local}");
     let tag = format!("refs/tags/{arg2}");
     // git titles a merge with the name it is given: the short one when it reaches the same branch
     let short = arg.strip_prefix("refs/heads/").or_else(|| arg.strip_prefix("refs/remotes/")).unwrap_or(&arg);
@@ -2301,8 +2344,6 @@ fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
             _ => vec!["pull", "--no-rebase"],
         },
         "push" => vec!["push"],
-        // the lease: the upstream is where the last fetch saw it; if-includes: and that tip was once in the local branch
-        "push-force" => vec!["push", "--force-with-lease", "--force-if-includes"],
         // git-lfs globs its own pathspecs: under literal ones it fetches nothing, and still succeeds
         "lfs-pull" => vec!["--no-literal-pathspecs", "lfs", "pull"],
         // arg2 "file": the path itself, its glob characters escaped
@@ -2346,11 +2387,13 @@ fn run_op(repo: String, op: String, arg: String, arg2: Option<String>) -> Result
         "fetch-remote" => vec!["fetch", "--prune", not_option(&arg)?],
         // first push of a branch: arg is the remote, arg2 the branch name there
         "push-upstream" => vec!["push", "-u", not_option(&arg)?, not_option(&arg2).map(|_| upstream.as_str())?],
-        // a branch not checked out: arg is the remote, arg2 "branch:its branch there"; -u: a first push sets the upstream
-        "push-branch" => vec!["push", "-u", not_option(&arg)?, &push_spec],
-        "push-branch-force" => vec!["push", "-u", "--force-with-lease", "--force-if-includes", not_option(&arg)?, &push_spec],
-        // fetched into the branch itself: git only fast-forwards it, and refuses one a worktree has checked out
-        "pull-branch" => vec!["fetch", not_option(&arg)?, &pull_spec],
+        // a branch by name, checked out or not: arg is the branch
+        "push-branch" => return push_branch(&repo, &arg, &[]),
+        // the lease: the remote branch is where the last fetch saw it; if-includes: and that tip was once in the local branch
+        "push-branch-force" => return push_branch(&repo, &arg, &["--force-with-lease", "--force-if-includes"]),
+        "pull-branch" => return pull_branch(&repo, &arg),
+        // a branch's first push: arg is the remote, arg2 "branch:its name there"
+        "push-branch-upstream" => return push_branch_upstream(&repo, &arg, &arg2),
         // worktree only: the restored file shows up unstaged, for review
         "restore-file" => vec!["restore", "--source", not_option(&arg)?, "--", &arg2],
         "checkout" => vec!["checkout", not_option(&arg)?],
