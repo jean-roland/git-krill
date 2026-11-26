@@ -225,3 +225,26 @@ test("Shift+click picks the tabs in view from the open one to the one clicked; a
   await k.click("#tablist .tab.on");
   assert.deepEqual(await picked(), []);
 });
+
+test("a closed group comes back whole, named as it was, on the tab shown last, with Ctrl+Shift+T", async () => {
+  // a second repository in work, tidepool's worktree, opened at a restart and shown last
+  const top = await k.js(() => [...document.querySelectorAll("#tablist .tab")].find((e) => e.textContent.includes("tidepool")).title);
+  const was = k.home;
+  await k.quit(true);
+  k = await launch(`${top}-moon`, {}, was);
+  await k.menu("#tablist .tab.on");
+  await k.click("#menu button", "Add tab to group");
+  await k.click("#submenu button", "work");
+  await k.menu("#tablist .tab-group", "work");
+  await k.click("#menu button", "Close group");
+  await k.until(() => ![...document.querySelectorAll("#tablist .tab-group")].some((c) => c.textContent === "work"));
+  await k.menu("#tablist .tab");
+  assert.ok(await k.js(() => [...document.querySelectorAll("#menu button")].some((b) => b.textContent === "Reopen closed group")));
+  await k.keys("");
+  await k.keys("", "", "t");
+  await k.until(() => {
+    const chip = [...document.querySelectorAll("#tablist .tab-group")].find((c) => c.textContent === "work");
+    return chip?.nextElementSibling?.classList.contains("grouped") && chip.nextElementSibling.textContent.includes("tidepool");
+  });
+  await k.until(() => document.querySelector("#tablist .tab.on")?.title.endsWith("-moon"));
+});

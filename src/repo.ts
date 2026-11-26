@@ -583,8 +583,10 @@ function childLabel(t: Tab) {
   return name.startsWith(lead) && name.length > lead.length ? name.slice(lead.length) : name;
 }
 export const tabName = (t: Tab) => (t.settings ? "Settings" : !t.repo ? "Home" : t.parent ? `${repoLabel(t.parent)} › ${childLabel(t)}` : repoLabel(t.repo));
+// a closed group, reopened whole: its name, its color, its tabs' repositories in tab order, the one shown last ("" for none)
+type ClosedGroup = { name: string; color: number; repos: string[]; focus: string };
 // closed this session, for Ctrl+Shift+T
-const closedTabs: string[] = [];
+const closedTabs: (string | ClosedGroup)[] = [];
 // a submodule shown in its parent's tab reopens as that parent
 const closedRepo = (t: Tab) => (t.worktree ? t.repo : t.parent || t.repo);
 
@@ -852,11 +854,28 @@ function ungroup(g: TabGroup) {
 }
 
 async function closeGroup(g: TabGroup) {
+  const before = closedTabs.length, focus = g.last?.group === g && g.last.repo ? closedRepo(g.last) : "";
   for (const t of tabs.filter((o) => o.group === g)) {
     // closed meanwhile, by a click during the last close
     const i = tabs.indexOf(t);
     if (i >= 0) await closeTab(i);
   }
+  // its tabs' entries become one: Ctrl+Shift+T brings the group back
+  const repos = closedTabs.splice(before) as string[];
+  if (repos.length) closedTabs.push({ name: g.name, color: g.color, repos, focus });
+}
+
+/** Closed group `c` back in one go: its repositories still there, in tabs at the end, grouped again, then the tab shown last before, else its first; one open in another tab meanwhile stays there. */
+async function reopenGroup(c: ClosedGroup) {
+  // every root first: the view changes once, all the tabs in
+  const roots = await Promise.all(c.repos.map((r) => invoke<string>("repo_root", { path: r }).catch(() => "")));
+  const back = [...new Set(roots)].filter((r) => r && !tabs.some((t) => t.repo === r));
+  // asked before the push: a refused switch would leave tabs the bar does not show
+  if (!back.length || !(await dropEdits())) return;
+  const g: TabGroup = { name: c.name, color: c.color, folded: false, last: null };
+  tabs.push(...back.map((r) => Object.assign(newTab(r), { group: g })));
+  const shown = tabs.findIndex((t) => t.group === g && t.repo === roots[c.repos.indexOf(c.focus)]);
+  return switchTab(shown >= 0 ? shown : tabs.length - back.length);
 }
 
 /** The tab `step` (1 or -1) away from the open one, past folded tabs. */
@@ -1059,7 +1078,7 @@ function tabMenu(i: number): MenuItem[] {
   return items;
 }
 
-const reopenItem = (): MenuItem => ["Reopen closed tab", closedTabs.length ? reopenTab : null];
+const reopenItem = (): MenuItem => [typeof closedTabs[closedTabs.length - 1] === "object" ? "Reopen closed group" : "Reopen closed tab", closedTabs.length ? reopenTab : null];
 export const newTabMenu = (): MenuItem[] => [["New tab", addTab], reopenItem()];
 
 /** Edit `value` in a field filling `el`: Enter or leaving the field hands `done` the trimmed text, Esc hands it null. */
@@ -1109,7 +1128,8 @@ function renameTab(i: number) {
 
 export function reopenTab() {
   const r = closedTabs.pop();
-  if (r) openRepo(r);
+  if (typeof r === "string") openRepo(r);
+  else if (r) reopenGroup(r);
 }
 
 export function renderTabHits() {
