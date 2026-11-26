@@ -306,7 +306,7 @@ function goForward() {
 /** The arrows greyed where they lead nowhere. */
 function paintNav() {
   $("nav-back").classList.toggle("off", !viewOpen() && !tabs[active]?.parent);
-  $("nav-forward").classList.toggle("off", !ahead || ahead.tab !== tabs[active] || viewOpen() || !status);
+  $("nav-forward").classList.toggle("off", !ahead || ahead.tab !== tabs[active] || viewOpen());
 }
 $("nav-back").onclick = () => goBack();
 $("nav-forward").onclick = () => goForward();

@@ -271,4 +271,11 @@ test("Back closes the file view and Forward opens it again, from the arrows, the
   assert.equal(await shown(), false);
   // nothing left to go back to: Back is greyed
   assert.ok(await k.js(() => document.getElementById("nav-back").classList.contains("off")));
+  // another tab and back: Forward still leads to the file
+  await k.keys("", "t");
+  await k.click("#tablist .tab", "tidepool");
+  await k.until(() => !document.getElementById("nav-forward").classList.contains("off"));
+  // its × shows on hover only
+  await k.js(() => document.querySelector("#tablist .tab:not(.on) .x").click());
+  await k.until(() => document.querySelectorAll("#tablist .tab").length === 1);
 });
