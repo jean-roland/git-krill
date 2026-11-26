@@ -50,6 +50,10 @@ input[type="checkbox"]:hover { border-color: var(--accent); }
 input[type="checkbox"]:checked { border-color: var(--accent); background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8.5l2.8 2.8L12 5.5' fill='none' stroke='%23fff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 100% no-repeat, var(--accent); }
 input[type="checkbox"]:disabled { opacity: 0.45; cursor: default; }
 input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* a Settings checkbox and its words: one line, centred on each other */
+/* the words keep the baseline the row's label lines up on */
+.set-row label:has(> input[type="checkbox"]) { display: inline-flex; align-items: baseline; gap: 6px; }
+.set-row label > input[type="checkbox"] { flex: none; margin: 0; align-self: center; }
 
 button {
   font: inherit;
