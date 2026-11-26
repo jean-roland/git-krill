@@ -196,9 +196,12 @@ header {
 .tab .x:hover { color: var(--accent); }
 /* a group: its chip, one line in its colour under the chip and its tabs, the gaps between them included; its open tab's top line in that colour */
 .tab-group { position: relative; flex: none; display: flex; align-items: center; padding: 0 6px; cursor: pointer; user-select: none; }
-.tab-group span { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; line-height: 18px; color: var(--bg); background: var(--g); }
-.tab-group span:empty { width: 12px; height: 12px; padding: 0; border-radius: 50%; }
+.tab-group .label { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; line-height: 18px; color: var(--bg); background: var(--g); }
+.tab-group .label:empty { width: 12px; height: 12px; padding: 0; border-radius: 50%; }
 .tab-group.drag { cursor: grabbing; }
+.tab-group .ico { margin-left: 2px; color: var(--g); }
+.tab-group .ico svg { width: 14px; height: 14px; stroke-width: 3; }
+.tab-group.folded .ico svg { transform: rotate(-90deg); }
 .tab-group::after, .tab.grouped::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--g); }
 .tab.grouped::after { left: -2px; }
 .tab.grouped.on { box-shadow: inset 0 2px var(--g); }

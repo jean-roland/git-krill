@@ -692,7 +692,7 @@ function groupChip(g: TabGroup) {
   return h(
     "div",
     {
-      className: "tab-group",
+      className: `tab-group${g.folded ? " folded" : ""}`,
       title: own.map(tabName).join("\n"),
       style: `--g: ${TAB_COLORS[g.color][1]}`,
       onclick: () => {
@@ -701,7 +701,9 @@ function groupChip(g: TabGroup) {
       onpointerdown: (e: PointerEvent) => dragTabs(e, own, g),
       oncontextmenu: (e: MouseEvent) => popup(e, groupMenu(g)),
     },
-    h("span", { textContent: g.name }),
+    h("span", { className: "label", textContent: g.name }),
+    // a click folds: the chevron of a tree's branch
+    ico(ICONS.caret),
   );
 }
 
