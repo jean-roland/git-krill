@@ -487,7 +487,9 @@ main.rail #sidebar:not(.peek) summary .ico svg { width: 18px; height: 18px; }
 /* short of the edge: the rows' lane colour bar there stays clear */
 #graph.cut-right .lane-box::after { right: 3px; background: linear-gradient(90deg, transparent, var(--bg)); }
 /* the lanes' own scrollbar, under the graph column at the foot of the view, while they are cut */
-#lane-bar { position: sticky; bottom: 0; z-index: 3; display: none; width: var(--graph-w); margin-left: var(--refs-w); overflow-x: auto; overflow-y: hidden; }
+/* opaque, its thumb longer than a dot: see-through and short, it is lost over the lanes */
+#lane-bar { position: sticky; bottom: 0; z-index: 3; display: none; width: var(--graph-w); margin-left: var(--refs-w); overflow-x: auto; overflow-y: hidden; background: var(--bg); }
+#lane-bar::-webkit-scrollbar-thumb { min-width: 32px; }
 #lane-bar > div { width: var(--lane-w); height: 1px; }
 #graph.cut-left #lane-bar, #graph.cut-right #lane-bar { display: block; }
 .lanes path { fill: none; stroke-width: 2; }
