@@ -78,9 +78,9 @@ async function freePorts(n) {
   return ports;
 }
 
-/** An Xvfb display of its own, the CI's size: windows of test files run side by side never share focus. */
+/** An Xvfb display of its own, the CI's size: windows of test files run side by side never share focus; it ends with its app's window, a killed test included. */
 function xvfb() {
-  const x = spawn("Xvfb", ["-displayfd", "3", "-screen", "0", "1920x1080x24", "-nolisten", "tcp"], { stdio: ["ignore", "ignore", "ignore", "pipe"] });
+  const x = spawn("Xvfb", ["-displayfd", "3", "-screen", "0", "1920x1080x24", "-nolisten", "tcp", "-terminate"], { stdio: ["ignore", "ignore", "ignore", "pipe"] });
   return new Promise((done, fail) => {
     x.stdio[3].once("data", (n) => done({ x, display: `:${String(n).trim()}` }));
     x.once("exit", (code) => fail(new Error(`Xvfb exited with ${code}`)));
