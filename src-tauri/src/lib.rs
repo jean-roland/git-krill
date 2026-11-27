@@ -844,14 +844,26 @@ fn log(repo: String, limit: u32, hide: Vec<String>, show: Vec<String>) -> Result
 
 // a status this slow rehashed files whose stat changed (a checkout, a build touching them): lock-free, it never saves their new stat
 const SLOW_STATUS: std::time::Duration = std::time::Duration::from_millis(300);
+// repositories whose index was refreshed since their last fast status: one slow for another cause (untracked files, a network disk) takes index.lock once, not on every status
+static REFRESHED: Mutex<std::collections::BTreeSet<String>> = Mutex::new(std::collections::BTreeSet::new());
 
 #[tauri::command(async)]
 fn status(repo: String) -> Result<Status, String> {
     let started = std::time::Instant::now();
     // v2 with --branch: the branch and how far it is from its upstream come in the same git run
     let out = git(&repo, &["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"])?;
-    if started.elapsed() > SLOW_STATUS {
-        // saved once, aside, so the next statuses are fast again; it takes index.lock briefly, and on another's fails harmlessly
+    let slow = started.elapsed() > SLOW_STATUS;
+    let first_slow = {
+        let mut refreshed = REFRESHED.lock().unwrap();
+        if slow {
+            refreshed.insert(repo.clone())
+        } else {
+            refreshed.remove(&repo);
+            false
+        }
+    };
+    if first_slow {
+        // saved aside, so the next statuses are fast again; it holds index.lock through its stat pass, and on another's fails harmlessly
         let repo = repo.clone();
         std::thread::spawn(move || git(&repo, &["update-index", "-q", "--refresh"]));
     }
