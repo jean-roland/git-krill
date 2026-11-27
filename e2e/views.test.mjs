@@ -223,6 +223,35 @@ test("a page read in the File view stays put when its old version lands beside i
   git("reset", "-q", "--hard", "HEAD~2");
 });
 
+test("two versions of a page scroll together from a rule at the top, as from text", async () => {
+  const git = (...args) => execFileSync("git", ["-c", "user.name=Krill Test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", ...args], { cwd: repository });
+  const page = (word) => Array.from({ length: 40 }, (_, i) => `## Part ${i}\n\n${`The ${i < 39 ? "tide" : word} turns at the slack of the moon. `.repeat(12)}\n\n---\n`).join("\n");
+  writeFileSync(join(repository, "RULED.md"), page("tide"));
+  git("add", "RULED.md");
+  git("commit", "-q", "-m", "docs: a ruled page");
+  writeFileSync(join(repository, "RULED.md"), page("flood"));
+  git("commit", "-q", "-a", "-m", "docs: flood the last part");
+  await k.keys("");
+  await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
+  await k.click("#graph .row", "docs: flood the last part");
+  await k.click('#commit-files .file[data-path="RULED.md"]');
+  await k.click('[data-svg="image"]');
+  await k.click('[data-dview="diff"]');
+  await k.until(() => [...document.querySelectorAll("#diff-binary iframe")].filter((f) => f.contentDocument?.scrollingElement?.scrollHeight > 5000).length === 2);
+  await k.settle();
+  // the 20th rule at the very top of the new version
+  await k.js(() => {
+    const page = document.querySelector("#diff-binary .img-side.add iframe").contentDocument.scrollingElement;
+    page.scrollTop += page.querySelectorAll("hr")[20].getBoundingClientRect().top;
+  });
+  await k.settle();
+  const tops = await k.js(() => [...document.querySelectorAll("#diff-binary iframe")].map((f) => f.contentDocument.scrollingElement.scrollTop));
+  assert.ok(tops[1] > 2000 && Math.abs(tops[0] - tops[1]) < 2, String(tops));
+  await k.click('[data-svg="text"]');
+  await k.keys("");
+  git("reset", "-q", "--hard", "HEAD~2");
+});
+
 test("Ctrl+F with a diff open finds in its text, not in the commits behind it", async () => {
   await k.click("#graph .row", "fix(tide): round heights to the centimetre");
   await k.click('#commit-files .file[data-path="src/tide.rs"]');

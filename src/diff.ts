@@ -1053,7 +1053,8 @@ function followPage(from: Document, to: Document) {
     return tagged.length ? tagged : ([...d.body.children] as HTMLElement[]);
   };
   const page = to.scrollingElement!, s = from.scrollingElement!;
-  const top = blocks(from).find((b) => b.getBoundingClientRect().bottom > 0);
+  // a block with no text, a rule or an image, has twins all down the page
+  const top = blocks(from).find((b) => b.getBoundingClientRect().bottom > 0 && b.textContent!.trim());
   const twin = top && blocks(to).find((b) => b.textContent === top.textContent);
   if (twin) page.scrollTop += twin.getBoundingClientRect().top - top.getBoundingClientRect().top;
   else page.scrollTop = (s.scrollTop / Math.max(1, s.scrollHeight - s.clientHeight)) * (page.scrollHeight - page.clientHeight);
