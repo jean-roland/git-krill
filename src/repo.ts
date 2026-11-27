@@ -855,6 +855,8 @@ async function newTabIn(g: TabGroup) {
 
 function ungroup(g: TabGroup) {
   for (const t of tabs) if (t.group === g) t.group = null;
+  // its closed tabs reopen ungrouped too
+  for (const c of closedTabs) if ("group" in c && c.group === g) c.group = null;
   saveTabs();
   renderTabs();
 }
@@ -1151,15 +1153,19 @@ function renameTab(i: number) {
   });
 }
 
+/** Group `g` as the tab bar holds it now: closed whole and reopened since, it is another object, with its name and color. */
+const liveGroup = (g: TabGroup) => tabGroups().find((x) => x === g) ?? tabGroups().find((x) => x.name === g.name && x.color === g.color) ?? g;
+
 export async function reopenTab() {
   const r = closedTabs.pop();
   if (!r) return;
   if ("repos" in r) return reopenGroup(r);
   const before = new Set(tabs);
   const opened = await openRepo(r.repo);
-  const t = tabs[active];
+  // found by its repository: another reopen may have switched tabs during the wait
+  const t = tabs.find((x) => !before.has(x) && x.repo === r.repo);
   // back in its group, emptied meanwhile or not, when it opened in a tab of its own; one already open stays as it is
-  if (opened && r.group && !before.has(t)) regroup(t, r.group);
+  if (opened && r.group && t) regroup(t, liveGroup(r.group));
 }
 
 /** The tab search's list: the tabs whose name, path or group's name hold the query, folded ones included, each with its group's chip. */

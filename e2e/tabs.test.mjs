@@ -266,3 +266,17 @@ test("a tab closed in a group comes back in it with Ctrl+Shift+T", async () => {
   await k.until(() => document.querySelector("#tablist .tab.on.grouped")?.title.endsWith("-moon"));
   assert.equal(await k.js(() => getComputedStyle(document.querySelector("#tablist .tab.on")).getPropertyValue("--g")), await k.js(() => getComputedStyle([...document.querySelectorAll("#tablist .tab-group")].find((c) => c.textContent === "work")).getPropertyValue("--g")));
 });
+
+test("a tab closed in a group, then the group closed, both come back in one group", async () => {
+  const works = () => k.js(() => [...document.querySelectorAll("#tablist .tab-group")].filter((c) => c.textContent === "work").length);
+  await k.keys("\uE009", "w");
+  await k.until(() => ![...document.querySelectorAll("#tablist .tab")].some((t) => t.title.endsWith("-moon")));
+  await k.menu("#tablist .tab-group", "work");
+  await k.click("#menu button", "Close group");
+  await k.until(() => ![...document.querySelectorAll("#tablist .tab-group")].some((c) => c.textContent === "work"));
+  await k.keys("\uE009", "\uE008", "t");
+  await k.until(() => [...document.querySelectorAll("#tablist .tab-group")].some((c) => c.textContent === "work"));
+  await k.keys("\uE009", "\uE008", "t");
+  await k.until(() => document.querySelector("#tablist .tab.on.grouped")?.title.endsWith("-moon"));
+  assert.equal(await works(), 1);
+});
