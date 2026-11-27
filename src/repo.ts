@@ -581,10 +581,13 @@ function childLabel(t: Tab) {
 export const tabName = (t: Tab) => (t.settings ? "Settings" : !t.repo ? "Home" : t.parent ? `${repoLabel(t.parent)} › ${childLabel(t)}` : repoLabel(t.repo));
 // a closed group, reopened whole: its name, its color, its tabs' repositories in tab order, the one shown last ("" for none)
 type ClosedGroup = { name: string; color: number; repos: string[]; focus: string };
+// a closed tab: its repository, and the group it rejoins on reopening
+type ClosedTab = { repo: string; group: TabGroup | null };
 // closed this session, for Ctrl+Shift+T
-const closedTabs: (string | ClosedGroup)[] = [];
+const closedTabs: (ClosedTab | ClosedGroup)[] = [];
 // a submodule shown in its parent's tab reopens as that parent
 const closedRepo = (t: Tab) => (t.worktree ? t.repo : t.parent || t.repo);
+const closedTab = (t: Tab): ClosedTab => ({ repo: closedRepo(t), group: t.group });
 
 /** Reopen the last run's tabs, then the repository krill was started on; the splash stays until `ready` too. */
 export async function restoreTabs(ready: Promise<unknown>) {
@@ -1052,7 +1055,7 @@ function land() {
 export async function closeTab(i: number) {
   if (i === active && !(await dropEdits())) return;
   dropTerm(tabs[i]);
-  if (tabs[i].repo) closedTabs.push(closedRepo(tabs[i]));
+  if (tabs[i].repo) closedTabs.push(closedTab(tabs[i]));
   const back = tabs[i].settings && settingsFrom ? tabs.indexOf(settingsFrom) : -1;
   tabs.splice(i, 1);
   if (!tabs.length) tabs.push(newTab(""));
@@ -1070,7 +1073,7 @@ async function closeTabs(i: number, keep: (k: number) => boolean) {
   const gone = tabs.filter((_, k) => !keep(k));
   for (const t of gone) {
     dropTerm(t);
-    if (t.repo) closedTabs.push(closedRepo(t));
+    if (t.repo) closedTabs.push(closedTab(t));
   }
   tabs = tabs.filter((_, k) => keep(k));
   active = tabs.indexOf(kept);
@@ -1100,7 +1103,7 @@ function tabMenu(i: number): MenuItem[] {
   return items;
 }
 
-const reopenItem = (): MenuItem => [typeof closedTabs[closedTabs.length - 1] === "object" ? "Reopen closed group" : "Reopen closed tab", closedTabs.length ? reopenTab : null];
+const reopenItem = (): MenuItem => ["repos" in (closedTabs[closedTabs.length - 1] ?? {}) ? "Reopen closed group" : "Reopen closed tab", closedTabs.length ? reopenTab : null];
 export const newTabMenu = (): MenuItem[] => [["New tab", addTab], reopenItem()];
 
 /** Edit `value` in a field filling `el`: Enter or leaving the field hands `done` the trimmed text, Esc hands it null. */
@@ -1148,10 +1151,15 @@ function renameTab(i: number) {
   });
 }
 
-export function reopenTab() {
+export async function reopenTab() {
   const r = closedTabs.pop();
-  if (typeof r === "string") openRepo(r);
-  else if (r) reopenGroup(r);
+  if (!r) return;
+  if ("repos" in r) return reopenGroup(r);
+  const before = new Set(tabs);
+  const opened = await openRepo(r.repo);
+  const t = tabs[active];
+  // back in its group, emptied meanwhile or not, when it opened in a tab of its own; one already open stays as it is
+  if (opened && r.group && !before.has(t)) regroup(t, r.group);
 }
 
 /** The tab search's list: the tabs whose name, path or group's name hold the query, folded ones included, each with its group's chip. */

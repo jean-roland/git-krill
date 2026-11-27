@@ -258,3 +258,11 @@ test("a closed group comes back whole, named as it was, on the tab shown last, w
   });
   await k.until(() => document.querySelector("#tablist .tab.on")?.title.endsWith("-moon"));
 });
+
+test("a tab closed in a group comes back in it with Ctrl+Shift+T", async () => {
+  await k.keys("\uE009", "w");
+  await k.until(() => ![...document.querySelectorAll("#tablist .tab")].some((t) => t.title.endsWith("-moon")));
+  await k.keys("\uE009", "\uE008", "t");
+  await k.until(() => document.querySelector("#tablist .tab.on.grouped")?.title.endsWith("-moon"));
+  assert.equal(await k.js(() => getComputedStyle(document.querySelector("#tablist .tab.on")).getPropertyValue("--g")), await k.js(() => getComputedStyle([...document.querySelectorAll("#tablist .tab-group")].find((c) => c.textContent === "work")).getPropertyValue("--g")));
+});
