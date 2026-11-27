@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "node --test test/",
-    "e2e": "node --test --test-concurrency=1 e2e/"
+    "e2e": "node --test e2e/"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

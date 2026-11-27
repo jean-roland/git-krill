@@ -26,12 +26,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-      - name: Tauri's system libraries, WebKit's WebDriver, a virtual display
+      - name: Tauri's system libraries, WebKit's WebDriver, Xvfb for the tests' displays
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev webkit2gtk-driver xvfb
       - run: cargo install tauri-driver --locked
       - run: npm ci
       - run: npx tauri build --debug --no-bundle
-      - run: xvfb-run -a -s "-screen 0 1920x1080x24" npm run e2e
+      # each launch starts an Xvfb of its own: the test files run side by side
+      - run: npm run e2e
         env:
           GOLDEN: ${{ inputs.update && 'update' || 'check' }}
       # what the window looked like, with a diff for each screenshot that changed; the goldens, for an update

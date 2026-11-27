@@ -1,24 +1,25 @@
 // Git Krill driven through tauri-driver (WebDriver over HTTP), a fresh profile and repositories per session.
-// Needs tauri-driver and WebKitWebDriver (or WEBKIT_WEBDRIVER), a display, and the debug build (or KRILL_APP).
+// Needs tauri-driver and WebKitWebDriver (or WEBKIT_WEBDRIVER), Xvfb (each launch on a display of its own), and the debug build (or KRILL_APP).
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const APP = process.env.KRILL_APP ?? join(ROOT, "src-tauri/target/debug/git-krill");
-const PORT = 4444;
 // check against e2e/golden in CI, where they were made; elsewhere fonts differ: only kept in e2e/out to look at
 const GOLDEN = process.env.GOLDEN ?? (process.env.CI ? "check" : "skip");
 const ELEMENT = "element-6066-11e4-a52e-4f735466cecf";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// a test file's repositories, in the same folders each run: a tab's colour comes from its path
+// a test file's repositories, in the same folders each run: a tab's colour comes from its path; apart from other files', which run alongside
+const FILE = process.env.NODE_TEST_CONTEXT ? basename(process.argv[1]) : "";
 let made = 0;
 const repoDir = () => {
-  const dir = join(tmpdir(), "krill-e2e-repos", String(++made));
+  const dir = join(tmpdir(), "krill-e2e-repos", FILE, String(++made));
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   return dir;
@@ -69,7 +70,24 @@ const gitEnv = (dir) => {
   return { ...process.env, GIT_CONFIG_GLOBAL: config, GIT_CONFIG_NOSYSTEM: "1", TZ: "UTC" };
 };
 
-/** Git Krill open on `repo` (none: the tabs it kept), in a profile of its own or `home`'s, with e2e/bin's gh; `more` overrides its environment. */
+/** `n` distinct ports free on this machine now. */
+async function freePorts(n) {
+  const servers = await Promise.all(Array.from({ length: n }, () => new Promise((done) => { const s = createServer().listen(0, "127.0.0.1", () => done(s)); })));
+  const ports = servers.map((s) => s.address().port);
+  await Promise.all(servers.map((s) => new Promise((done) => s.close(done))));
+  return ports;
+}
+
+/** An Xvfb display of its own, the CI's size: windows of test files run side by side never share focus. */
+function xvfb() {
+  const x = spawn("Xvfb", ["-displayfd", "3", "-screen", "0", "1920x1080x24", "-nolisten", "tcp"], { stdio: ["ignore", "ignore", "ignore", "pipe"] });
+  return new Promise((done, fail) => {
+    x.stdio[3].once("data", (n) => done({ x, display: `:${String(n).trim()}` }));
+    x.once("exit", (code) => fail(new Error(`Xvfb exited with ${code}`)));
+  });
+}
+
+/** Git Krill open on `repo` (none: the tabs it kept), in a profile of its own or `home`'s, with e2e/bin's gh; `more` overrides its environment: a DISPLAY there is used instead of a display of its own. */
 export async function launch(repo, more = {}, home = mkdtempSync(join(tmpdir(), "krill-e2e-"))) {
   const run = join(home, "run");
   mkdirSync(run, { mode: 0o700, recursive: true });
@@ -84,15 +102,19 @@ export async function launch(repo, more = {}, home = mkdtempSync(join(tmpdir(), 
     MESA_SHADER_CACHE_DISABLE: "true",
     ...more,
   };
+  // a display and ports of its own: test files run side by side
+  const screen = more.DISPLAY ? null : await xvfb();
+  if (screen) env.DISPLAY = screen.display;
+  const [port, nativePort] = await freePorts(2);
   const native = process.env.WEBKIT_WEBDRIVER ? ["--native-driver", process.env.WEBKIT_WEBDRIVER] : [];
-  const driver = spawn("tauri-driver", ["--port", String(PORT), ...native], { env, stdio: "ignore" });
-  const k = new Krill(driver, home);
+  const driver = spawn("tauri-driver", ["--port", String(port), "--native-port", String(nativePort), ...native], { env, stdio: "ignore" });
+  const k = new Krill(driver, home, port, screen?.x);
   for (let i = 0; !k.id; i++) {
     try {
       k.id = (await k.req("POST", "/session", { capabilities: { alwaysMatch: { "tauri:options": { application: APP, args: repo ? [repo] : [] } } } })).sessionId;
     } catch (e) {
       // the driver still starting
-      if (i > 50) throw (driver.kill(), e);
+      if (i > 50) throw (driver.kill(), screen?.x.kill(), e);
       await sleep(200);
     }
   }
@@ -109,12 +131,12 @@ export async function launch(repo, more = {}, home = mkdtempSync(join(tmpdir(), 
 }
 
 class Krill {
-  constructor(driver, home) {
-    Object.assign(this, { driver, home, id: "" });
+  constructor(driver, home, port, screen) {
+    Object.assign(this, { driver, home, port, screen, id: "" });
   }
 
   async req(method, path, body) {
-    const r = await fetch(`http://127.0.0.1:${PORT}${path}`, { method, headers: { "content-type": "application/json" }, body: body && JSON.stringify(body) });
+    const r = await fetch(`http://127.0.0.1:${this.port}${path}`, { method, headers: { "content-type": "application/json" }, body: body && JSON.stringify(body) });
     const { value } = await r.json();
     if (!r.ok) throw new Error(`${method} ${path}: ${value?.error ?? r.status} ${value?.message ?? ""}`);
     return value;
@@ -148,7 +170,7 @@ class Krill {
   }
 
   /** A click on the first element `css` finds whose text includes `text`, by the pointer at its middle: what covers it gets it, as for a user. */
-  async click(css, text = "") {
+  async click(css, text = "", tries = 3) {
     // a button fading in cannot take a click yet
     await this.settle();
     const el = await this.until(
@@ -163,9 +185,10 @@ class Krill {
     // Monaco takes a scroll into its own position on the next frame: a click before it lands as if unscrolled
     await this.js(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     const actions = [{ type: "pointerMove", origin: el, x: 0, y: 0 }, { type: "pointerDown", button: 0 }, { type: "pointerUp", button: 0 }];
-    await this.cmd("POST", "actions", { actions: [{ type: "pointer", id: "mouse", parameters: { pointerType: "mouse" }, actions }] }).catch((e) => {
-      throw new Error(`${css} "${text}": ${e.message}`);
-    });
+    const err = await this.cmd("POST", "actions", { actions: [{ type: "pointer", id: "mouse", parameters: { pointerType: "mouse" }, actions }] }).then(() => null, (e) => e);
+    // a refresh redrew it between the find and the click: found again
+    if (err && /stale element/.test(err.message) && tries > 1) return this.click(css, text, tries - 1);
+    if (err) throw new Error(`${css} "${text}": ${err.message}`);
     await this.cmd("DELETE", "actions");
   }
 
@@ -224,6 +247,7 @@ class Krill {
   async quit(keep = false) {
     await this.req("DELETE", `/session/${this.id}`).catch(() => {});
     this.driver.kill();
+    this.screen?.kill();
     if (keep) return;
     // the app may still be writing its caches as it goes
     try {
