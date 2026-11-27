@@ -279,3 +279,29 @@ test("Back closes the file view and Forward opens it again, from the arrows, the
   await k.js(() => document.querySelector("#tablist .tab:not(.on) .x").click());
   await k.until(() => document.querySelectorAll("#tablist .tab").length === 1);
 });
+
+test("Open in editor, with no editor command set, opens the working tree file in krill: the WIP's File view, editable", async () => {
+  // changed: its diff would open as changes
+  const tide = join(repository, "src", "tide.rs");
+  writeFileSync(tide, `// tides\n${execFileSync("git", ["show", "HEAD:src/tide.rs"], { cwd: repository })}`);
+  await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
+  await k.click("#graph .row", "// WIP");
+  await k.until(() => document.querySelector('#unstaged .file[data-path="src/tide.rs"]'));
+  await k.click("#graph .row", "fix(tide): round heights to the centimetre");
+  await k.menu('#commit-files .file[data-path="src/tide.rs"]');
+  await k.click("#menu button", "Open in editor");
+  await k.until(() => !document.getElementById("diff-file").hidden && document.getElementById("diff-path").textContent.includes("src/tide.rs"));
+  assert.ok(await k.js(() => document.querySelector("#graph .row.sel")?.textContent.includes("// WIP")));
+  assert.ok(await k.js(() => document.querySelector('[data-dview="file"]').classList.contains("on") && !document.querySelector("#diff-file textarea").hasAttribute("readonly")));
+  // a file deleted since: said, nothing opened
+  await k.keys("\uE00C");
+  await k.click("#graph .row", "chore: cargo init");
+  await k.menu('#commit-files .file[data-path="Cargo.toml"]');
+  rmSync(join(repository, "Cargo.toml"));
+  await k.click("#menu button", "Open in editor");
+  await k.until(() => [...document.querySelectorAll("#toasts .toast.err")].some((t) => t.textContent.includes("Cargo.toml is not in the working tree")));
+  execFileSync("git", ["checkout", "--", "Cargo.toml", "src/tide.rs"], { cwd: repository });
+  // this file only: the next diffs open as they did
+  assert.notEqual(await k.js(() => localStorage.getItem("diff-view")), "file");
+  await k.keys("");
+});

@@ -1,7 +1,7 @@
 // The right panel: work in progress or a commit's details, the file lists, the commit box.
-import { Blob, Change, Commit, commits, fakeCommit, gitOp, headHash, isHead, lfsChip, opInfo, openInEditor, refresh, refs, repo, run, runFixed, selection, status } from "./repo";
+import { Blob, Change, Commit, commits, fakeCommit, gitOp, headHash, isHead, lfsChip, opInfo, refresh, refs, repo, run, runFixed, selection, status } from "./repo";
 import { $, ICONS, MenuItem, ask, avatar, basename, copy, dateTimeText, h, ico, input, mod, onCtrlEnter, label, plural, popup, say, shaLink, short, store, svg, warnOnce } from "./ui";
-import { DiffSource, closeDiff, confirmDiscard, diffFile, hist, merging, openDiff, openHistory } from "./diff";
+import { DiffSource, closeDiff, confirmDiscard, diffFile, hist, merging, openDiff, openHistory, openInEditor } from "./diff";
 import { discardSubmodule, linkRemote, openSubmodule, webUrl } from "./graph";
 import { planOpen } from "./rebase";
 
@@ -68,7 +68,7 @@ function fileMenu(f: Change, kind: DiffSource, c?: Commit): MenuItem[] {
     null,
     ...((f.sub ?? isSubmodule(f.path)) ? ([["Open submodule", () => openSubmodule(f.path)]] as MenuItem[]) : []),
     ["File history", () => openHistory(f.path, c)],
-    ["Open in editor", () => openInEditor(f.path, 1).catch(neutral)],
+    ["Open in editor", () => openInEditor(f.path, 1).catch((e) => say(String(e), true))],
     ["Open in default program", () => run("open_default", { path: f.path, folder: false }).catch(neutral)],
     ["Show in folder", () => run("open_default", { path: f.path, folder: true }).catch(neutral)],
     null,

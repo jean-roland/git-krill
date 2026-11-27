@@ -152,10 +152,6 @@ export function busy<T>(work: Promise<T>) {
   // a task later: the refresh an op chains on is out by then, no gap between them
   return work.finally(() => setTimeout(() => --pending || (clearTimeout(slow), document.body.classList.remove("slow"))));
 }
-export const DEFAULT_EDITOR = "code -g {file}:{line}";
-/** Open the working tree's `path` at `line` with the Settings tab's editor command. */
-// an emptied command means the desktop's default app
-export const openInEditor = (path: string, line: number) => run("open_in_editor", { path, line, editor: store("editor") ?? DEFAULT_EDITOR });
 
 // a commit never changes: the last answer per command about one is kept
 const fixed = new Map<string, { key: string; data: Promise<unknown> }>();

@@ -821,6 +821,9 @@ function graphRow(c: Commit, lane: string, nodeX: number) {
   return row;
 }
 
+/** The WIP row selected, as a click on it does. */
+export const selectWip = () => clickRow(new MouseEvent("click"), "WIP");
+
 /** Click selects one commit, Ctrl+click picks commits to compare, Shift+click a range. */
 function clickRow(e: MouseEvent, hash: string) {
   selection.stash = null;

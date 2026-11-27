@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { homeDir } from "@tauri-apps/api/path";
-import { DEFAULT_EDITOR, fetchMinutes, foldToOneGroup, oneGroupOpen, openSettings, repo, run } from "./repo";
+import { fetchMinutes, foldToOneGroup, oneGroupOpen, openSettings, repo, run } from "./repo";
 import { $, ICONS, dateTimeText, h, ico, pickDir, say, showMenu, store, svg, toast } from "./ui";
 
 type Tools = { git: string; lfs: string; gh: string; lfsSetUp: boolean; lfsInUse: boolean; ghHosts: string[]; gitHelp: string };
@@ -111,9 +111,9 @@ function groupRow() {
 }
 
 function editorRow() {
-  const cmd = h("input", { value: store("editor") ?? DEFAULT_EDITOR, spellcheck: false });
+  const cmd = h("input", { value: store("editor") ?? "", placeholder: "krill's own editor", spellcheck: false });
   cmd.onchange = () => (store("editor", cmd.value.trim()), say("Editor command saved"));
-  return row("Open in editor", cmd, hint("{file} and {line} are filled in. Left empty, the desktop's default app opens the file."));
+  return row("Open in editor", cmd, hint("Left empty, files open in krill's own editor: the WIP's File view. A command such as code -g {file}:{line} opens them elsewhere."));
 }
 
 function openDirRow() {

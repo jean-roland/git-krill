@@ -2,10 +2,10 @@
 import type * as Monaco from "monaco-editor/esm/vs/editor/edcore.main";
 import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import { applyChanges, allLines, pickLines, parseConflicts, mergeSides, pickedLines, parseBlame, toggleSide, toggleLine, hasSide, pickedOf } from "./core.js";
-import { Blob, Change, Commit, active, busy, fakeCommit, gitOp, headHash, lfsChip, openInEditor, opInfo, recordUndo, refresh, repo, run, selection, status, tabs } from "./repo";
+import { Blob, Change, Commit, active, busy, fakeCommit, gitOp, headHash, lfsChip, opInfo, recordUndo, refresh, repo, run, selection, status, tabs } from "./repo";
 import { $, COLORS, ICONS, MenuItem, ask, avatar, avatarSvg, basename, colorIndex, copy, cssVar, dateText, dateTimeText, esc, h, hideBanner, input, megabytes, plural, popup, say, short, showBanner, store, svg, toast, whileLoading } from "./ui";
 import { fileLists, isConflict, isSubmodule, markOpenFile, paintRail, wipFiles } from "./panel";
-import { openSubmodule } from "./graph";
+import { openSubmodule, selectWip } from "./graph";
 
 export type DiffSource = "unstaged" | "staged" | "commit";
 export type Mode = "hunk" | "inline" | "split";
@@ -559,7 +559,7 @@ function paintSides(): Promise<unknown> {
   const shown = sideSources(kind, f, c)[mod.exists ? 1 : 0];
   const pane = !!sub || images || (binary && !listed);
   // the view picked last, but the File view where a diff tells little or takes seconds: a binary's but an object file's symbols, a file loaded in parts
-  d.file ??= d.same || !orig.exists || (images && !drawable) || (binary && !(d.listing?.object && d.listing.symbols)) || !!large || store("diff-view") === "file";
+  d.file ??= editing === f.path || d.same || !orig.exists || (images && !drawable) || (binary && !(d.listing?.object && d.listing.symbols)) || !!large || store("diff-view") === "file";
   // before the panes are picked: a drawn file has nothing to compare, the text it goes back to may
   d.drawn = images;
   d.pane = pane;
@@ -1247,6 +1247,28 @@ const openVersion = (at: string, path: string) => (say(`Opening ${basename(path)
 
 // a binary, pictures too, opens in its own app: no text to edit
 const inApp = (d: NonNullable<typeof diffFile>) => d.orig.binary || d.mod.binary;
+
+/** Open the working tree's `path` at `line` with the Settings tab's editor command; with none, in krill's own editor. */
+export function openInEditor(path: string, line: number) {
+  const cmd = store("editor") ?? "";
+  return cmd ? run("open_in_editor", { path, line, editor: cmd }) : editHere(path, line);
+}
+
+// the file krill's own editor opens: in the File view, the next diffs as they were
+let editing = "";
+
+/** `path`'s working tree file in krill's own editor: the WIP's File view, at `line`. */
+async function editHere(path: string, line: number) {
+  // deleted since: said as an editor command's failure is
+  if (!(await run<boolean>("on_disk", { path }))) throw `${path} is not in the working tree`;
+  if (selection.hashes.join() !== "WIP" || selection.stash || selection.pr) selectWip();
+  editing = path;
+  await openDiff("unstaged", status?.unstaged.find((f) => f.path === path) ?? { path, old: null, code: "" }).finally(() => (editing = ""));
+  if (diffFile?.f.path !== path) return;
+  fileEd?.setPosition({ lineNumber: line, column: 1 });
+  fileEd?.revealLineInCenter(line);
+  fileEd?.focus();
+}
 
 /** The diff bar's Open: a binary's version shown, in its default program; else the working tree file in the editor set in Settings, at the cursor's line. */
 export function openDiffFile() {
