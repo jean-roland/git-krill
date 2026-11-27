@@ -13,8 +13,8 @@ let fileQuery = "";
 // tree folders start shut; Expand all flips the default, a click flips one folder
 let foldersOpen = false;
 const foldersFlipped = new Set<string>();
-// each file list's files in display order, folded ones included, and how to unfold one
-export const fileLists = new Map<HTMLElement, { order: Change[]; reveal: (path: string) => void }>();
+// each file list's files in display order, folded ones included, how to unfold one, and to open one past the rows drawn
+export const fileLists = new Map<HTMLElement, { order: Change[]; reveal: (path: string) => void; open: (f: Change) => void }>();
 type WipList = "unstaged" | "staged";
 // files picked with Ctrl or Shift in one WIP list; anchor: where a Shift+click run starts
 let picked = { repo: "", list: "unstaged" as WipList, paths: new Set<string>(), anchor: "" };
@@ -313,7 +313,7 @@ function fileList(
           folder.style.paddingLeft = `${8 + depth * 20}px`;
           folder.style.setProperty("--depth", String(depth));
           rows.push(folder);
-        }
+        } else if (shown && shut) cut += filesUnder(sub).length;
         walkDir(sub, `${path}/`, depth + 1, shown && !shut, [...route, path]);
       }
       for (const f of d.files) {
@@ -345,7 +345,7 @@ function fileList(
     shut.forEach((p) => (foldersOpen ? foldersFlipped.delete(p) : foldersFlipped.add(p)));
     draw();
   };
-  fileLists.set(el, { order, reveal });
+  fileLists.set(el, { order, reveal, open: (f) => open(f, new MouseEvent("click")) });
   draw();
 }
 

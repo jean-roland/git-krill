@@ -264,17 +264,26 @@ test("a commit of thousands of files draws 2000 rows and counts the rest, which 
   const git = (...args) => execFileSync("git", ["-c", "user.name=Krill Test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", ...args], { cwd: repository });
   mkdirSync(join(repository, "bulk"));
   for (let i = 0; i < 2100; i++) writeFileSync(join(repository, "bulk", `f${i}.txt`), `${i}\n`);
-  git("add", "bulk");
+  mkdirSync(join(repository, "zeta"));
+  for (let i = 0; i < 3; i++) writeFileSync(join(repository, "zeta", `z${i}.txt`), `${i}\n`);
+  git("add", "bulk", "zeta");
   git("commit", "-q", "-m", "chore: bulk import");
   await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
   await k.click("#graph .row", "chore: bulk import");
-  assert.equal(await k.until(() => document.querySelector("#commit-files .files-more")?.textContent), "100 more files: filter to find one");
+  assert.equal(await k.until(() => document.querySelector("#commit-files .files-more")?.textContent), "103 more files: filter to find one");
   assert.match(await k.js(() => document.querySelector("#commit-files .files-more").title), /Tree view/);
   assert.equal(await k.js(() => document.querySelectorAll("#commit-files .file").length), 2000);
-  // unfolded, the tree's folder row takes one of them
+  // the arrow keys walk on past the rows drawn
+  const last = await k.js(() => [...document.querySelectorAll("#commit-files .file")].pop().dataset.path);
+  await k.click(`#commit-files .file[data-path="${last}"]`);
+  await k.until((last) => document.getElementById("diff-path").textContent.includes(last), last);
+  await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+  await k.until((last) => !document.getElementById("diff-path").textContent.includes(last) && document.getElementById("diff-path").textContent.includes("bulk/"), last);
+  await k.keys("\uE00C");
+  // unfolded, the tree's folder row takes one of them; the folded zeta past them counts its files
   await k.click('[data-files="tree"]');
   await k.click("#commit-files .folder", "bulk");
-  assert.equal(await k.until(() => document.querySelector("#commit-files .files-more")?.textContent), "101 more files: filter to find one");
+  assert.equal(await k.until(() => document.querySelector("#commit-files .files-more")?.textContent), "104 more files: filter to find one");
   await k.click('[data-files="path"]');
   const filter = (text) => k.js((text) => {
     const box = [...document.querySelectorAll(".file-filter")].find((f) => f.offsetParent);

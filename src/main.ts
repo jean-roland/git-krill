@@ -37,10 +37,13 @@ function arrow(key: string) {
 }
 
 function openListed(id: string, f: Change) {
-  fileLists.get($(id))?.reveal(f.path);
+  const list = fileLists.get($(id));
+  list?.reveal(f.path);
   const row = $(id).querySelector<HTMLElement>(`.file[data-path="${CSS.escape(f.path)}"]`);
-  row?.click();
-  row?.scrollIntoView({ block: "nearest" });
+  // past the rows drawn: opened all the same
+  if (!row) return list?.open(f);
+  row.click();
+  row.scrollIntoView({ block: "nearest" });
 }
 
 /** Drag `grip` to size `prop` of `box` (a height, or a column width variable), kept across runs. */
