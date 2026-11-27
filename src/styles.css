@@ -589,6 +589,7 @@ main.rail #sidebar:not(.peek) summary .ico svg { width: 18px; height: 18px; }
 .files-opts-left svg { width: 13px; height: 13px; vertical-align: -2px; }
 .files-opts .seg button { padding: 1px 10px; font-size: 13px; }
 .files-none { padding: 32px 12px; text-align: center; color: var(--dim); }
+.files-more { padding: 6px 12px; text-align: center; color: var(--dim); }
 .folder { display: flex; align-items: center; gap: 5px; height: 28px; color: var(--dim); cursor: pointer; white-space: nowrap; }
 .folder:hover { background-color: var(--hover); }
 /* a faint line down each level of the tree */

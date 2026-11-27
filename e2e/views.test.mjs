@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { demo, launch } from "./driver.mjs";
@@ -250,6 +250,34 @@ test("two versions of a page scroll together from a rule at the top, as from tex
   await k.click('[data-svg="text"]');
   await k.keys("");
   git("reset", "-q", "--hard", "HEAD~2");
+});
+
+test("a commit of thousands of files draws 2000 rows and counts the rest, which the filter finds", async () => {
+  const git = (...args) => execFileSync("git", ["-c", "user.name=Krill Test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", ...args], { cwd: repository });
+  mkdirSync(join(repository, "bulk"));
+  for (let i = 0; i < 2100; i++) writeFileSync(join(repository, "bulk", `f${i}.txt`), `${i}\n`);
+  git("add", "bulk");
+  git("commit", "-q", "-m", "chore: bulk import");
+  await k.js(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "F5", bubbles: true })));
+  await k.click("#graph .row", "chore: bulk import");
+  assert.equal(await k.until(() => document.querySelector("#commit-files .files-more")?.textContent), "100 more files: filter to find one");
+  assert.match(await k.js(() => document.querySelector("#commit-files .files-more").title), /Tree view/);
+  assert.equal(await k.js(() => document.querySelectorAll("#commit-files .file").length), 2000);
+  // unfolded, the tree's folder row takes one of them
+  await k.click('[data-files="tree"]');
+  await k.click("#commit-files .folder", "bulk");
+  assert.equal(await k.until(() => document.querySelector("#commit-files .files-more")?.textContent), "101 more files: filter to find one");
+  await k.click('[data-files="path"]');
+  const filter = (text) => k.js((text) => {
+    const box = [...document.querySelectorAll(".file-filter")].find((f) => f.offsetParent);
+    box.value = text;
+    box.dispatchEvent(new Event("input"));
+  }, text);
+  await filter("f2099.");
+  await k.until(() => document.querySelector('#commit-files .file[data-path="bulk/f2099.txt"]'));
+  assert.ok(!(await k.js(() => document.querySelector("#commit-files .files-more"))));
+  await filter("");
+  git("reset", "-q", "--hard", "HEAD~1");
 });
 
 test("Ctrl+F with a diff open finds in its text, not in the commits behind it", async () => {

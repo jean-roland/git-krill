@@ -245,6 +245,8 @@ const CODE_ICON: Record<string, string> = { M: "m", T: "m", A: "a", "?": "a", D:
 const STATUS_ORDER = "U?AMTRCD";
 // All files' unchanged rows after every change
 const rank = (code: string) => (code ? STATUS_ORDER.indexOf(code) : STATUS_ORDER.length);
+// rows drawn per list: WebKitGTK lays out 16000 in 4.9 s, 50000 in 90 s; the filter finds the rest
+const MAX_ROWS = 2000;
 
 function fileList(
   el: HTMLElement,
@@ -293,6 +295,7 @@ function fileList(
     }
     const rows: HTMLElement[] = [];
     order.length = 0;
+    cut = 0;
     // folded folders are still walked: their files keep their place in `order`
     const walkDir = (d: Dir, prefix: string, depth: number, shown: boolean, route: string[]) => {
       for (let [name, sub] of [...d.dirs].sort(([a], [b]) => dir * a.localeCompare(b))) {
@@ -303,7 +306,7 @@ function fileList(
           sub = s;
         }
         const path = prefix + name, shut = foldersOpen === foldersFlipped.has(path);
-        if (shown) {
+        if (shown && rows.length < MAX_ROWS) {
           const toggle = () => (foldersFlipped.has(path) ? foldersFlipped.delete(path) : foldersFlipped.add(path), draw());
           const folder = h("div", { className: "folder", onclick: toggle, title: path }, h("span", { className: "twisty", textContent: shut ? "▸" : "▾" }), ico(shut ? ICONS.folder : ICONS.folderOpen), name);
           if (shut) folder.append(...fileCounts(filesUnder(sub)));
@@ -316,7 +319,8 @@ function fileList(
       for (const f of d.files) {
         order.push(f);
         routes.set(f.path, route);
-        if (shown) rows.push(fileRow(f, "", depth));
+        if (shown && rows.length < MAX_ROWS) rows.push(fileRow(f, "", depth));
+        else if (shown) cut++;
       }
     };
     walkDir(root, "", 0, true, []);
@@ -324,9 +328,14 @@ function fileList(
   };
   const order: Change[] = [];
   const routes = new Map<string, string[]>();
+  // the files past MAX_ROWS, not drawn
+  let cut = 0;
   const draw = () => {
     const isTree = store("files-view") === "tree";
-    el.replaceChildren(...(isTree ? tree() : files.map((f) => fileRow(f, f.path.slice(0, f.path.lastIndexOf("/") + 1), 0))));
+    const rows = isTree ? tree() : files.slice(0, MAX_ROWS).map((f) => fileRow(f, f.path.slice(0, f.path.lastIndexOf("/") + 1), 0));
+    if (!isTree) cut = Math.max(0, files.length - MAX_ROWS);
+    const past = isTree ? "Or fold folders: only the open ones' files are drawn" : "Or browse them in the Tree view: only the open folders' files are drawn";
+    el.replaceChildren(...rows, ...(cut ? [h("div", { className: "files-more", textContent: `${plural(cut, "more file")}: filter to find one`, title: past })] : []));
     if (!isTree) order.splice(0, order.length, ...files);
     markOpenFile();
   };
