@@ -842,10 +842,19 @@ fn log(repo: String, limit: u32, hide: Vec<String>, show: Vec<String>) -> Result
         .collect())
 }
 
+// a status this slow rehashed files whose stat changed (a checkout, a build touching them): lock-free, it never saves their new stat
+const SLOW_STATUS: std::time::Duration = std::time::Duration::from_millis(300);
+
 #[tauri::command(async)]
 fn status(repo: String) -> Result<Status, String> {
+    let started = std::time::Instant::now();
     // v2 with --branch: the branch and how far it is from its upstream come in the same git run
     let out = git(&repo, &["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"])?;
+    if started.elapsed() > SLOW_STATUS {
+        // saved once, aside, so the next statuses are fast again; it takes index.lock briefly, and on another's fails harmlessly
+        let repo = repo.clone();
+        std::thread::spawn(move || git(&repo, &["update-index", "-q", "--refresh"]));
+    }
     let (mut staged, mut unstaged) = (Vec::new(), Vec::new());
     let (mut branch, mut ahead, mut behind) = (String::new(), None, None);
     let mut entries = out.split('\0').filter(|e| !e.is_empty());
