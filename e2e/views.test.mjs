@@ -350,6 +350,15 @@ test("Open in editor, with no editor command set, opens the working tree file in
   await k.until(() => !document.getElementById("diff-file").hidden && document.getElementById("diff-path").textContent.includes("src/tide.rs"));
   assert.ok(await k.js(() => document.querySelector("#graph .row.sel")?.textContent.includes("// WIP")));
   assert.ok(await k.js(() => document.querySelector('[data-dview="file"]').classList.contains("on") && !document.querySelector("#diff-file textarea").hasAttribute("readonly")));
+  // its diff already open from the WIP list: switched to its File view, not closed as a second click would
+  await k.keys("\uE00C");
+  await k.click('#unstaged .file[data-path="src/tide.rs"]');
+  await k.until(() => !document.getElementById("diff").hidden && document.querySelector('[data-dview="diff"]').classList.contains("on"));
+  await k.menu('#unstaged .file[data-path="src/tide.rs"]');
+  await k.click("#menu button", "Open in editor");
+  await k.until(() => document.querySelector('[data-dview="file"]').classList.contains("on"));
+  await k.settle();
+  assert.ok(await k.js(() => !document.getElementById("diff").hidden && !document.getElementById("diff-file").hidden));
   // a file deleted since: said, nothing opened
   await k.keys("\uE00C");
   await k.click("#graph .row", "chore: cargo init");

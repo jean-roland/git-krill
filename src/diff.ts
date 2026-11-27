@@ -545,7 +545,8 @@ function paintSides(): Promise<unknown> {
   const binary = orig.binary || mod.binary, large = Math.max(orig.large ?? 0, mod.large ?? 0);
   const missing = orig.lfs === "missing" || mod.lfs === "missing", drawable = DRAWN.test(f.path) && !sub && !missing && !large;
   // a PDF without a binary byte is still one
-  const images = ((binary || PDF.test(f.path)) && !missing && (!large || large <= IMAGE_UNASKED) && IMAGE.test(f.path)) || (drawable && store("svg-view") === "image");
+  // krill's own editor shows the text, whatever the view picked for pages
+  const images = ((binary || PDF.test(f.path)) && !missing && (!large || large <= IMAGE_UNASKED) && IMAGE.test(f.path)) || (drawable && store("svg-view") === "image" && editing !== f.path);
   // any other binary compares as text, read first; a text too big to show at once comes in parts
   const listed = binary && !missing && !sub && !images && !IMAGE.test(f.path), symbols = store("bin-view") !== "text", parted = !binary && !!large && !sub;
   // back to a view kept aside: what it had loaded too
@@ -1263,8 +1264,17 @@ async function editHere(path: string, line: number) {
   // deleted since: said as an editor command's failure is
   if (!(await run<boolean>("on_disk", { path }))) throw `${path} is not in the working tree`;
   if (selection.hashes.join() !== "WIP" || selection.stash || selection.pr) selectWip();
-  editing = path;
-  await openDiff("unstaged", status?.unstaged.find((f) => f.path === path) ?? { path, old: null, code: "" }).finally(() => (editing = ""));
+  const open = diffFile?.kind === "unstaged" && diffFile.f.path === path;
+  // already open as text: its File view, edits kept; opened again, it would close
+  if (open && $("diff-binary").hidden) {
+    diffFile!.file = true;
+    layOutView();
+  } else {
+    // drawn as a page: drawn again as text, a page holding no edits
+    if (open) await closeDiff();
+    editing = path;
+    await openDiff("unstaged", status?.unstaged.find((f) => f.path === path) ?? { path, old: null, code: "" }).finally(() => (editing = ""));
+  }
   if (diffFile?.f.path !== path) return;
   fileEd?.setPosition({ lineNumber: line, column: 1 });
   fileEd?.revealLineInCenter(line);
@@ -1310,7 +1320,7 @@ function paintOpenEditor() {
   run<boolean>("on_disk", { path: f.path }).then((ok) => {
     if (diffFile?.f.path !== f.path) return;
     ed.classList.toggle("off", !ok);
-    ed.title = ok ? "Open the working tree file in the editor set in Settings" : `${f.path} is not in the working tree (not on the checked out branch)`;
+    ed.title = ok ? "Open the working tree file in the editor set in Settings, else in krill's own" : `${f.path} is not in the working tree (not on the checked out branch)`;
   });
 }
 
