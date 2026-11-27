@@ -786,6 +786,27 @@ function chip(l: Label, hash: string) {
   return el;
 }
 
+/** A commit's labels as its row shows them: the first, then +n for the others. */
+const refsIn = (ls: Label[], hash: string) =>
+  h("div", { className: "refs-in" }, ...ls.map((l) => chip(l, hash)), ...(ls.length > 1 ? [h("span", { className: "more", textContent: `+${ls.length - 1}` })] : []));
+
+// .refs-in's left and right insets in its column, and 2 px the row's subpixel layout takes from a label measured on its own
+const REFS_INSET = 6 + 8 + 2;
+
+/** The Branch / Tag column's width that shows every loaded commit's first label whole. */
+export function refsFit() {
+  const cells = shown.flatMap((c) => {
+    const ls = labels(c);
+    return ls.length ? [refsIn(ls, c.hash)] : [];
+  });
+  // laid out in a hidden row: the labels take the graph's styles
+  const row = h("div", { className: "row refs-fit" }, ...cells);
+  $("rows").append(row);
+  const w = Math.max(0, ...cells.map((cell) => cell.getBoundingClientRect().width));
+  row.remove();
+  return Math.ceil(w) + REFS_INSET;
+}
+
 function graphRow(c: Commit, lane: string, nodeX: number) {
   const ls = labels(c), stash = stashOf(c.hash);
   const row = h(
@@ -798,7 +819,7 @@ function graphRow(c: Commit, lane: string, nodeX: number) {
     h(
       "div",
       { className: `refs${ls.length ? " has" : ""}${ls.length > 1 ? " multi" : ""}` },
-      h("div", { className: "refs-in" }, ...ls.map((l) => chip(l, c.hash)), ...(ls.length > 1 ? [h("span", { className: "more", textContent: `+${ls.length - 1}` })] : [])),
+      refsIn(ls, c.hash),
     ),
     c.hash === "WIP"
       ? h(

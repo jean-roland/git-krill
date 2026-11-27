@@ -468,7 +468,7 @@ main.rail #sidebar:not(.peek) summary .ico svg { width: 18px; height: 18px; }
 }
 #cols .refs { display: flex; align-items: center; padding-left: 8px; }
 #cols .g-col { position: relative; flex: none; width: var(--graph-w); padding-left: 6px; }
-#graph-grip { right: -4px; }
+#refs-grip, #graph-grip { right: -4px; }
 #cols > span + span::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 1px; background: var(--border); }
 #cols .subject { top: 0; margin-left: 0; }
 /* the titles take the row's height, so their separators run top to bottom */
@@ -524,6 +524,9 @@ main.rail #sidebar:not(.peek) summary .ico svg { width: 18px; height: 18px; }
 .row .refs.has::before { content: ""; position: absolute; left: 6px; right: 0; top: 50%; height: 1px; background: var(--lane); }
 .refs-in { position: absolute; top: 2px; bottom: 2px; left: 6px; right: 8px; display: flex; align-items: center; gap: 4px; overflow: hidden; }
 .refs-in .ref:not(:first-child) { display: none; }
+/* refsFit's measure: each label at its own width, out of sight */
+.refs-fit { position: absolute; visibility: hidden; }
+.refs-fit .refs-in { position: static; width: max-content; }
 /* hover shows a lone label's whole name; several drop down, one a line, over the rows under them */
 /* capped: a very long name ends in an ellipsis, its tooltip has it whole */
 .row .refs:hover .refs-in { right: auto; max-width: max(360px, calc(100% - 14px)); z-index: 4; overflow: visible; }

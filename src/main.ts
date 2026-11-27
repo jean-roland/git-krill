@@ -5,7 +5,7 @@ import { Mode, closeDiff, confirmDiscard, closeMerge, diffEditor, diffFile, edit
 import { rebaseKey } from "./rebase";
 import { SORTS, amending, commit, conflictCount, emptyStep, fileLists, filterFiles, foldAll, getMsg, openFile, paintFileOpts, pathArg, pickedFiles, renderCommitBtn, renderPanel, setMsg } from "./panel";
 import { $, ICONS, ask, closeDialog, dismissToast, hideBanner, input, mod, onCtrlEnter, pickDir, popup, say, store, svg, warnNoGit } from "./ui";
-import { closeFind, drawRows, findStep, findTyped, stepBack, laneBarScrolled, openFind, paintSelection, scrollLanes, showRow, shown, wheelLanes } from "./graph";
+import { closeFind, drawRows, findStep, findTyped, stepBack, laneBarScrolled, openFind, paintSelection, refsFit, scrollLanes, showRow, shown, wheelLanes } from "./graph";
 import { Change, Tab, active, addTab, autoFetch, cloneDialog, closeTab, fetchMinutes, gitOp, opInfo, newTabMenu, nextTab, openPicked, openRepo, openSettings, paintPull, pull, pullMenu, push, refresh, renderTabHits, reopenTab, repo, restoreTabs, run, selection, status, switchTab, tabs, undoMenu, undoRedo } from "./repo";
 import { askIdentity, checkTools, noIdentity } from "./settings";
 import { terms, toggleTerm } from "./terminal";
@@ -191,7 +191,17 @@ resizer($("files-grip"), $("wip"), "unstaged-share", (m) => {
 }, "--unstaged-share", "");
 resizer($("commit-grip"), $("commit-msg"), "msg-height", (m) => Math.min(innerHeight * 0.6, Math.max(60, m.clientY - $("commit-msg").getBoundingClientRect().top)));
 export const main = document.querySelector("main")!;
-resizer($("graph-grip"), $("graph"), "graph-width", (m) => Math.max(64, m.clientX - $("graph-grip").parentElement!.getBoundingClientRect().left), "--graph-max");
+// the commit messages keep this many px of the graph, whatever the columns before them are dragged to
+const MIN_SUBJECT = 200;
+const [refsHead, graphHead] = [$("refs-grip").parentElement!, $("graph-grip").parentElement!];
+// column `col` at most as wide as leaves the commit messages MIN_SUBJECT px
+const roomFor = (col: HTMLElement) => $("graph").clientWidth - MIN_SUBJECT - (col === refsHead ? graphHead : refsHead).getBoundingClientRect().width;
+// measured once a drag
+let refsFitW = 0;
+$("refs-grip").addEventListener("pointerdown", () => (refsFitW = refsFit()));
+// no narrower than its title, no wider than the longest label
+resizer($("refs-grip"), $("graph"), "refs-width", (m) => Math.max(110, Math.min(m.clientX - refsHead.getBoundingClientRect().left, refsFitW, roomFor(refsHead))), "--refs-w");
+resizer($("graph-grip"), $("graph"), "graph-width", (m) => Math.max(64, Math.min(m.clientX - graphHead.getBoundingClientRect().left, roomFor(graphHead))), "--graph-max");
 // dragged or redrawn, the column keeps its lanes' scroll in range and its fades right
 new ResizeObserver(() => scrollLanes()).observe($("graph-grip").parentElement!);
 $("graph").onwheel = wheelLanes;
