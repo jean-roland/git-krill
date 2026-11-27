@@ -93,9 +93,10 @@ $("tab-find").onclick = () => {
   input("tab-q").focus();
 };
 $("tab-q").oninput = renderTabHits;
-// a click on the dimmed backdrop closes it: pressed there too, not a text selection dragged out of a field and let go there
-let pressedOn: EventTarget | null = null;
-$("dialog").onpointerdown = (e) => (pressedOn = e.target);
+// where the last press began: a text selection dragged out of a field clicks where it is let go
+let pressedOn: Element | null = null;
+addEventListener("pointerdown", (e) => (pressedOn = e.target as Element), true);
+// a click on the dimmed backdrop closes it: pressed there too
 $("dialog").onclick = (e) => {
   if (e.target === $("dialog") && pressedOn === $("dialog")) closeDialog();
 };
@@ -372,7 +373,11 @@ $("init-repo").onclick = async () => {
 };
 $("clone-btn").onclick = cloneDialog;
 addEventListener("focus", refresh);
-addEventListener("click", () => ($("menu").hidden = $("submenu").hidden = true));
+// a text selection dragged out of a menu's name box keeps the menu
+addEventListener("click", (e) => {
+  const dragOut = pressedOn?.closest("#menu") && !(e.target as Element).closest("#menu");
+  if (!dragOut) $("menu").hidden = $("submenu").hidden = true;
+});
 // any press outside closes the tab search, even one a button keeps to itself: its list would be stale
 addEventListener("pointerdown", (e) => !(e.target as HTMLElement).closest("#tab-search, #tab-find") && ($("tab-search").hidden = true), true);
 // WebKit's Reload/Back menu means nothing here; inputs and Monaco keep theirs

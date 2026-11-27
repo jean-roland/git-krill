@@ -31,6 +31,26 @@ test("a text selection dragged out of a dialog's field keeps the dialog; a click
   await k.until(() => document.getElementById("dialog").hidden);
 });
 
+test("a text selection dragged out of a menu's name box keeps the box; a click beside it closes it", async () => {
+  await k.menu("#graph .row", "chore: release 0.2.0");
+  await k.click("#menu button", "Create tag here");
+  const box = await k.until(() => document.querySelector("#menu input.ask"));
+  // the status bar: a click there does nothing else
+  const [x, y] = await k.js(() => {
+    const r = document.getElementById("status").getBoundingClientRect();
+    return [Math.round(r.left + 5), Math.round(r.top + r.height / 2)];
+  });
+  // pressed in the box, let go outside the menu
+  const drag = [{ type: "pointerMove", origin: box, x: 0, y: 0 }, { type: "pointerDown", button: 0 }, { type: "pointerMove", origin: "viewport", x, y, duration: 200 }, { type: "pointerUp", button: 0 }];
+  await k.cmd("POST", "actions", { actions: [{ type: "pointer", id: "mouse", parameters: { pointerType: "mouse" }, actions: drag }] });
+  await k.cmd("DELETE", "actions");
+  await k.settle();
+  assert.equal(await k.js(() => document.getElementById("menu").hidden), false);
+  await k.cmd("POST", "actions", { actions: [{ type: "pointer", id: "mouse", parameters: { pointerType: "mouse" }, actions: [{ type: "pointerMove", origin: "viewport", x, y }, { type: "pointerDown", button: 0 }, { type: "pointerUp", button: 0 }] }] });
+  await k.cmd("DELETE", "actions");
+  await k.until(() => document.getElementById("menu").hidden);
+});
+
 test("the Branch / Tag column widens by its grip up to its longest label, the messages kept in view; a double-click resets it", async () => {
   const git = (...args) => execFileSync("git", ["-c", "user.name=Krill Test", "-c", "user.email=test@example.com", ...args], { cwd: repository });
   const refsWidth = () => k.js(() => document.querySelector("#graph .row .refs").getBoundingClientRect().width);
