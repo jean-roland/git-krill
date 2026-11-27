@@ -247,6 +247,14 @@ test("two versions of a page scroll together from a rule at the top, as from tex
   await k.settle();
   const tops = await k.js(() => [...document.querySelectorAll("#diff-binary iframe")].map((f) => f.contentDocument.scrollingElement.scrollTop));
   assert.ok(tops[1] > 2000 && Math.abs(tops[0] - tops[1]) < 2, String(tops));
+  // the 25th paragraph, the same text as 38 others, at the top
+  await k.js(() => {
+    const page = document.querySelector("#diff-binary .img-side.add iframe").contentDocument.scrollingElement;
+    page.scrollTop += page.querySelectorAll("p")[25].getBoundingClientRect().top;
+  });
+  await k.settle();
+  const again = await k.js(() => [...document.querySelectorAll("#diff-binary iframe")].map((f) => f.contentDocument.scrollingElement.scrollTop));
+  assert.ok(again[1] > 2000 && Math.abs(again[0] - again[1]) < 2, String(again));
   await k.click('[data-svg="text"]');
   await k.keys("");
   git("reset", "-q", "--hard", "HEAD~2");

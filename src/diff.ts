@@ -1056,7 +1056,9 @@ function followPage(from: Document, to: Document) {
   const page = to.scrollingElement!, s = from.scrollingElement!;
   // a block with no text, a rule or an image, has twins all down the page
   const top = blocks(from).find((b) => b.getBoundingClientRect().bottom > 0 && b.textContent!.trim());
-  const twin = top && blocks(to).find((b) => b.textContent === top.textContent);
+  // a repeated block's twin is the one repeated as often before it
+  const alike = (d: Document) => blocks(d).filter((b) => b.textContent === top?.textContent);
+  const twin = top && alike(to)[alike(from).indexOf(top)];
   if (twin) page.scrollTop += twin.getBoundingClientRect().top - top.getBoundingClientRect().top;
   else page.scrollTop = (s.scrollTop / Math.max(1, s.scrollHeight - s.clientHeight)) * (page.scrollHeight - page.clientHeight);
 }
